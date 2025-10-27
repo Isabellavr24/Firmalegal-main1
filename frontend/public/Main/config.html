@@ -1,0 +1,1147 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Configuración — FirmaLegalOnline</title>
+
+  <!-- Fuente ANTES de los estilos -->
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+
+  <!-- Estilos base + overrides de settings -->
+  <link rel="stylesheet" href="/public/Main/M-styles/Styles.css">
+  <link rel="stylesheet" href="/public/Main/M-styles/settings.css?v=10">
+  <style>
+    /* Asegurar que el avatar se vea circular y contenga bien la imagen */
+    .avatar {
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .avatar img {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 50%;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="main-header">
+    <div class="brand-wrap">
+      <!-- Ajusta la ruta si cambias de carpeta -->
+      <img class="brand-logo-full" src="/img/Nuevologo.jpg" alt="Logo" />
+    </div>
+    <nav class="top-actions">
+      <a class="link-config" href="/config.html">Configuración</a>
+      <details class="user-menu" id="userMenu">
+        <summary class="avatar" aria-label="Perfil" id="avatarBtn">PS</summary>
+        <div class="user-dropdown" role="menu" aria-label="Menú de usuario">
+          <button class="menu-item" id="logoutBtn" type="button" role="menuitem">Cerrar sesión</button>
+        </div>
+      </details>
+    </nav>
+  </header>
+
+  <div class="settings-shell">
+    <!-- Sidebar -->
+    <aside class="settings-aside">
+      <a class="back-link" href="/index.html">← Atrás</a>
+      <h3 class="settings-title">Configuración</h3>
+
+      <nav class="settings-nav" id="settingsNav">
+        <button class="sn-item is-active" data-section="perfil">Perfil</button>
+        <button class="sn-item" data-section="cuenta">Cuenta</button>
+        <button class="sn-item" data-section="correo">Correo electrónico</button>
+        <button class="sn-item" data-section="almacenamiento">Almacenamiento</button>
+        <button class="sn-item" data-section="sms">SMS</button>
+        <button class="sn-item" data-section="notificaciones">Notificaciones</button>
+        <button class="sn-item" data-section="firma">Firma electrónica</button>
+        <button class="sn-item" data-section="personalizacion">Personalización</button>
+        <button class="sn-item" data-section="usuarios">Usuarios</button>
+        <button class="sn-item" data-section="inquilinos">Inquilinos</button>
+      </nav>
+    </aside>
+
+    <!-- Contenido -->
+    <main class="settings-main">
+
+      <!-- PERFIL -->
+      <section class="set-section is-visible" id="sec-perfil" aria-labelledby="sec-perfil-h">
+        <h1 class="page-h1" id="sec-perfil-h">Perfil</h1>
+
+        <form class="set-form" id="perfilForm">
+          <div class="grid-2">
+            <div class="field">
+              <label for="pf-nombre">Nombre</label>
+              <input id="pf-nombre" type="text" class="input-pill" value="PKI"/>
+            </div>
+            <div class="field">
+              <label for="pf-apellido">Apellido</label>
+              <input id="pf-apellido" type="text" class="input-pill" value="SERVICES"/>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="pf-email">Correo electrónico</label>
+            <input id="pf-email" type="email" class="input-pill" value="info@pkiservices.co"/>
+          </div>
+
+          <button type="submit" class="btn-primary-xl">ACTUALIZAR</button>
+        </form>
+
+        <hr class="sep" />
+
+        <!-- Firma / logo -->
+        <section class="signature-block">
+          <h2 class="sub-h2">Firma</h2>
+
+          <div class="signature-actions">
+            <label class="upload-btn" for="sigFile">
+              <input id="sigFile" type="file" accept="image/*" hidden />
+              Subir imagen
+            </label>
+            <button type="button" class="text-link" id="sigRemove" disabled>Eliminar</button>
+          </div>
+
+          <div class="signature-preview" id="sigPreviewWrap" hidden>
+            <img id="sigPreview" alt="Firma / Logo">
+          </div>
+        </section>
+      </section>
+
+      <!-- CUENTA -->
+      <section class="set-section" id="sec-cuenta" aria-labelledby="sec-cuenta-h">
+        <h1 class="page-h1" id="sec-cuenta-h">Cuenta</h1>
+
+        <form class="set-form" id="cuentaForm">
+          <!-- Nombre de la empresa -->
+          <div class="field">
+            <label for="acct-name">Nombre de la empresa</label>
+            <input id="acct-name" type="text" class="input-pill" value="PKISERVICES"/>
+          </div>
+
+          <!-- Zona horaria / Idioma -->
+          <div class="grid-2">
+            <div class="field">
+              <label for="acct-tz">Zona horaria</label>
+              <div class="select-wrap">
+                <select id="acct-tz" class="select-pill">
+                  <option value="America/Bogota">(GMT-05:00) Bogotá</option>
+                  <option value="America/Mexico_City">(GMT-06:00) Ciudad de México</option>
+                  <option value="America/Lima">(GMT-05:00) Lima</option>
+                  <option value="America/New_York">(GMT-04:00) New York</option>
+                  <option value="UTC">UTC</option>
+                </select>
+                <span class="select-arrow">▾</span>
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="acct-lang">Idioma</label>
+              <div class="select-wrap">
+                <select id="acct-lang" class="select-pill">
+                  <option value="es" selected>Español</option>
+                  <option value="en">English</option>
+                  <option value="pt">Português</option>
+                </select>
+                <span class="select-arrow">▾</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- URL -->
+          <div class="field">
+            <label for="acct-url">URL de la aplicación</label>
+            <input id="acct-url" type="url" class="input-pill" value="https://pki.firmalegalonline.com"/>
+          </div>
+
+          <button type="submit" class="btn-primary-xl">ACTUALIZAR</button>
+        </form>
+
+        <hr class="sep" />
+
+        <!-- Preferencias -->
+        <h2 class="sub-h2" style="margin: 6px 0 10px">Preferencias</h2>
+        <ul class="prefs">
+          <li class="pref">
+            <span>Forzar 2FA con la aplicación Authenticator</span>
+            <label class="switch">
+              <input type="checkbox" id="p-2fa">
+              <span class="slider"></span>
+            </label>
+          </li>
+          <li class="pref">
+            <span>Agregar ID de firma a los documentos</span>
+            <label class="switch">
+              <input type="checkbox" id="p-id">
+              <span class="slider"></span>
+            </label>
+          </li>
+          <li class="pref">
+            <span>Requerir motivo de firma</span>
+            <label class="switch">
+              <input type="checkbox" id="p-reason">
+              <span class="slider"></span>
+            </label>
+          </li>
+          <li class="pref">
+            <span>Permitir firmas de texto mecanografiadas</span>
+            <label class="switch">
+              <input type="checkbox" id="p-typed" checked>
+              <span class="slider"></span>
+            </label>
+          </li>
+          <li class="pref">
+            <span>Permitir reenviar formularios completados</span>
+            <label class="switch">
+              <input type="checkbox" id="p-resent">
+              <span class="slider"></span>
+            </label>
+          </li>
+          <li class="pref">
+            <span>Permitir rechazar documentos</span>
+            <label class="switch">
+              <input type="checkbox" id="p-reject">
+              <span class="slider"></span>
+            </label>
+          </li>
+          <li class="pref">
+            <span>Recordar y prellenar firmas</span>
+            <label class="switch">
+              <input type="checkbox" id="p-remember" checked>
+              <span class="slider"></span>
+            </label>
+          </li>
+          <li class="pref">
+            <span>Requerir autenticación para enlaces de descarga</span>
+            <label class="switch">
+              <input type="checkbox" id="p-authlinks">
+              <span class="slider"></span>
+            </label>
+          </li>
+          <li class="pref">
+            <span>Combinar documentos completados y Registro de Auditoría</span>
+            <label class="switch">
+              <input type="checkbox" id="p-merge">
+              <span class="slider"></span>
+            </label>
+          </li>
+          <li class="pref">
+            <span>Siempre imponer el orden de firma</span>
+            <label class="switch">
+              <input type="checkbox" id="p-enforce">
+              <span class="slider"></span>
+            </label>
+          </li>
+          <li class="pref">
+            <span>Autenticar vista previa del formulario con token</span>
+            <label class="switch">
+              <input type="checkbox" id="p-preview-token">
+              <span class="slider"></span>
+            </label>
+          </li>
+        </ul>
+      </section>
+
+      <!-- CORREO ELECTRÓNICO (SMTP) -->
+      <section class="set-section" id="sec-correo" aria-labelledby="sec-correo-h">
+        <h1 class="page-h1" id="sec-correo-h">Email SMTP</h1>
+
+        <form class="set-form" id="smtpForm">
+          <div class="grid-2">
+            <div class="field">
+              <label for="smtp-host">Host</label>
+              <input id="smtp-host" type="text" class="input-pill" value="mail.pkiservices.co" />
+            </div>
+            <div class="field">
+              <label for="smtp-port">Port</label>
+              <input id="smtp-port" type="number" class="input-pill" value="465" />
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <div class="field">
+              <label for="smtp-user">Username</label>
+              <input id="smtp-user" type="email" class="input-pill" value="firmalegalonline@pkiservices.co" />
+            </div>
+            <div class="field">
+              <label for="smtp-pass">Password</label>
+              <input id="smtp-pass" type="password" class="input-pill" placeholder="••••••••" />
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <div class="field">
+              <label for="smtp-domain">Domain (opcional)</label>
+              <input id="smtp-domain" type="text" class="input-pill" />
+            </div>
+            <div class="field">
+              <label for="smtp-auth">Authentication</label>
+              <div class="select-wrap">
+                <select id="smtp-auth" class="select-pill">
+                  <option value="plain" selected>Plain</option>
+                  <option value="login">LOGIN</option>
+                  <option value="cram-md5">CRAM-MD5</option>
+                </select>
+                <span class="select-arrow">▾</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>SMTP Security</label>
+            <div class="radio-set">
+              <label class="radio-pill">
+                <input type="radio" name="smtp-sec" id="smtp-sec-auto" value="auto" />
+                <span>Auto</span>
+              </label>
+              <label class="radio-pill">
+                <input type="radio" name="smtp-sec" id="smtp-sec-ssl" value="ssl" checked />
+                <span>SSL</span>
+              </label>
+              <label class="radio-pill">
+                <input type="radio" name="smtp-sec" id="smtp-sec-tls" value="tls" />
+                <span>TLS</span>
+              </label>
+              <label class="radio-pill">
+                <input type="radio" name="smtp-sec" id="smtp-sec-noverify" value="noverify" />
+                <span>Noverify</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="smtp-from">Enviar desde correo electrónico</label>
+            <input id="smtp-from" type="email" class="input-pill" value="firmalegalonline@pkiservices.co" />
+          </div>
+
+          <button type="submit" class="btn-primary-xl btn-save">GUARDAR</button>
+        </form>
+      </section>
+
+      <!-- ALMACENAMIENTO -->
+<section class="set-section" id="sec-almacenamiento" aria-labelledby="sec-alm-h">
+  <h1 class="page-h1" id="sec-alm-h">Almacenamiento</h1>
+
+  <!-- Selector de proveedor -->
+  <div class="prov-group" id="stgProviders" role="tablist" aria-label="Proveedor de almacenamiento">
+    <button type="button" class="prov" data-prov="disk" aria-selected="false">
+      <span class="prov-dot" aria-hidden="true"></span> Disk
+    </button>
+    <button type="button" class="prov" data-prov="aws" aria-selected="false">
+      <span class="prov-dot" aria-hidden="true"></span> AWS
+    </button>
+    <button type="button" class="prov is-active" data-prov="gcp" aria-selected="true">
+      <span class="prov-dot" aria-hidden="true"></span> GCP
+    </button>
+    <button type="button" class="prov" data-prov="azure" aria-selected="false">
+      <span class="prov-dot" aria-hidden="true"></span> Azure
+    </button>
+  </div>
+
+  <form id="almForm" class="set-form">
+    <!-- ===== PANE: GCP (el de tu captura) ===== -->
+    <div class="stg-pane" data-for="gcp">
+      <div class="grid-2">
+        <div class="field">
+          <label for="gcp-project">Project</label>
+          <input id="gcp-project" type="text" class="input-pill" placeholder="pki-services-pkiservices">
+        </div>
+        <div class="field">
+          <label for="gcp-bucket">Bucket</label>
+          <input id="gcp-bucket" type="text" class="input-pill" placeholder="pki-bk01">
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="gcp-cred">Credentials (JSON key content)</label>
+        <textarea id="gcp-cred" class="input-area" rows="10"
+          placeholder='{
+  "type": "service_account",
+  "project_id": "pki-services-pkiservices",
+  "private_key_id": "..."
+}'></textarea>
+      </div>
+    </div>
+
+    <!-- ===== PANE: Disk (opcional, oculto si no lo usas) ===== -->
+    <div class="stg-pane" data-for="disk" hidden>
+      <div class="field">
+        <label for="disk-path">Directorio local (ruta absoluta)</label>
+        <input id="disk-path" class="input-pill" type="text" placeholder="/var/data/uploads">
+      </div>
+    </div>
+
+    <!-- ===== PANE: AWS (opcional) ===== -->
+    <div class="stg-pane" data-for="aws" hidden>
+      <div class="grid-2">
+        <div class="field">
+          <label for="aws-bucket">Bucket</label>
+          <input id="aws-bucket" class="input-pill" type="text" placeholder="pki-bucket">
+        </div>
+        <div class="field">
+          <label for="aws-region">Región</label>
+          <input id="aws-region" class="input-pill" type="text" placeholder="us-east-1">
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="field">
+          <label for="aws-key">Access Key ID</label>
+          <input id="aws-key" class="input-pill" type="text">
+        </div>
+        <div class="field">
+          <label for="aws-secret">Secret Access Key</label>
+          <input id="aws-secret" class="input-pill" type="password">
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== PANE: Azure (opcional) ===== -->
+    <div class="stg-pane" data-for="azure" hidden>
+      <div class="grid-2">
+        <div class="field">
+          <label for="az-account">Storage account</label>
+          <input id="az-account" class="input-pill" type="text" placeholder="pkistorage">
+        </div>
+        <div class="field">
+          <label for="az-container">Container</label>
+          <input id="az-container" class="input-pill" type="text" placeholder="pki-container">
+        </div>
+      </div>
+      <div class="field">
+        <label for="az-conn">Cadena de conexión</label>
+        <textarea id="az-conn" class="input-area" rows="4"
+          placeholder="DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...;EndpointSuffix=core.windows.net"></textarea>
+      </div>
+    </div>
+
+    <button type="submit" class="btn-primary-xl">GUARDAR</button>
+  </form>
+</section>
+
+<!-- NOTIFICACIONES -->
+<section class="set-section" id="sec-notificaciones" aria-labelledby="sec-notif-h">
+  <h1 class="page-h1" id="sec-notif-h">Notificaciones por correo electrónico</h1>
+
+  <!-- Bloque: notificación general -->
+  <form id="ntfEmailForm" class="set-form">
+    <div class="row-between">
+      <p class="muted" style="margin:0">
+        Recibir notificaciones por correo electrónico sobre formularios completados
+      </p>
+      <label class="switch">
+        <input type="checkbox" id="ntf-enable">
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div class="field" style="margin-top:14px">
+      <label for="ntf-bcc">
+        Dirección BCC para notificaciones de documentos completados
+        <span class="hint" title="Opcional: se enviará una copia oculta (BCC) a esta dirección.">i</span>
+      </label>
+      <input id="ntf-bcc" type="email" class="input-pill" placeholder="notificaciones@tu-dominio.com">
+    </div>
+
+    <button type="submit" class="btn-primary-xl">GUARDAR</button>
+  </form>
+
+  <h2 class="sub-h2" style="margin:22px 0 10px">Recordatorios de solicitud de firma por correo electrónico</h2>
+
+  <!-- Bloque: recordatorios -->
+  <form id="ntfRemForm" class="set-form">
+    <div class="grid-3">
+      <div class="field">
+        <label for="ntf-rem1">Primer recordatorio en</label>
+        <div class="select-wrap">
+          <select id="ntf-rem1" class="select-pill">
+            <option value="1h">1 hora</option>
+            <option value="2h">2 horas</option>
+            <option value="4h" selected>4 horas</option>
+            <option value="8h">8 horas</option>
+            <option value="24h">24 horas</option>
+            <option value="48h">48 horas</option>
+          </select>
+          <span class="select-arrow">▾</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="ntf-rem2">Segundo recordatorio en</label>
+        <div class="select-wrap">
+          <select id="ntf-rem2" class="select-pill">
+            <option value="2h">2 horas</option>
+            <option value="4h">4 horas</option>
+            <option value="8h" selected>8 horas</option>
+            <option value="24h">24 horas</option>
+            <option value="48h">48 horas</option>
+            <option value="72h">72 horas</option>
+          </select>
+          <span class="select-arrow">▾</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="ntf-rem3">Tercer recordatorio en</label>
+        <div class="select-wrap">
+          <select id="ntf-rem3" class="select-pill">
+            <option value="8h">8 horas</option>
+            <option value="24h" selected>24 horas</option>
+            <option value="48h">48 horas</option>
+            <option value="72h">72 horas</option>
+            <option value="96h">96 horas</option>
+          </select>
+          <span class="select-arrow">▾</span>
+        </div>
+      </div>
+    </div>
+
+    <button type="submit" class="btn-primary-xl">GUARDAR</button>
+  </form>
+</section>
+
+<!-- FIRMA ELECTRÓNICA -->
+<section class="set-section" id="sec-firma" aria-labelledby="sec-firma-h">
+  <h1 class="page-h1" id="sec-firma-h">Firma PDF</h1>
+
+  <!-- Verificación de PDF firmado -->
+  <div class="pdf-verify" id="pdfVerify">
+    <input id="pdfFile" type="file" accept="application/pdf" hidden>
+    <div class="pv-inner">
+      <div class="pv-icon">⬆</div>
+      <div class="pv-title">Verificar PDF firmado</div>
+      <div class="pv-sub">Haz clic para subir o arrastra y suelta archivos</div>
+    </div>
+  </div>
+
+  <!-- Certificados -->
+  <div class="row-between" style="margin-top:18px; margin-bottom:8px">
+    <h2 class="sub-h2" style="margin:0">Certificados de firma</h2>
+    <button type="button" class="btn-ghost-sm" id="btnUploadCert">
+      <span class="plus">+</span> SUBIR CERTIFICADO
+    </button>
+  </div>
+
+  <div class="cert-table-wrap">
+    <table class="cert-table" id="certTable" aria-label="Certificados de firma">
+      <thead>
+        <tr>
+          <th>NOMBRE</th>
+          <th>VÁLIDO HASTA</th>
+          <th>ESTADO</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Estos rows son de ejemplo; puedes generarlos desde backend si lo prefieres -->
+        <tr data-id="cert1">
+          <td>Pki services</td>
+          <td>13 de noviembre de 2025</td>
+          <td><span class="pill-state is-default">Predeterminado</span></td>
+          <td class="t-actions">
+            <button type="button" class="btn-chip" disabled>HACER PREDETERMINADO</button>
+          </td>
+        </tr>
+        <tr data-id="cert2">
+          <td>DocuSeal Self-Host Autogenerated</td>
+          <td>15 de julio de 2125</td>
+          <td></td>
+          <td class="t-actions">
+            <button type="button" class="btn-chip js-make-default">HACER PREDETERMINADO</button>
+          </td>
+        </tr>
+        <tr class="row-trust">
+          <td colspan="2">
+            <span class="trust-dot" aria-hidden="true"></span>
+            Firma de confianza DocuSeal
+            <span class="hint" title="Firma sellada con certificado de confianza">i</span>
+          </td>
+          <td>∞</td>
+          <td class="t-actions">
+            <button type="button" class="btn-chip js-make-default">HACER PREDETERMINADO</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- TSA -->
+  <h2 class="sub-h2" style="margin-top:22px">Servidor de sellado de tiempo</h2>
+  <form id="tsaForm" class="set-form">
+    <div class="field">
+      <label for="tsaUrl">
+        URL del servidor de sellado de tiempo
+        <span class="hint" title="Introduce la URL de tu TSA (Time Stamping Authority)">i</span>
+      </label>
+      <input id="tsaUrl" class="input-pill" type="url"
+             value="https://ca.pkiservices.co/tsa/get.aspx?u=pkiservices&p=901301044">
+    </div>
+    <button type="submit" class="btn-primary-xl">GUARDAR</button>
+  </form>
+
+  <!-- Preferencias -->
+  <h2 class="sub-h2" style="margin:22px 0 10px">Preferencias</h2>
+  <form id="signPrefsForm" class="set-form">
+    <ul class="prefs">
+      <li class="pref">
+        <span>Aplicar múltiples firmas digitales en el PDF por cada firmante</span>
+        <label class="switch">
+          <input type="checkbox" id="sp-multi">
+          <span class="slider"></span>
+        </label>
+      </li>
+      <li class="pref">
+        <span>Eliminar los campos rellenables del formulario PDF firmado (aplanar formulario)</span>
+        <label class="switch">
+          <input type="checkbox" id="sp-flatten">
+          <span class="slider"></span>
+        </label>
+      </li>
+    </ul>
+
+    <div class="field" style="max-width:520px">
+      <label for="sp-filename">Formato del nombre del archivo de descarga del documento</label>
+      <div class="select-wrap">
+        <select id="sp-filename" class="select-pill">
+          <option value="docname.pdf" selected>Nombre del documento.pdf</option>
+          <option value="docname_signed.pdf">Nombre del documento_signed.pdf</option>
+          <option value="docname_yyyyMMdd.pdf">Nombre del documento_yyyyMMdd.pdf</option>
+          <option value="docname_id.pdf">Nombre del documento_[ID].pdf</option>
+        </select>
+        <span class="select-arrow">▾</span>
+      </div>
+    </div>
+
+    <button type="submit" class="btn-primary-xl">GUARDAR</button>
+  </form>
+</section>
+
+<!-- PERSONALIZACIÓN -->
+<section class="set-section" id="sec-personalizacion" aria-labelledby="sec-personalizacion-h">
+  <h1 class="page-h1" id="sec-personalizacion-h">Personalización</h1>
+
+  <!-- Plantillas correo/SMS -->
+  <h2 class="sub-h2">Plantillas de correo electrónico</h2>
+  <div class="acc-group" id="tplGroup">
+
+    <!-- Solicitud de firma -->
+    <button class="acc-head" data-acc="tpl-signature-request">
+      Correo de Solicitud de Firma
+      <span class="acc-icon">+</span>
+    </button>
+    <div class="acc-panel" id="tpl-signature-request" hidden>
+      <div class="editor">
+        <div class="field">
+          <label for="sr-subject">Asunto</label>
+          <input id="sr-subject" type="text" class="input-pill"
+                 placeholder="You are invited to sign a document"/>
+        </div>
+
+        <div class="editor-toggle" role="tablist">
+          <button type="button" class="et-btn is-active" data-mode="text">Text</button>
+          <button type="button" class="et-btn" data-mode="html">HTML</button>
+        </div>
+
+        <textarea id="sr-body-text" class="editor-ta" rows="9"
+                  placeholder="Mensaje en texto plano"></textarea>
+        <textarea id="sr-body-html" class="editor-ta" rows="9" hidden
+                  placeholder="HTML del correo"></textarea>
+
+        <button class="btn-save" data-save="tpl-signature-request">GUARDAR</button>
+      </div>
+    </div>
+
+    <!-- Formulario completado -->
+    <button class="acc-head" data-acc="tpl-form-completed">
+      Correo de Notificación de Formulario Completado
+      <span class="acc-icon">+</span>
+    </button>
+    <div class="acc-panel" id="tpl-form-completed" hidden>
+      <div class="editor">
+        <div class="field">
+          <label for="fc-subject">Asunto</label>
+          <input id="fc-subject" type="text" class="input-pill"
+                 placeholder="Your document is completed"/>
+        </div>
+
+        <div class="editor-toggle" role="tablist">
+          <button type="button" class="et-btn is-active" data-mode="text">Text</button>
+          <button type="button" class="et-btn" data-mode="html">HTML</button>
+        </div>
+
+        <textarea id="fc-body-text" class="editor-ta" rows="9"></textarea>
+        <textarea id="fc-body-html" class="editor-ta" rows="9" hidden></textarea>
+
+        <button class="btn-save" data-save="tpl-form-completed">GUARDAR</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Logotipo empresa -->
+  <h2 class="sub-h2">Logotipo de la empresa</h2>
+  <div class="brand-logo-box">
+    <!-- Cambia la ruta del src si tu logo está en otro lugar -->
+    <img id="brandLogoImg" src="/img/Nuevologo.jpg" alt="Logo actual">
+  </div>
+  <div>
+    <input id="brandLogoFile" type="file" accept="image/*" hidden>
+    <button class="btn-outline" id="brandLogoBtn">REEMPLAZAR</button>
+  </div>
+
+  <!-- Formulario de envío -->
+  <h2 class="sub-h2" style="margin-top:18px;">Formulario de envío</h2>
+  <div class="acc-group">
+    <button class="acc-head" data-acc="form-msg">
+      Mensaje de formulario completado
+      <span class="acc-icon">+</span>
+    </button>
+    <div class="acc-panel" id="form-msg" hidden>
+      <div class="field">
+        <label for="fm-body">Mensaje</label>
+        <textarea id="fm-body" class="editor-ta" rows="6"></textarea>
+      </div>
+      <button class="btn-save" data-save="form-msg">GUARDAR</button>
+    </div>
+
+    <button class="acc-head" data-acc="form-redirect">
+      Botón de redirección de formulario completado
+      <span class="acc-icon">+</span>
+    </button>
+    <div class="acc-panel" id="form-redirect" hidden>
+      <div class="grid-2">
+        <div class="field">
+          <label for="fr-text">Texto del botón</label>
+          <input id="fr-text" class="input-pill" placeholder="Ver documento"/>
+        </div>
+        <div class="field">
+          <label for="fr-url">URL destino</label>
+          <input id="fr-url" class="input-pill" placeholder="https://..."/>
+        </div>
+      </div>
+      <button class="btn-save" data-save="form-redirect">GUARDAR</button>
+    </div>
+
+    <button class="acc-head" data-acc="form-links">
+      Enlaces de Políticas
+      <span class="acc-icon">+</span>
+    </button>
+    <div class="acc-panel" id="form-links" hidden>
+      <div class="grid-2">
+        <div class="field">
+          <label for="fl-privacy">Política de Privacidad (URL)</label>
+          <input id="fl-privacy" class="input-pill" placeholder="https://..."/>
+        </div>
+        <div class="field">
+          <label for="fl-terms">Términos de Uso (URL)</label>
+          <input id="fl-terms" class="input-pill" placeholder="https://..."/>
+        </div>
+      </div>
+      <button class="btn-save" data-save="form-links">GUARDAR</button>
+    </div>
+
+    <button class="acc-head" data-acc="form-css">
+      CSS personalizado del formulario
+      <span class="acc-icon">+</span>
+    </button>
+    <div class="acc-panel" id="form-css" hidden>
+      <div class="field">
+        <label for="fc-css">CSS</label>
+        <textarea id="fc-css" class="editor-ta" rows="8" placeholder="/* CSS */"></textarea>
+      </div>
+      <div class="pref" style="margin-top:8px;">
+        <span>Mostrar confeti al completar con éxito</span>
+        <label class="switch"><input type="checkbox" id="pf-confetti"><span class="slider"></span></label>
+      </div>
+      <button class="btn-save" data-save="form-css">GUARDAR</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============================
+     USUARIOS (HTML completo)
+============================ -->
+<section class="set-section" id="sec-usuarios" aria-labelledby="sec-usuarios-h">
+  <header class="section-head users-head">
+    <h1 class="page-h1" id="sec-usuarios-h">Usuarios</h1>
+    <button class="btn-chip" id="btnNewUser" type="button">
+      <span class="plus">＋</span> Nuevo usuario
+    </button>
+  </header>
+
+  <div class="users-table-wrap">
+    <table class="users-table" id="usersTable" aria-describedby="sec-usuarios-h">
+      <thead>
+        <tr>
+          <th>Nombre</th>
+          <th>Correo electrónico</th>
+          <th>Rol</th>
+          <th>Última sesión</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="usersTbody">
+        <!-- Filas generadas por JS.
+             Cada fila tendrá en la última celda:
+             <button class="user-action js-edit" data-id="{id}">Editar</button>
+        -->
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============================
+     MODAL: Crear / Editar usuario
+============================ -->
+<div class="modal" id="userModal" aria-hidden="true">
+  <div class="modal-content user-modal" role="dialog" aria-modal="true" aria-labelledby="um-title">
+    <header class="modal-header">
+      <h2 id="um-title">Nuevo usuario</h2>
+      <button class="close-btn" id="umClose" aria-label="Cerrar" type="button">×</button>
+    </header>
+
+    <form id="userForm" class="modal-body user-form" novalidate>
+      <div class="grid-2">
+        <div class="field">
+          <label for="um-first">Nombre</label>
+          <input id="um-first" type="text" class="input-pill" required>
+        </div>
+        <div class="field">
+          <label for="um-last">Apellido</label>
+          <input id="um-last" type="text" class="input-pill" required>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="um-email">Correo electrónico</label>
+        <input id="um-email" type="email" class="input-pill" required>
+      </div>
+
+      <div class="field">
+        <label for="um-pass">Contraseña</label>
+        <input id="um-pass" type="password" class="input-pill" minlength="6" placeholder="••••••">
+      </div>
+
+      <div class="field">
+        <label for="um-role">Rol</label>
+        <div class="select-wrap">
+          <select id="um-role" class="select-pill">
+            <option value="superadmin">Superadministrador</option>
+            <option value="admin" selected>Administrador</option>
+            <option value="editor">Editor</option>
+            <option value="viewer">Visor</option>
+          </select>
+          <span class="select-arrow">▾</span>
+        </div>
+      </div>
+
+      <input type="hidden" id="um-id">
+    </form>
+
+    <footer class="modal-footer">
+      <button class="btn secondary" id="umCancel" type="button">Cancelar</button>
+      <button class="btn primary" id="umSubmit" type="submit" form="userForm">Enviar</button>
+    </footer>
+  </div>
+</div>
+
+
+<!-- SEC: Inquilinos -->
+<section class="set-section" id="sec-inquilinos" aria-labelledby="sec-inquilinos-h">
+  <h1 class="page-h1" id="sec-inquilinos-h">Inquilinos</h1>
+
+  <!-- Métricas -->
+  <div class="t-metrics">
+    <div class="t-card">
+      <div class="t-card-top">
+        <span class="t-card-icon">📄</span>
+        <span class="t-card-label">Documentos</span>
+      </div>
+      <div class="t-card-num" id="tm-docs">0</div>
+    </div>
+    <div class="t-card">
+      <div class="t-card-top">
+        <span class="t-card-icon">🧾</span>
+        <span class="t-card-label">Plantillas</span>
+      </div>
+      <div class="t-card-num" id="tm-templates">0</div>
+    </div>
+    <div class="t-card">
+      <div class="t-card-top">
+        <span class="t-card-icon">👥</span>
+        <span class="t-card-label">Usuarios</span>
+      </div>
+      <div class="t-card-num" id="tm-users">0</div>
+    </div>
+    <div class="t-card">
+      <div class="t-card-top">
+        <span class="t-card-icon">🏢</span>
+        <span class="t-card-label">Cuentas</span>
+      </div>
+      <div class="t-card-num" id="tm-tenants">0</div>
+    </div>
+  </div>
+
+  <!-- Encabezado + botón -->
+  <div class="t-head-row">
+    <h2 class="sub-h2">Cuentas de inquilino</h2>
+    <button class="btn-soft add-tenant-btn" id="tNewBtn">
+      <span class="plus">＋</span> NUEVO INQUILINO
+    </button>
+  </div>
+
+  <!-- Tabla / lista -->
+  <div class="tenant-table">
+    <div class="tt-head">
+      <div class="tt-col name">Nombre</div>
+      <div class="tt-col actions">Acciones</div>
+    </div>
+    <div class="tt-body" id="tenantList">
+      <!-- filas renderizadas por JS -->
+    </div>
+  </div>
+</section>
+
+<!-- MODAL: Nuevo inquilino -->
+<div class="modal" id="tenantCreateModal" aria-hidden="true">
+  <div class="modal-content create-modal compact">
+    <header class="modal-header compact">
+      <h2>Nuevo inquilino</h2>
+      <button class="close-btn" data-close="tc">×</button>
+    </header>
+    <div class="modal-body create-body compact">
+      <form id="tCreateForm">
+        <div class="field">
+          <label for="tc-name">Nombre</label>
+          <input id="tc-name" type="text" class="ct-input pill-xl" placeholder="Ej: Pki Team" required />
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label for="tc-sub">Subdominio / Slug</label>
+            <input id="tc-sub" type="text" class="ct-input" placeholder="pki-team" required />
+          </div>
+          <div class="field">
+            <label for="tc-email">Correo contacto</label>
+            <input id="tc-email" type="email" class="ct-input" placeholder="admin@equipo.com" />
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label for="tc-lang">Idioma</label>
+            <div class="select-wrap">
+              <select id="tc-lang" class="select-pill">
+                <option value="es" selected>Español</option>
+                <option value="en">English</option>
+                <option value="pt">Português</option>
+              </select>
+              <span class="select-arrow">▾</span>
+            </div>
+          </div>
+          <div class="field">
+            <label for="tc-tz">Zona horaria</label>
+            <div class="select-wrap">
+              <select id="tc-tz" class="select-pill">
+                <option value="America/Bogota">(GMT-05:00) Bogotá</option>
+                <option value="America/Mexico_City">(GMT-06:00) CDMX</option>
+                <option value="UTC">UTC</option>
+              </select>
+              <span class="select-arrow">▾</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="prefs">
+          <label class="pref">
+            <span>Heredar almacenamiento de la cuenta</span>
+            <label class="switch">
+              <input type="checkbox" id="tc-inherit-storage" checked>
+              <span class="slider"></span>
+            </label>
+          </label>
+          <label class="pref">
+            <span>Heredar branding (logo, colores)</span>
+            <label class="switch">
+              <input type="checkbox" id="tc-inherit-brand" checked>
+              <span class="slider"></span>
+            </label>
+          </label>
+        </div>
+      </form>
+    </div>
+    <footer class="modal-footer create-footer compact">
+      <button class="cta-create" id="tc-create">CREAR</button>
+    </footer>
+  </div>
+</div>
+
+<!-- MODAL: Editar inquilino -->
+<div class="modal" id="tenantEditModal" aria-hidden="true">
+  <div class="modal-content create-modal compact">
+    <header class="modal-header compact">
+      <h2>Editar inquilino</h2>
+      <button class="close-btn" data-close="te">×</button>
+    </header>
+    <div class="modal-body create-body compact">
+      <form id="tEditForm">
+        <input type="hidden" id="te-id">
+        <div class="field">
+          <label for="te-name">Nombre</label>
+          <input id="te-name" type="text" class="ct-input pill-xl" required />
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label for="te-sub">Subdominio / Slug</label>
+            <input id="te-sub" type="text" class="ct-input" required />
+          </div>
+          <div class="field">
+            <label for="te-email">Correo contacto</label>
+            <input id="te-email" type="email" class="ct-input" />
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label for="te-lang">Idioma</label>
+            <div class="select-wrap">
+              <select id="te-lang" class="select-pill">
+                <option value="es">Español</option>
+                <option value="en">English</option>
+                <option value="pt">Português</option>
+              </select>
+              <span class="select-arrow">▾</span>
+            </div>
+          </div>
+          <div class="field">
+            <label for="te-tz">Zona horaria</label>
+            <div class="select-wrap">
+              <select id="te-tz" class="select-pill">
+                <option value="America/Bogota">(GMT-05:00) Bogotá</option>
+                <option value="America/Mexico_City">(GMT-06:00) CDMX</option>
+                <option value="UTC">UTC</option>
+              </select>
+              <span class="select-arrow">▾</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="prefs">
+          <label class="pref">
+            <span>Heredar almacenamiento de la cuenta</span>
+            <label class="switch">
+              <input type="checkbox" id="te-inherit-storage">
+              <span class="slider"></span>
+            </label>
+          </label>
+          <label class="pref">
+            <span>Heredar branding (logo, colores)</span>
+            <label class="switch">
+              <input type="checkbox" id="te-inherit-brand">
+              <span class="slider"></span>
+            </label>
+          </label>
+        </div>
+      </form>
+    </div>
+    <footer class="modal-footer create-footer compact">
+      <button class="cta-create" id="te-save">GUARDAR</button>
+    </footer>
+  </div>
+</div>
+
+<!-- MODAL: Logotipo -->
+<div class="modal" id="tenantLogoModal" aria-hidden="true">
+  <div class="modal-content create-modal compact">
+    <header class="modal-header compact">
+      <h2>Cambiar logotipo</h2>
+      <button class="close-btn" data-close="tl">×</button>
+    </header>
+    <div class="modal-body create-body compact">
+      <div class="upload-inner">
+        <div class="upload-icon" aria-hidden="true">⬆</div>
+        <p class="upload-title">Subir logotipo del inquilino</p>
+        <p class="upload-sub">
+          <button type="button" class="upload-link" id="tl-pick">Haz clic para subir</button>
+        </p>
+        <input id="tl-file" type="file" class="sr-only" accept=".png,.jpg,.jpeg,.svg" />
+        <div id="tl-preview" class="tenant-logo-preview" hidden>
+          <img alt="Preview"/>
+        </div>
+      </div>
+    </div>
+    <footer class="modal-footer create-footer compact">
+      <button class="cta-create" id="tl-save">GUARDAR</button>
+    </footer>
+  </div>
+</div>
+
+
+
+
+      <!-- PLACEHOLDERS (para que el menú funcione sin errores) -->
+    
+      <section class="set-section" id="sec-sms"><h1 class="page-h1">SMS</h1></section>
+     
+    
+
+    </main>
+  </div>
+
+  <!-- JS (misma carpeta que config.html) -->
+  <script src="/public/Main/permissions.js"></script>
+  <script src="/public/Main/profile.js"></script>
+  <script defer src="/public/Main/settings.js?v=10"></script>
+  <script defer src="/public/Main/users.js"></script>
+  <script>
+    // Proteger acceso a configuración
+    document.addEventListener('DOMContentLoaded', () => {
+      console.log('🔍 Verificando acceso a configuración...');
+      
+      if (window.permissions) {
+        // Verificar login
+        if (!window.permissions.isLoggedIn()) {
+          console.warn('⛔ No estás logueado. Redirigiendo...');
+          window.location.href = '/login.html';
+          return;
+        }
+
+        // Verificar permisos de acceso a configuración
+        const user = window.permissions.getCurrentUser();
+        console.log('👤 Usuario actual:', user);
+        console.log('🔐 Puede acceder a config:', window.permissions.canAccessConfig());
+        
+        if (!window.permissions.canAccessConfig()) {
+          console.warn('⛔ No tienes permisos para acceder a configuración. Rol:', user.role_name);
+          alert('No tienes permisos para acceder a esta sección');
+          window.location.href = '/index.html';
+          return;
+        }
+
+        console.log('✅ Acceso a configuración permitido para:', user.role_name);
+
+        // Actualizar avatar con iniciales del usuario
+        window.permissions.updateAllAvatars();
+
+        // Para Admin y Tenant Admin: limpiar hash y localStorage para forzar "perfil"
+        if (user.role_name === 'Admin' || user.role_name === 'Tenant Admin') {
+          console.log('🔄 Limpiando navegación previa para Admin/Tenant Admin');
+          localStorage.removeItem('settings_last_section');
+          if (location.hash) {
+            history.replaceState(null, '', location.pathname);
+          }
+        }
+      } else {
+        console.error('❌ window.permissions NO disponible');
+      }
+    });
+  </script>
+</body>
+</html>

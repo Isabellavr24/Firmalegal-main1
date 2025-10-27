@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Plantillas - FirmaLegalOnline</title>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="/public/Main/M-styles/Styles.css?v=8">
+
+  <!-- Fuente -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <style>
+    .avatar{ position:relative; overflow:hidden; display:flex; align-items:center; justify-content:center; width:34px; height:34px; border-radius:50% }
+    .avatar img{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; border-radius:50% }
+  </style>
+</head>
+
+<body>
+  <!-- Header -->
+  <header class="main-header">
+    <div class="brand-wrap">
+      <img class="brand-logo-full" src="/img/Nuevologo.jpg" alt="PKI Services" />
+    </div>
+    <nav class="top-actions">
+      <a class="link-config" href="/config.html" id="configLink">Configuración</a>
+      <details class="user-menu" id="userMenu">
+        <summary class="avatar" aria-label="Perfil">PS</summary>
+        <div class="user-dropdown" role="menu" aria-label="Menú de usuario">
+          <a class="menu-item" href="/config.html#perfil" role="menuitem">Perfil</a>
+          <button class="menu-item" id="logoutBtn" type="button" role="menuitem">Cerrar sesión</button>
+        </div>
+      </details>
+    </nav>
+  </header>
+
+  <!-- Título + controles -->
+  <section class="page-head">
+    <div class="left">
+      <div class="view-toggle" role="tablist" aria-label="Cambiar vista">
+        <button class="toggle-btn is-active" data-view="grid" title="Vista de cuadrícula" aria-selected="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <rect x="3" y="3" width="7" height="7" />
+            <rect x="14" y="3" width="7" height="7" />
+            <rect x="14" y="14" width="7" height="7" />
+            <rect x="3" y="14" width="7" height="7" />
+          </svg>
+        </button>
+        <button class="toggle-btn" data-view="list" title="Vista de lista" aria-selected="false">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <line x1="8" y1="6" x2="21" y2="6" />
+            <line x1="8" y1="12" x2="21" y2="12" />
+            <line x1="8" y1="18" x2="21" y2="18" />
+            <rect x="3" y="5" width="3" height="3" />
+            <rect x="3" y="11" width="3" height="3" />
+            <rect x="3" y="17" width="3" height="3" />
+          </svg>
+        </button>
+      </div>
+      <h1>Documentos Plantillas</h1>
+    </div>
+
+    <div class="right">
+      <div class="search">
+        <svg class="icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <circle cx="11" cy="11" r="8" />
+          <line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+        <input id="searchInput" type="search" placeholder="Buscar…" />
+      </div>
+
+      <button class="ghost-btn" id="uploadBtn" title="Subir">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+        SUBIR
+      </button>
+
+      <button class="primary-btn" id="newTemplateBtn" title="Crear plantilla">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="8" x2="12" y2="16"/>
+          <line x1="8" y1="12" x2="16" y2="12"/>
+        </svg>
+        CREAR
+      </button>
+    </div>
+  </section>
+
+  <!-- Tabs -->
+  <nav class="tabs">
+    <button class="tab is-active" data-filter="*">Todas</button>
+    <button class="tab" data-filter="mine">Mis Plantillas</button>
+    <button class="tab" data-filter="shared">Compartidas conmigo</button>
+    <button class="tab" data-filter="archived">Archivadas</button>
+  </nav>
+
+  <!-- Grid/List -->
+  <main id="grid" class="cards grid-view">
+    <!-- Las carpetas se insertan dinámicamente arriba de los docs -->
+    <article class="card doc" data-tags="mine">
+      <a class="card-link" href="#">
+        <div class="doc-body">
+          <h3 class="title">CONTRATO ejemplo</h3>
+          <div class="badges">
+            <span class="small">PKI SERVICES</span>
+            <span class="small muted">20 de ago 11:29</span>
+          </div>
+        </div>
+      </a>
+    </article>
+  </main>
+
+  <!-- Modal CREAR plantilla -->
+  <div id="createTemplateModal" class="modal" aria-hidden="true" style="display:none">
+    <div class="modal-content create-modal" role="dialog" aria-modal="true" aria-labelledby="ct-title">
+      <header class="modal-header">
+        <h2 id="ct-title">Nueva plantilla de documento</h2>
+        <button class="close-btn" id="ct-close" aria-label="Cerrar">×</button>
+      </header>
+
+      <div class="modal-body create-body">
+        <div class="segmented" role="tablist" aria-label="Origen del archivo">
+          <button class="segmented-btn is-active" data-tab="upload" aria-selected="true">
+            <span class="segmented-icon">📤</span> Subir Documento
+          </button>
+          <button class="segmented-btn" data-tab="gdrive" aria-selected="false">
+            <span class="segmented-icon">△</span> Google Drive
+          </button>
+        </div>
+
+        <input id="ct-name" class="ct-input" type="text" placeholder="Document Name" />
+
+        <div class="ct-tabs">
+          <div id="ct-tab-upload" class="ct-tab is-visible">
+            <label class="file-pill" for="ct-file">
+              <span class="file-pill-icon">⬆</span>
+              <span class="file-pill-text" id="ct-file-text">Selecciona un archivo…</span>
+            </label>
+            <input id="ct-file" type="file" class="sr-only" multiple
+              accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.png,.jpg,.jpeg" />
+          </div>
+
+          <div id="ct-tab-gdrive" class="ct-tab">
+            <div class="gdrive-box">
+              <p>Pega Google Drive link:</p>
+              <input id="ct-gdrive" class="ct-input small" type="url" placeholder="https://drive.google.com/..." />
+            </div>
+          </div>
+        </div>
+
+        <div class="folder-row">
+          <div class="folder-left">
+            <span class="folder-icon">📁</span>
+            <span id="ct-folder-name">Default</span>
+          </div>
+          <div class="folder-actions">
+            <button type="button" class="link-btn" id="ct-change-folder">Cambiar Carpeta</button>
+            <span class="sep">·</span>
+            <button type="button" class="link-btn" id="ct-new-folder">Crear Folder</button>
+          </div>
+        </div>
+      </div>
+
+      <footer class="modal-footer create-footer">
+        <button id="ct-create" class="cta-create" disabled>Crear</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="/public/Main/permissions.js"></script>
+  <script defer src="/script.js"></script>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      if (window.permissions) {
+        if (!window.permissions.canAccessConfig?.()) {
+          const link = document.getElementById('configLink');
+          if (link) link.style.display = 'none';
+        }
+        window.permissions.updateAllAvatars?.();
+      }
+      document.addEventListener('click', (e) => {
+        const dd = document.getElementById('userMenu');
+        if (dd && !dd.contains(e.target)) dd.removeAttribute('open');
+      });
+    });
+  </script>
+</body>
+</html>

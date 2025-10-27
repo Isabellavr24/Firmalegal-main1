@@ -1,0 +1,119 @@
+/* ===== Variables/Paleta (consistente con el resto) ===== */
+:root{
+  --bg-crema: #f9f5f2;
+  --card-tint: #ffffff;
+  --ink: #231426;
+  --ink-soft: #6d6270;
+  --accent: #2a0d31;          /* berenjena oscuro */
+  --stroke: #eadfd8;
+
+  --brand-plum:   #2b0e31;
+  --brand-magenta:#c2185b;
+  --ring-plum:    0 0 0 4px rgba(43,14,49,.12);
+}
+
+*{ box-sizing:border-box }
+html,body{ height:100% }
+body{
+  margin:0;
+  font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+  background: var(--bg-crema);
+  color: var(--ink);
+}
+
+/* ===== Header (logo) ===== */
+.login-header{
+  max-width: 1200px;
+  margin: 12px auto 0;
+  padding: 0 24px;
+}
+.brand-logo{
+  height: 48px;
+  width: auto;
+  display: block;
+  object-fit: contain;
+}
+
+/* ===== Shell centrado ===== */
+.login-shell{
+  max-width: 760px;
+  margin: 32px auto 64px;
+  padding: 0 24px;
+  display: grid;
+  place-items: start center;
+}
+
+/* ===== Card ===== */
+.login-card{
+  width: 100%;
+  max-width: 560px;
+  background: var(--card-tint);
+  border: 1px solid var(--stroke);
+  border-radius: 20px;
+  padding: 28px 26px 22px;
+  box-shadow: 0 12px 28px rgba(0,0,0,.06);
+}
+
+.login-title{
+  text-align: center;
+  margin: 6px 0 18px;
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: var(--accent);
+  letter-spacing: -.02em;
+}
+
+.field{ margin: 10px 0 14px }
+.field label{
+  display:block; margin: 0 0 8px; color: var(--ink-soft); font-size: .95rem; font-weight: 600;
+}
+
+.input-pill{
+  width:100%; height:54px; border-radius:999px;
+  border:1px solid var(--stroke); background:#fff; padding:0 16px; font-size:1rem;
+}
+.input-pill:focus{ outline:none; box-shadow: var(--ring-plum); border-color:#e9dfe7 }
+
+.password-wrap{ position:relative }
+.pass-toggle{
+  position:absolute; right:10px; top:50%; transform:translateY(-50%);
+  border:0; background:transparent; cursor:pointer; font-size:1rem; opacity:.7;
+}
+.pass-toggle:hover{ opacity:1 }
+
+.error{ display:block; color:#c2185b; min-height: 1.2em; margin-top:6px; font-size:.88rem }
+
+/* Botón principal */
+.btn-primary-xl{
+  width:100%; height:56px; border-radius:999px; border:0;
+  background: var(--accent); color:#fff; font-weight:800; letter-spacing:.02em; cursor:pointer;
+  margin: 8px 0 10px;
+}
+.btn-primary-xl:hover{ filter:brightness(.96); box-shadow: 0 12px 22px rgba(0,0,0,.12) }
+
+/* Links y fila de idioma */
+.login-actions{ text-align:center; margin: 8px 0 10px }
+.link{ color: var(--accent); text-decoration: underline; font-weight: 600 }
+
+.lang-row{ display:flex; justify-content:center; margin-top: 8px }
+.select-wrap{ position:relative; display:inline-block }
+.select-pill{
+  appearance:none; -webkit-appearance:none;
+  height:44px; padding:0 38px 0 16px; border-radius:999px; border:1px solid var(--stroke);
+  background:#fff; font-weight:600; cursor:pointer;
+}
+.select-pill:focus{ outline:none; box-shadow: var(--ring-plum) }
+.select-arrow{ position:absolute; right:12px; top:50%; transform:translateY(-50%); pointer-events:none }
+
+/* Accesibilidad */
+.sr-only{
+  position:absolute!important; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden;
+  clip:rect(0 0 0 0); white-space:nowrap; border:0;
+}
+
+/* Responsive pequeños */
+@media (max-width: 640px){
+  .brand-logo{ height: 40px }
+  .login-card{ padding: 22px 18px }
+  .login-title{ font-size: 1.9rem }
+}

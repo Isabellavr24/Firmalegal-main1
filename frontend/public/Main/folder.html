@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Carpeta — FirmaLegalOnline</title>
+  <link rel="stylesheet" href="/public/Main/M-styles/Styles.css?v=8">
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <style>
+    .breadcrumb{max-width:var(--content-max);margin:8px auto 6px;padding:0 var(--page-gutter);}
+    .folder-head{display:flex;align-items:center;justify-content:space-between;max-width:var(--content-max);margin:0 auto 8px;padding:0 var(--page-gutter);}
+    .folder-left{display:flex;align-items:center;gap:12px}
+    .folder-title{font-size:2.1rem;font-weight:800;letter-spacing:-.02em}
+    .folder-icon{width:32px;height:32px;display:grid;place-items:center;border:1px solid var(--stroke);border-radius:8px;background:#fff}
+  </style>
+</head>
+<body>
+  <header class="main-header">
+    <div class="brand-wrap"><img class="brand-logo-full" src="/img/Nuevologo.jpg" alt="PKI Services"></div>
+    <nav class="top-actions">
+      <a class="link-config" href="/config.html" id="configLink">Configuración</a>
+      <details class="user-menu" id="userMenu">
+        <summary class="avatar" aria-label="Perfil">PS</summary>
+        <div class="user-dropdown" role="menu" aria-label="Menú de usuario">
+          <a class="menu-item" href="/config.html#perfil" role="menuitem">Perfil</a>
+          <button class="menu-item" id="logoutBtn" type="button" role="menuitem">Cerrar sesión</button>
+        </div>
+      </details>
+    </nav>
+  </header>
+
+  <nav class="breadcrumb"><a href="index.html">← Inicio</a></nav>
+
+  <section class="folder-head">
+    <div class="folder-left">
+      <div class="folder-icon">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.8a2 2 0 0 1-1.7-.9l-.8-1.1A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/>
+        </svg>
+      </div>
+      <h1 id="folderTitle" class="folder-title">Carpeta</h1>
+    </div>
+    <div class="right">
+      <button class="ghost-btn" id="uploadBtn">SUBIR</button>
+      <button class="primary-btn" id="createBtn">CREAR</button>
+    </div>
+  </section>
+
+  <main id="docsGrid" class="cards" aria-live="polite"></main>
+
+  <script src="/public/Main/permissions.js"></script>
+  <script defer src="/public/Main/folder.js"></script>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      if (window.permissions) {
+        if (!window.permissions.canAccessConfig?.()) {
+          const link = document.getElementById('configLink');
+          if (link) link.style.display = 'none';
+        }
+        window.permissions.updateAllAvatars?.();
+      }
+      document.addEventListener('click', (e) => {
+        const dd = document.getElementById('userMenu');
+        if (dd && !dd.contains(e.target)) dd.removeAttribute('open');
+      });
+      document.getElementById('uploadBtn')?.addEventListener('click', () => alert('Subir (demo)'));
+      document.getElementById('createBtn')?.addEventListener('click', () => alert('Crear (demo)'));
+    });
+  </script>
+</body>
+</html>

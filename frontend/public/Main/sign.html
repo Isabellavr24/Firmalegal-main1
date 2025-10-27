@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Editor de Firma</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="public/Main/M-styles/sign.css">
+</head>
+<body>
+
+  <!-- Barra superior -->
+  <div class="bar">
+    <strong>Prueba</strong>
+    <div class="actions">
+      <button class="chip">FIRMA TÚ MISMO</button>
+      <button id="sendBtn" class="chip"> ENVIAR</button>
+      <button id="saveBtn" class="chip primary"> GUARDAR</button>
+    </div>
+  </div>
+
+  <div class="layout">
+    <!-- IZQUIERDA -->
+    <aside class="panel left">
+      <div class="thumb"></div>
+      <div id="docInfo" class="doc-info">
+        <div class="doc-name">Sin documento</div>
+        <div class="doc-meta">Sube un PDF para comenzar</div>
+      </div>
+
+      <div class="upload">
+        <label class="chip" for="pdfFile">⬆️ SUBIR PDF</label>
+        <input id="pdfFile" type="file" accept="application/pdf,.pdf" />
+      </div>
+    </aside>
+
+    <!-- CENTRO -->
+    <main class="panel" style="overflow:auto">
+      <div class="canvas-wrap" id="pageWrap" aria-label="Página PDF">
+        <canvas id="pdfCanvas"></canvas>
+        <div id="overlay"></div>
+      </div>
+    </main>
+
+    <!-- DERECHA -->
+    <aside class="panel">
+      <h4 style="margin:6px 0 10px">Primera Parte</h4>
+      <div id="toolSign" class="tool">✍️ <div>Firma</div></div>
+      <div id="toolText" class="tool">🔤 <div>Texto</div></div>
+      <div id="toolDate" class="tool">📅 <div>Fecha</div></div>
+
+      <ul class="tips">
+        <li>Selecciona una herramienta y haz clic en el PDF para colocar campos.</li>
+        <li>Luego pulsa <b>Guardar</b> para generar el PDF.</li>
+      </ul>
+    </aside>
+  </div>
+
+  <!-- MODAL de firma -->
+  <div id="sigModal" class="modal-back" aria-hidden="true">
+    <div class="modal modal-signature" role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <h3>✍️ Firma Digital</h3>
+        <button class="close-modal" id="sigClose">×</button>
+      </div>
+      <div class="modal-body">
+        <label class="input-label">Dibuja tu firma con el mouse o pantalla táctil</label>
+        <div class="sig-wrap"><canvas id="sigPad"></canvas></div>
+      </div>
+      <div class="modal-footer">
+        <button id="sigClear" class="btn btn-secondary">🗑️ Limpiar</button>
+        <button id="sigCancel" class="btn btn-secondary">Cancelar</button>
+        <button id="sigOk" class="btn btn-primary">✓ Usar firma</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL de texto -->
+  <div id="textModal" class="modal-back" aria-hidden="true">
+    <div class="modal modal-text" role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <h3>✍️ Personalizar Texto</h3>
+        <button class="close-modal" id="textClose">×</button>
+      </div>
+      
+      <div class="modal-body">
+        <div class="text-input-section">
+          <label class="input-label">Contenido</label>
+          <textarea id="textInput" class="text-area" placeholder="Escribe tu texto aquí..." rows="3"></textarea>
+        </div>
+        
+        <div class="format-toolbar">
+          <!-- Fila 1: Fuente y Tamaño -->
+          <div class="toolbar-row">
+            <div class="toolbar-group">
+              <label class="toolbar-label">Fuente</label>
+              <select id="fontFamily" class="toolbar-select font-select">
+                <option value="Arial">Arial</option>
+                <option value="Helvetica">Helvetica</option>
+                <option value="Times New Roman">Times New Roman</option>
+                <option value="Courier New">Courier New</option>
+                <option value="Georgia">Georgia</option>
+                <option value="Verdana">Verdana</option>
+                <option value="Calibri">Calibri</option>
+                <option value="Cambria">Cambria</option>
+              </select>
+            </div>
+            
+            <div class="toolbar-group">
+              <label class="toolbar-label">Tamaño</label>
+              <select id="fontSize" class="toolbar-select size-select">
+                <option value="8">8</option>
+                <option value="9">9</option>
+                <option value="10">10</option>
+                <option value="11">11</option>
+                <option value="12" selected>12</option>
+                <option value="14">14</option>
+                <option value="16">16</option>
+                <option value="18">18</option>
+                <option value="20">20</option>
+                <option value="22">22</option>
+                <option value="24">24</option>
+                <option value="28">28</option>
+                <option value="32">32</option>
+              </select>
+            </div>
+            
+            <div class="toolbar-group">
+              <label class="toolbar-label">Color</label>
+              <div class="color-picker-wrapper">
+                <input type="color" id="fontColor" class="color-input" value="#000000">
+                <span class="color-preview" id="colorPreview"></span>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Fila 2: Estilos y Alineación -->
+          <div class="toolbar-row">
+            <div class="toolbar-group">
+              <label class="toolbar-label">Formato</label>
+              <div class="format-buttons">
+                <button type="button" id="boldBtn" class="format-btn" title="Negrita (Ctrl+B)">
+                  <strong>B</strong>
+                </button>
+                <button type="button" id="italicBtn" class="format-btn" title="Cursiva (Ctrl+I)">
+                  <em>I</em>
+                </button>
+                <button type="button" id="underlineBtn" class="format-btn" title="Subrayado (Ctrl+U)">
+                  <u>U</u>
+                </button>
+              </div>
+            </div>
+            
+            <div class="toolbar-group">
+              <label class="toolbar-label">Alineación</label>
+              <div class="format-buttons">
+                <button type="button" id="alignLeft" class="format-btn active" data-align="left" title="Alinear izquierda">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M2 3h12v2H2V3zm0 4h8v2H2V7zm0 4h12v2H2v-2z"/>
+                  </svg>
+                </button>
+                <button type="button" id="alignCenter" class="format-btn" data-align="center" title="Centrar">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M4 3h8v2H4V3zm2 4h4v2H6V7zm-2 4h8v2H4v-2z"/>
+                  </svg>
+                </button>
+                <button type="button" id="alignRight" class="format-btn" data-align="right" title="Alinear derecha">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M2 3h12v2H2V3zm4 4h8v2H6V7zm-4 4h12v2H2v-2z"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="preview-section">
+          <label class="input-label">Vista previa</label>
+          <div id="textPreview" class="text-preview">Tu texto aparecerá aquí...</div>
+        </div>
+      </div>
+      
+      <div class="modal-footer">
+        <button id="textCancel" class="btn btn-secondary">Cancelar</button>
+        <button id="textOk" class="btn btn-primary">✓ Aplicar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL de fecha -->
+  <div id="dateModal" class="modal-back" aria-hidden="true">
+    <div class="modal modal-date" role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <h3>📅 Seleccionar Fecha</h3>
+        <button class="close-modal" id="dateClose">×</button>
+      </div>
+      <div class="modal-body">
+        <label class="input-label">Fecha del documento</label>
+        <input type="date" id="dateInput" class="date-input">
+      </div>
+      <div class="modal-footer">
+        <button id="dateCancel" class="btn btn-secondary">Cancelar</button>
+        <button id="dateOk" class="btn btn-primary">✓ Agregar fecha</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Libs desde UNPKG (alternativa a CDNJS) -->
+  <script src="https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.min.mjs" type="module"></script>
+  <script type="module">
+    // Importar PDF.js como módulo
+    import * as pdfjsLib from 'https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.min.mjs';
+    
+    // Configurar worker
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs';
+    
+    // Hacer disponible globalmente
+    window.pdfjsLib = pdfjsLib;
+    console.log('✅ PDF.js cargado correctamente desde UNPKG');
+    console.log('� pdfjsLib disponible:', window.pdfjsLib);
+  </script>
+  
+  <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <script>
+    setTimeout(function() {
+      if (typeof PDFLib !== 'undefined') {
+        console.log('✅ pdf-lib cargado correctamente');
+      } else {
+        console.error('❌ pdf-lib no se cargó');
+      }
+    }, 100);
+  </script>
+
+  <!-- Tu JS - versión corregida -->
+  <script src="public/Main/sign.js"></script>
+</body>
+</html>
