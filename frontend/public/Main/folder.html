@@ -1,14 +1,19 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Carpeta — FirmaLegalOnline</title>
-  <link rel="stylesheet" href="/public/Main/M-styles/Styles.css?v=8">
+
+  <!-- Estilos -->
+  <link rel="stylesheet" href="/public/Main/M-styles/Styles.css?v=8" />
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+
   <style>
+    .avatar{ position:relative; overflow:hidden; display:flex; align-items:center; justify-content:center; width:34px; height:34px; border-radius:50% }
+    .avatar img{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; border-radius:50% }
     .breadcrumb{max-width:var(--content-max);margin:8px auto 6px;padding:0 var(--page-gutter);}
     .folder-head{display:flex;align-items:center;justify-content:space-between;max-width:var(--content-max);margin:0 auto 8px;padding:0 var(--page-gutter);}
     .folder-left{display:flex;align-items:center;gap:12px}
@@ -17,6 +22,7 @@
   </style>
 </head>
 <body>
+  <!-- Header -->
   <header class="main-header">
     <div class="brand-wrap"><img class="brand-logo-full" src="/img/Nuevologo.jpg" alt="PKI Services"></div>
     <nav class="top-actions">
@@ -31,8 +37,10 @@
     </nav>
   </header>
 
-  <nav class="breadcrumb"><a href="index.html">← Inicio</a></nav>
+  <!-- Migas -->
+  <nav class="breadcrumb"><a href="./index.html">← Inicio</a></nav>
 
+  <!-- Encabezado de carpeta -->
   <section class="folder-head">
     <div class="folder-left">
       <div class="folder-icon">
@@ -43,17 +51,108 @@
       <h1 id="folderTitle" class="folder-title">Carpeta</h1>
     </div>
     <div class="right">
-      <button class="ghost-btn" id="uploadBtn">SUBIR</button>
+      <button class="ghost-btn" id="uploadBtn" title="Subir">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <polyline points="17 8 12 3 7 8" />
+        <line x1="12" y1="3" x2="12" y2="15" />
+      </svg>
+      SUBIR
+    </button>
+    
+    <!-- input oculto para elegir archivos -->
+    <input id="uploadPicker" type="file" class="sr-only" multiple
+      accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.png,.jpg,.jpeg" />
       <button class="primary-btn" id="createBtn">CREAR</button>
     </div>
   </section>
 
+  <!-- Grid de documentos -->
   <main id="docsGrid" class="cards" aria-live="polite"></main>
 
+  <!-- MODAL: Crear carpeta (para el link "Crear Folder") -->
+  <div id="newFolderModal" class="modal" aria-hidden="true" style="display:none">
+    <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="mf-title">
+      <header class="modal-header">
+        <h2 id="mf-title">Crear nueva carpeta</h2>
+        <button class="close-btn" data-close="modal" aria-label="Cerrar">×</button>
+      </header>
+      <div class="modal-body">
+        <form id="newFolderForm">
+          <label for="folderName">Nombre de la carpeta</label>
+          <input id="folderName" name="folderName" type="text" placeholder="Ej: Contratos" required />
+        </form>
+      </div>
+      <footer class="modal-footer">
+        <button class="btn secondary" data-close="modal">Cancelar</button>
+        <button type="submit" form="newFolderForm" class="btn primary">Crear</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- MODAL: Crear plantilla (MISMA que index) -->
+  <div id="createTemplateModal" class="modal" aria-hidden="true" style="display:none">
+    <div class="modal-content create-modal" role="dialog" aria-modal="true" aria-labelledby="ct-title">
+      <header class="modal-header">
+        <h2 id="ct-title">Nueva plantilla de documento</h2>
+        <button class="close-btn" id="ct-close" aria-label="Cerrar">×</button>
+      </header>
+
+      <div class="modal-body create-body">
+        <div class="segmented" role="tablist" aria-label="Origen del archivo">
+          <button class="segmented-btn is-active" data-tab="upload" aria-selected="true">
+            <span class="segmented-icon">📤</span> Subir Documento
+          </button>
+          <button class="segmented-btn" data-tab="gdrive" aria-selected="false">
+            <span class="segmented-icon">△</span> Google Drive
+          </button>
+        </div>
+
+        <input id="ct-name" class="ct-input" type="text" placeholder="Document Name" />
+
+        <div class="ct-tabs">
+          <div id="ct-tab-upload" class="ct-tab is-visible">
+            <label class="file-pill" for="ct-file">
+              <span class="file-pill-icon">⬆</span>
+              <span class="file-pill-text" id="ct-file-text">Selecciona un archivo…</span>
+            </label>
+            <input id="ct-file" type="file" class="sr-only" multiple
+              accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.png,.jpg,.jpeg" />
+          </div>
+
+          <div id="ct-tab-gdrive" class="ct-tab">
+            <div class="gdrive-box">
+              <p>Pega Google Drive link:</p>
+              <input id="ct-gdrive" class="ct-input small" type="url" placeholder="https://drive.google.com/..." />
+            </div>
+          </div>
+        </div>
+
+        <div class="folder-row">
+          <div class="folder-left">
+            <span class="folder-icon">📁</span>
+            <span id="ct-folder-name">Default</span>
+          </div>
+          <div class="folder-actions">
+            <button type="button" class="link-btn" id="ct-change-folder">Cambiar Carpeta</button>
+            <span class="sep">·</span>
+            <button type="button" class="link-btn" id="ct-new-folder">Crear Folder</button>
+          </div>
+        </div>
+      </div>
+
+      <footer class="modal-footer create-footer">
+        <button id="ct-create" class="cta-create" disabled>Crear</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- Scripts -->
   <script src="/public/Main/permissions.js"></script>
   <script defer src="/public/Main/folder.js"></script>
 
   <script>
+    // Cabecera: permisos y dropdown
     document.addEventListener('DOMContentLoaded', () => {
       if (window.permissions) {
         if (!window.permissions.canAccessConfig?.()) {
@@ -66,8 +165,6 @@
         const dd = document.getElementById('userMenu');
         if (dd && !dd.contains(e.target)) dd.removeAttribute('open');
       });
-      document.getElementById('uploadBtn')?.addEventListener('click', () => alert('Subir (demo)'));
-      document.getElementById('createBtn')?.addEventListener('click', () => alert('Crear (demo)'));
     });
   </script>
 </body>

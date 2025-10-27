@@ -213,8 +213,6 @@ toggles.forEach(btn => btn.addEventListener('click', () => {
   });
 })();
 
-// ====== Subir (demo) ======
-document.getElementById('uploadBtn')?.addEventListener('click', () => alert('Subir plantilla (demo)'));
 
 // ====== Logout ======
 document.addEventListener('click', async (e) => {
@@ -232,4 +230,37 @@ document.addEventListener('click', async (e) => {
 // ====== Init ======
 document.addEventListener('DOMContentLoaded', async () => {
   await loadFolders();
+});
+
+const UPLOAD_ENDPOINT = '/api/templates/upload'; // ajusta a tu backend
+const uploadBtn    = document.getElementById('uploadBtn');
+const uploadPicker = document.getElementById('uploadPicker');
+
+uploadBtn?.addEventListener('click', () => uploadPicker?.click());
+
+uploadPicker?.addEventListener('change', async (e) => {
+  const files = Array.from(e.target.files || []);
+  if (!files.length) return;
+
+  // En index no hay carpeta “actual”: usa Default o pregunta
+  const folderName = 'Default';
+  const folderId   = folderName.toLowerCase().replace(/\s+/g, '-');
+
+  try {
+    const fd = new FormData();
+    files.forEach(f => fd.append('files', f));  // nombre del campo según tu backend
+    fd.append('folder_id', folderId);
+    fd.append('folder_name', folderName);
+
+    const res = await fetch(UPLOAD_ENDPOINT, { method:'POST', body: fd });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+
+    // refresca la UI si quieres (p. ej. recargar carpetas)
+    if (typeof loadFolders === 'function') await loadFolders();
+    alert('Subida completada ✔️');
+  } catch (err) {
+    alert('Error al subir: ' + (err?.message || err));
+  } finally {
+    e.target.value = ''; // permite volver a elegir los mismos archivos
+  }
 });

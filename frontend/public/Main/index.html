@@ -72,14 +72,19 @@
         <input id="searchInput" type="search" placeholder="Buscar…" />
       </div>
 
-      <button class="ghost-btn" id="uploadBtn" title="Subir">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-          <polyline points="17 8 12 3 7 8"/>
-          <line x1="12" y1="3" x2="12" y2="15"/>
-        </svg>
-        SUBIR
-      </button>
+    <button class="ghost-btn" id="uploadBtn" title="Subir">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <polyline points="17 8 12 3 7 8" />
+        <line x1="12" y1="3" x2="12" y2="15" />
+      </svg>
+      SUBIR
+    </button>
+    
+    <!-- input oculto para elegir archivos -->
+    <input id="uploadPicker" type="file" class="sr-only" multiple
+      accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.png,.jpg,.jpeg" />
+
 
       <button class="primary-btn" id="newTemplateBtn" title="Crear plantilla">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">

@@ -84,9 +84,9 @@ app.get('/folder.html', (req, res) => {
 
 const db = mysql.createConnection({
     host: 'localhost',
-    port: 3306,
+    port: 3307,
     user: 'root',
-    password: '', 
+    password: '1234', 
     database: 'firmalegalonline'
 });
 
