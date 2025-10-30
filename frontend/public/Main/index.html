@@ -14,8 +14,29 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
   <style>
+    /* Avatar */
     .avatar{ position:relative; overflow:hidden; display:flex; align-items:center; justify-content:center; width:34px; height:34px; border-radius:50% }
     .avatar img{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; border-radius:50% }
+
+    /* ===== Acciones laterales para documentos (si ya lo pusiste en Styles.css, puedes borrar este bloque) ===== */
+    .card.doc{ position: relative; }
+    .card.doc .card-link{ padding-right: 72px; }
+    .doc-actions{
+      position:absolute; top:50%; right:12px;
+      transform:translateY(-50%) translateX(8px);
+      display:flex; flex-direction:column; gap:12px;
+      opacity:0; pointer-events:none;
+      transition: opacity .18s ease, transform .18s ease;
+    }
+    .card.doc:hover .doc-actions{ opacity:1; transform:translateY(-50%) translateX(0); pointer-events:auto; }
+    .doc-actions .icon-btn{
+      width:34px; height:34px; display:grid; place-items:center;
+      border-radius:12px; border:1px solid transparent;
+      background:transparent; color:var(--brand-plum,#2b0e31); cursor:pointer;
+    }
+    .doc-actions .icon-btn:hover{ background:#fff; border-color:#eadfd8; box-shadow:0 6px 16px rgba(0,0,0,.10); }
+    .doc-actions .icon-btn.danger:hover{ color:#c2185b; background:#fff0f4; border-color:#ffd6e6; }
+    .doc-actions svg{ width:18px; height:18px; stroke:currentColor; }
   </style>
 </head>
 
@@ -72,19 +93,16 @@
         <input id="searchInput" type="search" placeholder="Buscar…" />
       </div>
 
-    <button class="ghost-btn" id="uploadBtn" title="Subir">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-        <polyline points="17 8 12 3 7 8" />
-        <line x1="12" y1="3" x2="12" y2="15" />
-      </svg>
-      SUBIR
-    </button>
-    
-    <!-- input oculto para elegir archivos -->
-    <input id="uploadPicker" type="file" class="sr-only" multiple
-      accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.png,.jpg,.jpeg" />
-
+      <button class="ghost-btn" id="uploadBtn" title="Subir">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="17 8 12 3 7 8" />
+          <line x1="12" y1="3" x2="12" y2="15" />
+        </svg>
+        SUBIR
+      </button>
+      <input id="uploadPicker" type="file" class="sr-only" multiple
+        accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.png,.jpg,.jpeg" />
 
       <button class="primary-btn" id="newTemplateBtn" title="Crear plantilla">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -106,20 +124,7 @@
   </nav>
 
   <!-- Grid/List -->
-  <main id="grid" class="cards grid-view">
-    <!-- Las carpetas se insertan dinámicamente arriba de los docs -->
-    <article class="card doc" data-tags="mine">
-      <a class="card-link" href="#">
-        <div class="doc-body">
-          <h3 class="title">CONTRATO ejemplo</h3>
-          <div class="badges">
-            <span class="small">PKI SERVICES</span>
-            <span class="small muted">20 de ago 11:29</span>
-          </div>
-        </div>
-      </a>
-    </article>
-  </main>
+  <main id="grid" class="cards grid-view"></main>
 
   <!-- Modal CREAR plantilla -->
   <div id="createTemplateModal" class="modal" aria-hidden="true" style="display:none">
@@ -159,15 +164,28 @@
           </div>
         </div>
 
-        <div class="folder-row">
-          <div class="folder-left">
-            <span class="folder-icon">📁</span>
-            <span id="ct-folder-name">Default</span>
+        <div class="form-group">
+          <label class="form-label">Guardar en carpeta</label>
+          <div class="custom-select-wrapper">
+            <div class="folder-selector custom-select-trigger" id="ct-folder-trigger">
+              <span class="folder-selector-icon">📁</span>
+              <span class="custom-select-value" id="ct-folder-value">Sin carpeta</span>
+              <svg class="custom-select-arrow" width="12" height="8" viewBox="0 0 12 8" fill="none">
+                <path d="M1 1.5L6 6.5L11 1.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <div class="custom-select-dropdown" id="ct-folder-dropdown">
+              <div class="custom-select-option" data-value="">
+                <span class="option-icon">📁</span>
+                <span class="option-text">Sin carpeta</span>
+              </div>
+            </div>
           </div>
-          <div class="folder-actions">
-            <button type="button" class="link-btn" id="ct-change-folder">Cambiar Carpeta</button>
-            <span class="sep">·</span>
-            <button type="button" class="link-btn" id="ct-new-folder">Crear Folder</button>
+          <input type="hidden" id="ct-folder-select" value="" />
+          <div style="margin-top: .5rem; text-align:center;">
+            <button type="button" class="link-btn" id="ct-new-folder" style="font-size:.875rem; color:var(--brand-magenta);">
+              + Crear nueva carpeta
+            </button>
           </div>
         </div>
       </div>
@@ -178,10 +196,33 @@
     </div>
   </div>
 
-  <!-- Scripts -->
+  <!-- MODAL: Crear Nueva Carpeta -->
+  <div id="newFolderModal" class="modal" aria-hidden="true" style="display:none">
+    <div class="modal-content create-modal" role="dialog" aria-modal="true" aria-labelledby="nf-title" style="max-width:520px;">
+      <header class="modal-header">
+        <h2 id="nf-title">Crear nueva carpeta</h2>
+        <button class="close-btn" id="nf-close" aria-label="Cerrar">×</button>
+      </header>
+
+      <div class="modal-body create-body">
+        <form id="newFolderForm">
+          <label for="nf-name" class="nf-label">Nombre de la carpeta</label>
+          <input id="nf-name" type="text" class="ct-input" placeholder="Ej: Contratos 2025" required autocomplete="off" />
+          <label for="nf-description" class="nf-label">Descripción (opcional)</label>
+          <textarea id="nf-description" class="ct-input nf-textarea" placeholder="Breve descripción..." rows="4"></textarea>
+        </form>
+      </div>
+
+      <footer class="modal-footer create-footer">
+        <button type="button" class="btn secondary" id="nf-cancel">Cancelar</button>
+        <button type="submit" form="newFolderForm" class="cta-create" id="nf-create">Crear Carpeta</button>
+      </footer>
+    </div>
+  </div>
+
+
   <script src="/public/Main/permissions.js"></script>
   <script defer src="/script.js"></script>
-
   <script>
     document.addEventListener('DOMContentLoaded', () => {
       if (window.permissions) {

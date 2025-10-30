@@ -158,6 +158,68 @@ function initEventListeners() {
   });
   
   console.log('✅ Todos los event listeners inicializados');
+
+  // Verificar si hay un documento pendiente desde index.html
+  checkPendingDocument();
+}
+
+// ===== Verificar y cargar documento pendiente =====
+function checkPendingDocument() {
+  console.log('🔍 Verificando documento pendiente en sessionStorage...');
+  const pendingDoc = sessionStorage.getItem('pendingDocument');
+
+  if (pendingDoc) {
+    console.log('📄 Documento pendiente detectado, cargando automáticamente...');
+
+    try {
+      const docData = JSON.parse(pendingDoc);
+      console.log('📋 Datos del documento:', {
+        name: docData.name,
+        fileName: docData.fileName,
+        fileType: docData.fileType,
+        dataLength: docData.fileData?.length
+      });
+
+      // Actualizar info del documento en UI
+      const docNameEl = document.querySelector('.doc-name');
+      const docMetaEl = document.querySelector('.doc-meta');
+
+      if (docNameEl) docNameEl.textContent = docData.name;
+      if (docMetaEl) docMetaEl.textContent = docData.fileName;
+
+      // Actualizar título de la barra
+      const barTitle = document.querySelector('.bar strong');
+      if (barTitle) barTitle.textContent = docData.name;
+
+      // Convertir base64 a Blob y cargar el PDF
+      fetch(docData.fileData)
+        .then(res => res.blob())
+        .then(blob => {
+          console.log('✅ PDF convertido a Blob, cargando...');
+
+          // Crear un File object desde el Blob
+          const file = new File([blob], docData.fileName, { type: docData.fileType });
+
+          // Cargar el PDF usando la función existente
+          loadPDF(file);
+
+          // Limpiar sessionStorage después de cargar
+          sessionStorage.removeItem('pendingDocument');
+          console.log('✅ PDF cargado exitosamente desde index.html');
+        })
+        .catch(error => {
+          console.error('❌ Error al cargar PDF desde sessionStorage:', error);
+          alert('❌ Error al cargar el documento. Por favor, súbelo manualmente.');
+          sessionStorage.removeItem('pendingDocument');
+        });
+
+    } catch (error) {
+      console.error('❌ Error al parsear documento pendiente:', error);
+      sessionStorage.removeItem('pendingDocument');
+    }
+  } else {
+    console.log('ℹ️ No hay documento pendiente en sessionStorage');
+  }
 }
 
 // ===== Cargar Archivo (PDF o Word) =====
@@ -838,3 +900,123 @@ async function savePDF(){
     alert('Error al generar PDF: ' + error.message);
   }
 }
+
+// ===== MODAL DE DESTINATARIOS =====
+function initRecipientsModal() {
+  const sendBtn = document.getElementById('sendBtn');
+  const recipientsModal = document.getElementById('recipientsModal');
+  const recipientsClose = document.getElementById('recipientsClose');
+  const recipientsCancel = document.getElementById('recipientsCancel');
+  const recipientsAdd = document.getElementById('recipientsAdd');
+  const recipientsTabs = document.querySelectorAll('.recipients-tab');
+  const tabContents = document.querySelectorAll('.tab-content');
+
+  // Abrir modal al hacer clic en ENVIAR
+  if (sendBtn) {
+    sendBtn.addEventListener('click', function() {
+      console.log('📧 Abriendo modal de destinatarios...');
+      if (recipientsModal) {
+        recipientsModal.setAttribute('aria-hidden', 'false');
+        recipientsModal.style.display = 'flex';
+      }
+    });
+  }
+
+  // Cerrar modal
+  function closeRecipientsModal() {
+    if (recipientsModal) {
+      recipientsModal.setAttribute('aria-hidden', 'true');
+      recipientsModal.style.display = 'none';
+    }
+  }
+
+  if (recipientsClose) recipientsClose.addEventListener('click', closeRecipientsModal);
+  if (recipientsCancel) recipientsCancel.addEventListener('click', closeRecipientsModal);
+
+  // Cerrar modal al hacer clic fuera
+  if (recipientsModal) {
+    recipientsModal.addEventListener('click', function(e) {
+      if (e.target === recipientsModal) {
+        closeRecipientsModal();
+      }
+    });
+  }
+
+  // Manejar pestañas
+  recipientsTabs.forEach(tab => {
+    tab.addEventListener('click', function() {
+      const tabName = this.getAttribute('data-tab');
+
+      // Remover active de todas las pestañas
+      recipientsTabs.forEach(t => t.classList.remove('active'));
+      tabContents.forEach(content => content.classList.remove('active'));
+
+      // Activar pestaña seleccionada
+      this.classList.add('active');
+      const selectedContent = document.getElementById(`tab-${tabName}`);
+      if (selectedContent) {
+        selectedContent.classList.add('active');
+      }
+
+      console.log(`📑 Pestaña cambiada a: ${tabName}`);
+    });
+  });
+
+  // Agregar destinatarios
+  if (recipientsAdd) {
+    recipientsAdd.addEventListener('click', function() {
+      console.log('✅ Agregando destinatarios...');
+
+      // Obtener el tab activo
+      const activeTab = document.querySelector('.recipients-tab.active');
+      const tabType = activeTab ? activeTab.getAttribute('data-tab') : 'email';
+
+      let recipients = [];
+
+      if (tabType === 'email') {
+        const emailInput = document.getElementById('emailInput');
+        if (emailInput && emailInput.value.trim()) {
+          recipients = emailInput.value.split('\n').filter(e => e.trim());
+          console.log('📧 Destinatarios por email:', recipients);
+        }
+      } else if (tabType === 'phone') {
+        const phoneInput = document.getElementById('phoneInput');
+        if (phoneInput && phoneInput.value.trim()) {
+          recipients = phoneInput.value.split('\n').filter(p => p.trim());
+          console.log('📱 Destinatarios por teléfono:', recipients);
+        }
+      } else if (tabType === 'detailed') {
+        const nameInput = document.querySelector('.detailed-form input[type="text"]');
+        const emailInput = document.querySelector('.detailed-form input[type="email"]');
+        const phoneInput = document.querySelector('.detailed-form input[type="tel"]');
+
+        if (nameInput && emailInput && nameInput.value.trim() && emailInput.value.trim()) {
+          recipients.push({
+            name: nameInput.value.trim(),
+            email: emailInput.value.trim(),
+            phone: phoneInput.value.trim()
+          });
+          console.log('👤 Destinatario detallado:', recipients[0]);
+        }
+      }
+
+      if (recipients.length > 0) {
+        alert(`✅ ${recipients.length} destinatario(s) agregado(s) correctamente`);
+        closeRecipientsModal();
+
+        // Aquí puedes agregar la lógica para enviar el documento
+        // Por ejemplo: sendDocumentToRecipients(recipients);
+      } else {
+        alert('⚠️ Por favor ingresa al menos un destinatario');
+      }
+    });
+  }
+
+  console.log('✅ Modal de destinatarios inicializado');
+}
+
+// Llamar a la inicialización del modal cuando el DOM esté listo
+window.addEventListener('DOMContentLoaded', function() {
+  // Esperar un poco para asegurar que todo esté cargado
+  setTimeout(initRecipientsModal, 1000);
+});

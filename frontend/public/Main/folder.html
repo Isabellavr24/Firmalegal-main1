@@ -19,6 +19,33 @@
     .folder-left{display:flex;align-items:center;gap:12px}
     .folder-title{font-size:2.1rem;font-weight:800;letter-spacing:-.02em}
     .folder-icon{width:32px;height:32px;display:grid;place-items:center;border:1px solid var(--stroke);border-radius:8px;background:#fff}
+
+    /* Doc actions */
+    .card.doc{ position: relative; }
+    .card.doc .card-link{ padding-right: 72px; }
+    .doc-actions{
+      position:absolute; top:50%; right:12px;
+      transform:translateY(-50%) translateX(8px);
+      display:flex; flex-direction:column; gap:12px;
+      opacity:0; pointer-events:none;
+      transition: opacity .18s ease, transform .18s ease;
+    }
+    .card.doc:hover .doc-actions{ opacity:1; transform:translateY(-50%) translateX(0); pointer-events:auto; }
+    .doc-actions .icon-btn{
+      width:34px; height:34px; display:grid; place-items:center;
+      border-radius:12px; border:1px solid transparent;
+      background:transparent; color:var(--brand-plum,#2b0e31); cursor:pointer;
+      transition: all .2s ease;
+    }
+    .doc-actions .icon-btn:hover{ background:#fff; border-color:#eadfd8; box-shadow:0 6px 16px rgba(0,0,0,.10); }
+    
+    /* Colores específicos por acción */
+    .doc-actions .icon-btn[data-action="move"]:hover { background: #f3f0ff; border-color: #d4bbff; }
+    .doc-actions .icon-btn[data-action="edit"]:hover { background: #eff6ff; border-color: #bfdbfe; }
+    .doc-actions .icon-btn[data-action="clone"]:hover { background: #f0fdf4; border-color: #bbf7d0; }
+    .doc-actions .icon-btn[data-action="archive"]:hover { background: #fffbeb; border-color: #fde68a; }
+    
+    .doc-actions svg{ width:18px; height:18px; stroke:currentColor; }
   </style>
 </head>
 <body>
@@ -52,45 +79,89 @@
     </div>
     <div class="right">
       <button class="ghost-btn" id="uploadBtn" title="Subir">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-        <polyline points="17 8 12 3 7 8" />
-        <line x1="12" y1="3" x2="12" y2="15" />
-      </svg>
-      SUBIR
-    </button>
-    
-    <!-- input oculto para elegir archivos -->
-    <input id="uploadPicker" type="file" class="sr-only" multiple
-      accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.png,.jpg,.jpeg" />
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="17 8 12 3 7 8" />
+          <line x1="12" y1="3" x2="12" y2="15" />
+        </svg>
+        SUBIR
+      </button>
+      <input id="uploadPicker" type="file" class="sr-only" multiple
+        accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.png,.jpg,.jpeg" />
       <button class="primary-btn" id="createBtn">CREAR</button>
     </div>
   </section>
 
-  <!-- Grid de documentos -->
+  <!-- Grid -->
   <main id="docsGrid" class="cards" aria-live="polite"></main>
 
-  <!-- MODAL: Crear carpeta (para el link "Crear Folder") -->
-  <div id="newFolderModal" class="modal" aria-hidden="true" style="display:none">
-    <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="mf-title">
+  <!-- TEMPLATE: Card de documento -->
+  <template id="doc-card-template">
+    <article class="card doc">
+      <a class="card-link" data-open-doc>
+        <div class="meta">
+          <h3 class="title"></h3>
+          <p class="owner"></p>
+          <p class="date"></p>
+        </div>
+      </a>
+      
+      <!-- Botones de acción -->
+      <div class="doc-actions">
+        <button class="icon-btn" data-action="move" title="Mover a otra carpeta">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.8a2 2 0 0 1-1.7-.9l-.8-1.1A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/>
+          </svg>
+        </button>
+        
+        <button class="icon-btn" data-action="edit" title="Editar nombre">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          </svg>
+        </button>
+        
+        <button class="icon-btn" data-action="clone" title="Duplicar documento">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+          </svg>
+        </button>
+        
+        <button class="icon-btn" data-action="archive" title="Archivar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="21 8 21 21 3 21 3 8"/>
+            <rect x="1" y="3" width="22" height="5"/>
+            <line x1="10" y1="12" x2="14" y2="12"/>
+          </svg>
+        </button>
+      </div>
+    </article>
+  </template>
+
+  <!-- MODAL: Nueva subcarpeta -->
+  <div id="newFolderModal" class="modal" aria-hidden="true" style="display:none; z-index: 1100;">
+    <div class="modal-content create-modal" role="dialog" aria-modal="true" aria-labelledby="nf-title" style="max-width:520px;">
       <header class="modal-header">
-        <h2 id="mf-title">Crear nueva carpeta</h2>
-        <button class="close-btn" data-close="modal" aria-label="Cerrar">×</button>
+        <h2 id="nf-title">Crear nueva carpeta</h2>
+        <button class="close-btn" id="nf-close" aria-label="Cerrar">×</button>
       </header>
-      <div class="modal-body">
+      <div class="modal-body create-body">
         <form id="newFolderForm">
-          <label for="folderName">Nombre de la carpeta</label>
-          <input id="folderName" name="folderName" type="text" placeholder="Ej: Contratos" required />
+          <label for="nf-name" class="nf-label">Nombre de la carpeta</label>
+          <input id="nf-name" type="text" class="ct-input" placeholder="Ej: Subcarpeta" required autocomplete="off" />
+          <label for="nf-description" class="nf-label">Descripción (opcional)</label>
+          <textarea id="nf-description" class="ct-input nf-textarea" placeholder="Breve descripción..." rows="4"></textarea>
         </form>
       </div>
-      <footer class="modal-footer">
-        <button class="btn secondary" data-close="modal">Cancelar</button>
-        <button type="submit" form="newFolderForm" class="btn primary">Crear</button>
+      <footer class="modal-footer create-footer">
+        <button type="button" class="btn secondary" id="nf-cancel">Cancelar</button>
+        <button type="submit" form="newFolderForm" class="cta-create" id="nf-create">Crear Carpeta</button>
       </footer>
     </div>
   </div>
 
-  <!-- MODAL: Crear plantilla (MISMA que index) -->
+  <!-- MODAL: Crear plantilla en esta carpeta -->
   <div id="createTemplateModal" class="modal" aria-hidden="true" style="display:none">
     <div class="modal-content create-modal" role="dialog" aria-modal="true" aria-labelledby="ct-title">
       <header class="modal-header">
@@ -128,15 +199,16 @@
           </div>
         </div>
 
-        <div class="folder-row">
-          <div class="folder-left">
-            <span class="folder-icon">📁</span>
-            <span id="ct-folder-name">Default</span>
+        <div class="form-group">
+          <label class="form-label">Guardar en</label>
+          <div class="folder-selector" style="cursor: default; background: #f5f5f5;">
+            <span class="folder-selector-icon">📁</span>
+            <span id="ct-current-folder-name">Esta carpeta</span>
           </div>
-          <div class="folder-actions">
-            <button type="button" class="link-btn" id="ct-change-folder">Cambiar Carpeta</button>
-            <span class="sep">·</span>
-            <button type="button" class="link-btn" id="ct-new-folder">Crear Folder</button>
+          <div style="margin-top:.5rem; text-align:center;">
+            <button type="button" class="link-btn" id="ct-new-folder" style="font-size:.875rem; color:var(--brand-magenta);">
+              + Crear subcarpeta
+            </button>
           </div>
         </div>
       </div>
@@ -150,9 +222,7 @@
   <!-- Scripts -->
   <script src="/public/Main/permissions.js"></script>
   <script defer src="/public/Main/folder.js"></script>
-
   <script>
-    // Cabecera: permisos y dropdown
     document.addEventListener('DOMContentLoaded', () => {
       if (window.permissions) {
         if (!window.permissions.canAccessConfig?.()) {

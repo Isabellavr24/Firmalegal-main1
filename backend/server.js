@@ -8,6 +8,13 @@ const fs = require('fs');
 // Importar controlador de firmas
 const signaturesController = require('./signatures-controller');
 
+// =============================================
+// IMPORTAR NUEVOS CONTROLADORES Y MIDDLEWARE
+// =============================================
+const foldersController = require('./controllers/folders-controller');
+const documentsController = require('./controllers/documents-controller');
+const { requestLogger } = require('./middleware/auth');
+
 const app = express();
 const port = 3000;
 
@@ -97,6 +104,25 @@ db.connect(err => {
     }
     console.log("🟢 Conectado a MariaDB");
 });
+
+// =============================================
+// COMPARTIR CONEXIÓN DB CON CONTROLADORES
+// =============================================
+app.locals.db = db;
+
+// =============================================
+// MIDDLEWARE GLOBAL DE LOGGING
+// =============================================
+app.use(requestLogger);
+
+// =============================================
+// NUEVAS RUTAS DE CARPETAS Y DOCUMENTOS
+// =============================================
+console.log('📁 Registrando rutas de carpetas y documentos...');
+app.use('/api/folders', foldersController);
+app.use('/api/documents', documentsController);
+app.use('/api/templates', documentsController); // Alias para compatibilidad
+console.log('✅ Rutas registradas exitosamente');
 
 // =========================================
 // MIDDLEWARE DE PERMISOS

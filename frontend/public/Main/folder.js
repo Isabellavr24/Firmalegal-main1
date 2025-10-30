@@ -1,250 +1,529 @@
-/******************************************************
- * folder.js — Vista de carpeta con modal CREAR
- ******************************************************/
+// ====== SISTEMA DE TOASTS ======
+const ToastManager = {
+  container: null,
 
-const grid = document.getElementById('docsGrid');
-const titleEl = document.getElementById('folderTitle');
-const params = new URLSearchParams(location.search);
-const folderId = params.get('id') || '';
-const folderNameFromURL = params.get('name') ? decodeURIComponent(params.get('name')) : 'Carpeta';
-titleEl.textContent = folderNameFromURL;
+  init() {
+    if (!this.container) {
+      this.container = document.createElement('div');
+      this.container.className = 'toast-container';
+      document.body.appendChild(this.container);
+    }
+  },
 
-// ===== Util =====
-function slugify(s){
-  return String(s || '')
-    .toLowerCase()
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-function fmtDate(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  const day  = new Intl.DateTimeFormat('es-ES', { day:'2-digit' }).format(d);
-  let mon    = new Intl.DateTimeFormat('es-ES', { month:'short' }).format(d);
-  mon = mon.replace('.', '');
-  const time = new Intl.DateTimeFormat('es-ES', { hour:'2-digit', minute:'2-digit' }).format(d);
-  return `${day} de ${mon} ${time}`;
-}
+  show({ type = 'info', title, message, duration = 4000 }) {
+    this.init();
 
-// ===== Render docs (demo o API) =====
-async function fetchDocs(){
-  const url = `/api/documents?folder_id=${encodeURIComponent(folderId)}&is_template=1`;
-  try {
-    const res = await fetch(url, { headers: { 'Accept':'application/json' }});
-    if (!res.ok) throw 0;
-    const json = await res.json();
-    if (json?.data && Array.isArray(json.data)) return json.data;
-    throw 0;
-  } catch {
-    // DEMO
-    return [
-      { id: 101, title: 'otro si al contrato de arrendamiento', owner_name:'PKI SERVICES', updated_at:'2024-09-25T11:11:00' },
-      { id: 102, title: 'contrato de arrendamiento 2DO PISO',   owner_name:'PKI SERVICES', updated_at:'2024-09-25T10:21:00' },
-    ];
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+
+    const icons = {
+      success: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>`,
+      error: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+      warning: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+      info: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`
+    };
+
+    toast.innerHTML = `
+      <div class="toast-icon">${icons[type]}</div>
+      <div class="toast-content">
+        ${title ? `<div class="toast-title">${title}</div>` : ''}
+        ${message ? `<div class="toast-message">${message}</div>` : ''}
+      </div>
+      <button class="toast-close" aria-label="Cerrar">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"/>
+          <line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    `;
+
+    this.container.appendChild(toast);
+
+    toast.querySelector('.toast-close').addEventListener('click', () => {
+      this.remove(toast);
+    });
+
+    if (duration > 0) {
+      setTimeout(() => this.remove(toast), duration);
+    }
+
+    return toast;
+  },
+
+  remove(toast) {
+    toast.classList.add('removing');
+    setTimeout(() => {
+      if (toast.parentNode) {
+        toast.parentNode.removeChild(toast);
+      }
+    }, 300);
+  },
+
+  success(title, message, duration) {
+    return this.show({ type: 'success', title, message, duration });
+  },
+
+  error(title, message, duration) {
+    return this.show({ type: 'error', title, message, duration });
+  },
+
+  warning(title, message, duration) {
+    return this.show({ type: 'warning', title, message, duration });
+  },
+
+  info(title, message, duration) {
+    return this.show({ type: 'info', title, message, duration });
   }
+};
+
+// -------------------------
+// Utilidades de formato
+// -------------------------
+const fmtDate = (d = new Date()) => {
+  try {
+    const f = new Date(d);
+    const fecha = f.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' }).replace('.', '');
+    const hora  = f.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', hour12: false });
+    return `${fecha} ${hora}`;
+  } catch {
+    return '';
+  }
+};
+
+// -------------------------
+// Store PERSISTENTE (localStorage)
+// -------------------------
+const LS_KEY = 'firmalegal_store';
+
+const Store = {
+  _load() {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) {
+      const seed = {
+        folders: [],
+        docs: []
+      };
+      localStorage.setItem(LS_KEY, JSON.stringify(seed));
+      return seed;
+    }
+    try { 
+      return JSON.parse(raw); 
+    } catch { 
+      return { folders: [], docs: [] }; 
+    }
+  },
+  
+  _save(db) { 
+    localStorage.setItem(LS_KEY, JSON.stringify(db)); 
+    console.log('💾 Datos guardados en localStorage');
+  },
+
+  all() { 
+    return this._load(); 
+  },
+
+  byParent(parentId) {
+    const db = this._load();
+    const folders = db.folders.filter(f => (f.parentId || '') === (parentId || ''));
+    const docs    = db.docs.filter(d => (d.folderId || '') === (parentId || ''));
+    return { folders, docs };
+  },
+
+  addFolder({ name, parentId }) {
+    const db = this._load();
+    const id = `f_${crypto.randomUUID?.() || (Date.now()+Math.random()).toString(36)}`;
+    const folder = {
+      id,
+      name,
+      parentId: parentId || '',
+      createdAt: Date.now()
+    };
+    db.folders.push(folder);
+    this._save(db);
+    console.log('✅ Carpeta agregada al Store:', name, 'Parent:', parentId || '(raíz)', 'Datos:', folder);
+    return id;
+  },
+
+  addDoc({ title, folderId }) {
+    const db = this._load();
+    const id = `d_${crypto.randomUUID?.() || (Date.now()+Math.random()).toString(36)}`;
+    db.docs.push({ 
+      id, 
+      title, 
+      owner: 'PKI SERVICES', 
+      date: Date.now(), 
+      folderId: folderId || '' 
+    });
+    this._save(db);
+    console.log('✅ Documento agregado:', title);
+    return id;
+  },
+
+  updateDoc(id, updates) {
+    const db = this._load();
+    const doc = db.docs.find(d => d.id === id);
+    if (doc) {
+      Object.assign(doc, updates);
+      this._save(db);
+      console.log('✅ Documento actualizado:', id);
+      return true;
+    }
+    return false;
+  },
+
+  deleteDoc(id) {
+    const db = this._load();
+    const idx = db.docs.findIndex(d => d.id === id);
+    if (idx >= 0) {
+      db.docs.splice(idx, 1);
+      this._save(db);
+      console.log('✅ Documento eliminado:', id);
+      return true;
+    }
+    return false;
+  }
+};
+
+// -------------------------
+// DOM refs
+// -------------------------
+const grid = document.getElementById('docsGrid');
+const tplDoc = document.getElementById('doc-card-template');
+
+const uploadBtn   = document.getElementById('uploadBtn');
+const uploadPick  = document.getElementById('uploadPicker');
+const createBtn   = document.getElementById('createBtn');
+
+const modalCreate = document.getElementById('createTemplateModal');
+const ctClose     = document.getElementById('ct-close');
+const ctName      = document.getElementById('ct-name');
+const ctFile      = document.getElementById('ct-file');
+const ctFileText  = document.getElementById('ct-file-text');
+const ctDrive     = document.getElementById('ct-gdrive');
+const ctCreate    = document.getElementById('ct-create');
+const segBtns     = modalCreate ? modalCreate.querySelectorAll('.segmented-btn') : null;
+const tabUpload   = document.getElementById('ct-tab-upload');
+const tabDrive    = document.getElementById('ct-tab-gdrive');
+
+const newFolderModal = document.getElementById('newFolderModal');
+const nfClose   = document.getElementById('nf-close');
+const nfCancel  = document.getElementById('nf-cancel');
+const nfForm    = document.getElementById('newFolderForm');
+const nfName    = document.getElementById('nf-name');
+
+const btnNewSub = document.getElementById('ct-new-folder');
+
+// -------------------------
+// Carpeta actual (desde URL)
+// -------------------------
+const params = new URLSearchParams(location.search);
+const currentFolderId   = params.get('id') || '';
+const currentFolderName = params.get('name') ? decodeURIComponent(params.get('name')) : 'Carpeta';
+
+const titleEl = document.getElementById('folderTitle');
+if (titleEl) titleEl.textContent = currentFolderName;
+const cfEl = document.getElementById('ct-current-folder-name');
+if (cfEl) cfEl.textContent = currentFolderName;
+
+// -------------------------
+// Render
+// -------------------------
+function clearGrid() {
+  if (!grid) return;
+  grid.innerHTML = '';
 }
-function docCardTemplate(doc){
-  const art = document.createElement('article');
-  art.className = 'card doc';
-  art.innerHTML = `
-    <a class="card-link" href="#">
-      <div class="doc-body">
-        <h3 class="title">${doc.title || doc.name || 'Documento'}</h3>
-        <div class="badges">
-          <span class="small">${doc.owner_name || 'PKI SERVICES'}</span>
-          <span class="small muted">${fmtDate(doc.updated_at || doc.created_at || new Date().toISOString())}</span>
+
+function renderEmpty() {
+  if (!grid) return;
+  grid.innerHTML = `
+    <div class="empty-state">
+      <div class="empty-state-content">
+        <div class="empty-state-icon">
+          <svg width="68" height="68" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <rect x="3" y="3" width="7" height="7" rx="2"></rect>
+            <rect x="14" y="3" width="7" height="7" rx="2"></rect>
+            <rect x="14" y="14" width="7" height="7" rx="2"></rect>
+            <rect x="3" y="14" width="7" height="7" rx="2"></rect>
+          </svg>
         </div>
+        <h2 class="empty-state-title">Esta carpeta está vacía</h2>
+        <p class="empty-state-description">Sube documentos o crea una subcarpeta para empezar.</p>
+        <button class="empty-state-btn" id="emptyCreateBtn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+          Crear documento
+        </button>
+      </div>
+    </div>
+  `;
+  document.getElementById('emptyCreateBtn')?.addEventListener('click', openCreateModal);
+}
+
+function folderCard({ id, name, count }) {
+  const art = document.createElement('article');
+  art.className = 'card folder';
+  art.innerHTML = `
+    <a class="card-link" href="./folder.html?id=${encodeURIComponent(id)}&name=${encodeURIComponent(name)}">
+      <div class="folder-icon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.8a2 2 0 0 1-1.7-.9l-.8-1.1A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/>
+        </svg>
+      </div>
+      <div class="meta">
+        <h3 class="title">${name}</h3>
+        <p class="sub">${count ?? 0} elementos</p>
       </div>
     </a>
   `;
-  art.querySelector('a').addEventListener('click', (e) => {
-    e.preventDefault();
-    console.log('Abrir documento', doc.id);
-    // TODO: integrar visor/descarga
-  });
   return art;
 }
-async function renderDocs(){
-  const docs = await fetchDocs();
-  grid.innerHTML = '';
-  if (!docs.length) { grid.innerHTML = '<p>No hay documentos en esta carpeta.</p>'; return; }
-  docs.forEach(d => grid.appendChild(docCardTemplate(d)));
+
+function docCard({ id, title, owner, date }) {
+  if (!tplDoc) {
+    console.error('Template #doc-card-template no encontrado');
+    return document.createElement('div');
+  }
+  
+  const node = tplDoc.content.firstElementChild.cloneNode(true);
+  node.dataset.id = id;
+  node.querySelector('.title').textContent = title;
+  node.querySelector('.owner').textContent = owner || 'PKI SERVICES';
+  node.querySelector('.date').textContent  = fmtDate(date);
+
+  node.querySelectorAll('[data-action]').forEach(btn => {
+    btn.dataset.id = id;
+  });
+
+  return node;
 }
 
-// ======== MODAL CREAR (idéntico a index, adaptado a folder) ========
-(function(){
-  const openBtn   = document.getElementById('createBtn');
-  const modal     = document.getElementById('createTemplateModal');
-  const closeBtn  = document.getElementById('ct-close');
+function render() {
+  clearGrid();
+  const { folders, docs } = Store.byParent(currentFolderId);
 
-  const segBtns   = modal?.querySelectorAll('.segmented-btn');
-  const uploadTab = document.getElementById('ct-tab-upload');
-  const driveTab  = document.getElementById('ct-tab-gdrive');
+  console.log(`📂 Renderizando carpeta "${currentFolderName}":`, {
+    folders: folders.length,
+    docs: docs.length
+  });
 
-  const nameInput = document.getElementById('ct-name');
-  const fileInput = document.getElementById('ct-file');
-  const fileText  = document.getElementById('ct-file-text');
-  const driveInput= document.getElementById('ct-gdrive');
-  const createBtn = document.getElementById('ct-create');
-
-  const folderNameEl = document.getElementById('ct-folder-name');
-  const changeBtn = document.getElementById('ct-change-folder');
-  const newFolder = document.getElementById('ct-new-folder');
-
-  // Prefija el folder actual
-  folderNameEl.textContent = folderNameFromURL || 'Default';
-
-  if(!modal) return;
-
-  function open(){
-    modal.style.display = 'flex';
-    modal.setAttribute('aria-hidden', 'false');
-    nameInput.focus();
-    refreshCreateState();
-  }
-  function close(){
-    modal.style.display = 'none';
-    modal.setAttribute('aria-hidden', 'true');
+  if (!folders.length && !docs.length) {
+    renderEmpty();
+    return;
   }
 
-  openBtn?.addEventListener('click', open);
-  closeBtn?.addEventListener('click', close);
-  modal.addEventListener('click', (e)=>{ if(e.target === modal) close(); });
-  window.addEventListener('keydown', (e)=>{ if(e.key === 'Escape') close(); });
-
-  // Tabs
-  segBtns?.forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      segBtns.forEach(b=>b.classList.remove('is-active'));
-      btn.classList.add('is-active');
-      const tab = btn.dataset.tab;
-      uploadTab?.classList.toggle('is-visible', tab==='upload');
-      driveTab?.classList.toggle('is-visible', tab==='gdrive');
-      refreshCreateState();
-    });
+  folders.forEach(f => {
+    // Contar tanto subcarpetas como documentos dentro de esta carpeta
+    const { folders: subfolders, docs: childs } = Store.byParent(f.id);
+    const totalCount = (subfolders?.length || 0) + (childs?.length || 0);
+    grid.appendChild(folderCard({ id: f.id, name: f.name, count: totalCount }));
   });
 
-  // File input
-  fileInput?.addEventListener('change', ()=>{
-    if(fileInput.files?.length){
-      fileText.textContent = fileInput.files.length === 1
-        ? fileInput.files[0].name
-        : `${fileInput.files.length} archivos seleccionados`;
-    } else {
-      fileText.textContent = 'Selecciona un archivo…';
-    }
-    refreshCreateState();
-  });
+  docs.forEach(d => grid.appendChild(docCard(d)));
+}
 
-  [nameInput, driveInput].forEach(el=> el?.addEventListener('input', refreshCreateState));
+// -------------------------
+// Subir / Crear / Modales
+// -------------------------
+function openCreateModal() {
+  if (!modalCreate) return;
+  modalCreate.style.display = 'flex';
+  modalCreate.setAttribute('aria-hidden', 'false');
+  ctName.value = '';
+  ctFile.value = '';
+  ctFileText.textContent = 'Selecciona un archivo…';
+  ctDrive.value = '';
+  refreshCreateBtn();
+  setTab('upload');
+}
 
-  function usingDrive(){ return driveTab?.classList.contains('is-visible'); }
-  function hasSource(){
-    return usingDrive()
-      ? !!(driveInput?.value || '').trim()
-      : !!fileInput?.files?.length;
+function closeCreateModal() {
+  if (!modalCreate) return;
+  modalCreate.style.display = 'none';
+  modalCreate.setAttribute('aria-hidden', 'true');
+}
+
+function setTab(which) {
+  segBtns?.forEach(b => b.classList.toggle('is-active', b.dataset.tab === which));
+  tabUpload?.classList.toggle('is-visible', which === 'upload');
+  tabDrive?.classList.toggle('is-visible', which === 'gdrive');
+  refreshCreateBtn();
+}
+
+function usingDrive() {
+  return tabDrive?.classList.contains('is-visible');
+}
+
+function hasSource() {
+  if (usingDrive()) return (ctDrive.value || '').trim().length > 0;
+  return !!(ctFile.files && ctFile.files.length);
+}
+
+function refreshCreateBtn() {
+  const hasName = (ctName.value || '').trim().length > 0;
+  ctCreate.disabled = !(hasName && hasSource());
+}
+
+createBtn?.addEventListener('click', openCreateModal);
+ctClose?.addEventListener('click', closeCreateModal);
+modalCreate?.addEventListener('click', (e) => { if (e.target === modalCreate) closeCreateModal(); });
+segBtns?.forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
+ctFile?.addEventListener('change', () => {
+  ctFileText.textContent = ctFile.files?.length
+    ? (ctFile.files.length === 1 ? ctFile.files[0].name : `${ctFile.files.length} archivos`)
+    : 'Selecciona un archivo…';
+  refreshCreateBtn();
+});
+[ctName, ctDrive].forEach(el => el?.addEventListener('input', refreshCreateBtn));
+
+ctCreate?.addEventListener('click', () => {
+  const title = ctName.value.trim();
+  if (!title) {
+    ToastManager.warning('Campo requerido', 'Por favor ingresa un nombre para el documento');
+    return;
   }
-  function refreshCreateState(){
-    const hasName = (nameInput?.value || '').trim().length > 0;
-    createBtn.disabled = !(hasName && hasSource());
+  Store.addDoc({ title, folderId: currentFolderId });
+  closeCreateModal();
+  render();
+  ToastManager.success('Documento creado', `"${title}" se agregó a la carpeta`);
+});
+
+uploadBtn?.addEventListener('click', () => uploadPick?.click());
+uploadPick?.addEventListener('change', () => {
+  const files = Array.from(uploadPick.files || []);
+  let added = 0;
+  files.forEach(f => {
+    const base = f.name.replace(/\.[^.]+$/, '');
+    Store.addDoc({ title: base, folderId: currentFolderId });
+    added++;
+  });
+  uploadPick.value = '';
+  render();
+  if (added > 0) {
+    ToastManager.success('Documentos subidos', `Se agregaron ${added} documento${added > 1 ? 's' : ''}`);
   }
+});
 
-  // Cambiar carpeta (simple prompt; integra tu selector real si lo tienes)
-  changeBtn?.addEventListener('click', ()=>{
-    const val = prompt('Folder name:', folderNameEl.textContent || 'Default');
-    if(val){ folderNameEl.textContent = val.trim(); }
-  });
+btnNewSub?.addEventListener('click', () => {
+  openNewFolderModal();
+});
 
-  // Crear carpeta: abre modal de nueva carpeta (incluido en esta página)
-  const newFolderModal = document.getElementById('newFolderModal');
-  const openNf = () => { newFolderModal.style.display='flex'; newFolderModal.setAttribute('aria-hidden','false'); };
-  const closeNf= () => { newFolderModal.style.display='none'; newFolderModal.setAttribute('aria-hidden','true'); };
+// -------------------------
+// Modal nueva carpeta
+// -------------------------
+function openNewFolderModal() {
+  if (!newFolderModal) return;
+  newFolderModal.style.display = 'flex';
+  newFolderModal.setAttribute('aria-hidden', 'false');
+  nfName.value = '';
+  setTimeout(() => nfName.focus(), 0);
+}
 
-  newFolder?.addEventListener('click', openNf);
-  newFolderModal?.addEventListener('click', (e) => {
-    if (e.target.dataset.close === 'modal' || e.target === newFolderModal) closeNf();
-  });
-  document.getElementById('newFolderForm')?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const name = e.target.folderName.value.trim();
-    if(!name) return;
-    // Aquí llamarías a tu API para crear la carpeta y recuperar su ID real
-    folderNameEl.textContent = name;
-    closeNf();
-    e.target.reset();
-  });
+function closeNewFolderModal() {
+  if (!newFolderModal) return;
+  newFolderModal.style.display = 'none';
+  newFolderModal.setAttribute('aria-hidden', 'true');
+}
 
-  // Acción CREAR (integra tu API real aquí)
-  createBtn?.addEventListener('click', async ()=>{
-    const payload = {
-      name: nameInput.value.trim(),
-      folder_id: folderId || slugify(folderNameEl.textContent.trim()),
-      folder_name: folderNameEl.textContent.trim(),
-      source: usingDrive() ? {type:'gdrive', url: driveInput.value.trim()}
-                           : {type:'upload', files: fileInput.files}
-    };
+nfClose?.addEventListener('click', closeNewFolderModal);
+nfCancel?.addEventListener('click', closeNewFolderModal);
+newFolderModal?.addEventListener('click', (e) => { if (e.target === newFolderModal) closeNewFolderModal(); });
 
-    console.log('CREATE (folder view) payload:', payload);
+nfForm?.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const name = nfName.value.trim();
+  if (!name) {
+    ToastManager.warning('Campo requerido', 'Debes ingresar un nombre para la carpeta');
+    return;
+  }
+  Store.addFolder({ name, parentId: currentFolderId });
+  closeNewFolderModal();
+  render();
+  ToastManager.success('Subcarpeta creada', `"${name}" se creó exitosamente`);
+});
 
-    // TODO: reemplaza por tu fetch real
-    // const res = await fetch('/api/templates', { method:'POST', body: formData ... })
-
-    // UX de cierre simple
-    createBtn.disabled = true;
-    const orig = createBtn.textContent;
-    createBtn.textContent = 'Creando…';
-    setTimeout(()=>{ createBtn.textContent = orig; createBtn.disabled = false; close(); }, 600);
-  });
-})();
-
-// ===== Init =====
-document.addEventListener('DOMContentLoaded', renderDocs);
-
-// ===== Logout =====
-document.addEventListener('click', async (e) => {
-  const btn = e.target.closest('#logoutBtn');
+// -------------------------
+// EVENT DELEGATION: Acciones de documentos
+// -------------------------
+grid?.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-action]');
   if (!btn) return;
-  try { await window.permissions?.logout?.(); } catch {}
+  
+  e.preventDefault();
+  e.stopPropagation();
+  
+  const id = btn.dataset.id;
+  const action = btn.dataset.action;
+  const db = Store.all();
+  const doc = db.docs.find(d => d.id === id);
+  
+  if (!doc) {
+    console.warn('⚠️ Documento no encontrado:', id);
+    return;
+  }
+  
   try {
-    localStorage.removeItem('auth_user');
-    localStorage.removeItem('current_user');
-    localStorage.removeItem('token');
-  } catch {}
-  location.href = '/login.html';
-});
-
-
-// ========= SUBIR (FOLDER) =========
-const UPLOAD_ENDPOINT = '/api/templates/upload'; // <-- AJUSTA si tu backend usa otra ruta
-const uploadBtnF    = document.getElementById('uploadBtn');
-const uploadPickerF = document.getElementById('uploadPicker');
-
-uploadBtnF?.addEventListener('click', () => uploadPickerF?.click());
-
-uploadPickerF?.addEventListener('change', async (e) => {
-  const files = Array.from(e.target.files || []);
-  if (!files.length) return;
-
-  const folderName = document.getElementById('folderTitle')?.textContent?.trim() || 'Default';
-  try {
-    await uploadFilesInFolder(files, { folderId, folderName });
-    await renderDocs();               // vuelve a listar documentos en la carpeta
-    alert('Subida completada ✔️');
+    switch(action) {
+      case 'move':
+        ToastManager.info('Próximamente', 'Esta funcionalidad abrirá un modal para seleccionar la carpeta destino');
+        break;
+        
+      case 'edit':
+        const newName = prompt('Nuevo nombre del documento:', doc.title);
+        if (newName && newName.trim()) {
+          Store.updateDoc(id, { title: newName.trim() });
+          render();
+          ToastManager.success('Documento renombrado', 'El nombre se actualizó correctamente');
+        }
+        break;
+        
+      case 'clone':
+        Store.addDoc({ 
+          title: `${doc.title} (copia)`, 
+          folderId: currentFolderId 
+        });
+        render();
+        ToastManager.success('Documento duplicado', 'Se creó una copia del documento');
+        break;
+        
+      case 'archive':
+        if (confirm(`¿Archivar el documento "${doc.title}"?`)) {
+          Store.deleteDoc(id);
+          render();
+          ToastManager.info('Documento archivado', 'El documento se movió a archivados');
+        }
+        break;
+    }
   } catch (err) {
-    alert('Error al subir: ' + (err?.message || err));
-  } finally {
-    e.target.value = '';
+    console.error('❌ Error en acción:', err);
+    ToastManager.error('Error en la acción', err.message || 'Ocurrió un error inesperado');
   }
 });
 
-async function uploadFilesInFolder(files, { folderId, folderName }) {
-  const fd = new FormData();
-  files.forEach(f => fd.append('files', f));      // "files" -> AJUSTA al nombre que espere tu backend
-  fd.append('folder_id', folderId);
-  fd.append('folder_name', folderName);
+grid?.addEventListener('click', (e) => {
+  if (e.target.closest('.doc-actions')) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+}, true);
 
-  const res = await fetch(UPLOAD_ENDPOINT, { method: 'POST', body: fd });
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  return res.json();
-}
+// -------------------------
+// Permisos + UX header
+// -------------------------
+document.addEventListener('DOMContentLoaded', () => {
+  try {
+    if (window.permissions) {
+      if (!window.permissions.canAccessConfig?.()) {
+        const link = document.getElementById('configLink');
+        if (link) link.style.display = 'none';
+      }
+      window.permissions.updateAllAvatars?.();
+    }
+    document.addEventListener('click', (e) => {
+      const dd = document.getElementById('userMenu');
+      if (dd && !dd.contains(e.target)) dd.removeAttribute('open');
+    });
+  } catch {}
+  
+  render();
+});
+
+console.log('📁 Folder.js iniciado - Carpeta:', currentFolderName);

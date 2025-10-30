@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <title>Editor de Firma</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link rel="stylesheet" href="public/Main/M-styles/sign.css">
+  <link rel="stylesheet" href="/public/Main/M-styles/sign.css">
 </head>
 <body>
 
@@ -204,6 +204,86 @@
     </div>
   </div>
 
+  <!-- MODAL de destinatarios -->
+  <div id="recipientsModal" class="modal-back" aria-hidden="true">
+    <div class="modal modal-recipients" role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <h3>Agregar nuevos destinatarios</h3>
+        <button class="close-modal" id="recipientsClose">×</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Pestañas -->
+        <div class="recipients-tabs">
+          <button class="recipients-tab active" data-tab="email">por Email</button>
+          <button class="recipients-tab" data-tab="phone">por Teléfono</button>
+          <button class="recipients-tab" data-tab="detailed">Detallado</button>
+          <button class="recipients-tab" data-tab="upload">Subir lista</button>
+        </div>
+
+        <!-- Contenido de pestañas -->
+        <div class="recipients-content">
+          <!-- Pestaña Email -->
+          <div id="tab-email" class="tab-content active">
+            <textarea
+              id="emailInput"
+              class="recipients-textarea"
+              placeholder="Escribe correos electrónicos aquí..."
+              rows="6"
+            ></textarea>
+          </div>
+
+          <!-- Pestaña Teléfono -->
+          <div id="tab-phone" class="tab-content">
+            <textarea
+              id="phoneInput"
+              class="recipients-textarea"
+              placeholder="Escribe números de teléfono aquí..."
+              rows="6"
+            ></textarea>
+          </div>
+
+          <!-- Pestaña Detallado -->
+          <div id="tab-detailed" class="tab-content">
+            <div class="detailed-form">
+              <input type="text" class="form-input" placeholder="Nombre completo">
+              <input type="email" class="form-input" placeholder="Correo electrónico">
+              <input type="tel" class="form-input" placeholder="Teléfono (opcional)">
+            </div>
+          </div>
+
+          <!-- Pestaña Subir lista -->
+          <div id="tab-upload" class="tab-content">
+            <div class="upload-zone">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+              <p>Arrastra un archivo CSV o haz clic para seleccionar</p>
+              <input type="file" id="csvFileInput" accept=".csv" style="display:none">
+              <button class="upload-btn" onclick="document.getElementById('csvFileInput').click()">Seleccionar archivo</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Checkbox y opciones -->
+        <div class="recipients-options">
+          <label class="checkbox-label">
+            <input type="checkbox" id="sendEmailCheckbox" checked>
+            <span>Enviar correo electrónico</span>
+          </label>
+          <a href="#" class="edit-message-link" id="editMessageLink">Editar mensaje</a>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button id="recipientsCancel" class="btn btn-secondary">Cancelar</button>
+        <button id="recipientsAdd" class="btn btn-primary">AGREGAR DESTINATARIOS</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Libs desde UNPKG (alternativa a CDNJS) -->
   <script src="https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.min.mjs" type="module"></script>
   <script type="module">
@@ -231,6 +311,6 @@
   </script>
 
   <!-- Tu JS - versión corregida -->
-  <script src="public/Main/sign.js"></script>
+  <script src="/public/Main/sign.js"></script>
 </body>
 </html>
