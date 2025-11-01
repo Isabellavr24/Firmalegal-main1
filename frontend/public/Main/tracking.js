@@ -148,18 +148,31 @@ function createRecipientCard(recipient) {
   const statusClass = getStatusClass(recipient.status);
   const statusText = getStatusText(recipient.status);
 
+  // Formatear email/nombre
+  const displayName = recipient.name || recipient.email;
+  const displayEmail = recipient.email;
+
   card.innerHTML = `
     <div class="recipient-info">
       <div class="status-badge ${statusClass}">
         ${statusText}
       </div>
       <div class="recipient-emails">
-        ${recipient.emails.map(email => `
-          <p class="recipient-email">${email}</p>
-        `).join('')}
+        <p class="recipient-email">${displayEmail}</p>
+        ${recipient.name && recipient.name !== recipient.email ? `<p class="recipient-name" style="font-size: 12px; color: #666; margin-top: 4px;">${recipient.name}</p>` : ''}
       </div>
     </div>
     <div class="recipient-actions">
+      <button class="recipient-btn copy" data-action="copy" data-id="${recipient.id}" data-token="${recipient.token || ''}" title="Copiar enlace de firma">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+        </svg>
+        COPIAR
+      </button>
+      <button class="recipient-btn view" data-action="view" data-id="${recipient.id}">
+        VISTA
+      </button>
       <button class="recipient-btn download" data-action="download" data-id="${recipient.id}">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -167,15 +180,6 @@ function createRecipientCard(recipient) {
           <line x1="12" y1="15" x2="12" y2="3"/>
         </svg>
         DESCARGAR
-      </button>
-      <button class="recipient-btn view" data-action="view" data-id="${recipient.id}">
-        VISTA
-      </button>
-      <button class="recipient-btn delete" data-action="delete" data-id="${recipient.id}">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="3 6 5 6 21 6"/>
-          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-        </svg>
       </button>
     </div>
   `;
@@ -185,22 +189,24 @@ function createRecipientCard(recipient) {
 
 function getStatusClass(status) {
   const statusMap = {
-    'completed': 'completed',
-    'pending': 'pending',
-    'rejected': 'rejected',
-    'viewed': 'viewed'
+    'sent': 'pending',        // Enviado → azul
+    'opened': 'viewed',       // Abierto → amarillo
+    'completed': 'completed', // Completado → verde
+    'rejected': 'rejected',   // Rechazado → rojo
+    'pending': 'pending'      // Por si acaso
   };
-  return statusMap[status] || 'pending';
+  return statusMap[status?.toLowerCase()] || 'pending';
 }
 
 function getStatusText(status) {
   const statusTextMap = {
+    'sent': 'ENVIADO',
+    'opened': 'ABIERTO',
     'completed': 'COMPLETADO',
-    'pending': 'PENDIENTE',
     'rejected': 'RECHAZADO',
-    'viewed': 'VISTO'
+    'pending': 'PENDIENTE'
   };
-  return statusTextMap[status] || 'PENDIENTE';
+  return statusTextMap[status?.toLowerCase()] || 'PENDIENTE';
 }
 
 // ====== ACCIONES DE DOCUMENTO ======
@@ -242,7 +248,8 @@ function handleEditAction() {
   const docData = getDocumentDataFromURL();
 
   console.log('✏️ Editando documento:', docData.id);
-  window.location.href = `./sign.html?id=${docData.id}&name=${encodeURIComponent(docData.name)}`;
+  // ✅ Redirigir a modo preparación para editar campos
+  window.location.href = `/sign.html?mode=prepare&id=${docData.id}&name=${encodeURIComponent(docData.name)}`;
 }
 
 function handleExportAction() {
@@ -257,17 +264,79 @@ function handleExportAction() {
 
 function handleAddRecipient() {
   console.log('➕ Agregar nuevo destinatario');
-  ToastManager.info('Próximamente', 'Esta función estará disponible pronto');
-
-  // Aquí se abriría un modal para agregar destinatarios
+  
+  // Abrir modal de destinatarios
+  const modal = document.getElementById('recipientsModal');
+  console.log('Modal encontrado:', modal);
+  
+  if (modal) {
+    const modalBox = modal.querySelector('.modal');
+    console.log('Caja del modal (.modal):', modalBox);
+    console.log('Caja display:', modalBox ? window.getComputedStyle(modalBox).display : 'N/A');
+    console.log('Caja visibility:', modalBox ? window.getComputedStyle(modalBox).visibility : 'N/A');
+    console.log('Caja opacity:', modalBox ? window.getComputedStyle(modalBox).opacity : 'N/A');
+    
+    console.log('Clases antes:', modal.className);
+    modal.classList.add('show');
+    modal.setAttribute('aria-hidden', 'false');
+    console.log('Clases después:', modal.className);
+    console.log('Display style:', window.getComputedStyle(modal).display);
+  } else {
+    console.error('❌ Modal no encontrado en el DOM');
+  }
 }
 
 // ====== ACCIONES DE DESTINATARIOS ======
+function handleRecipientCopy(recipientId, token) {
+  console.log('📋 Copiando enlace de firma para:', recipientId);
+  
+  // Si no hay token, mostrar error
+  if (!token || token === '') {
+    ToastManager.error('Error', 'No se encontró el token de firma');
+    return;
+  }
+  
+  const signUrl = `${window.location.origin}/public/Main/public-sign.html?token=${token}`;
+  
+  navigator.clipboard.writeText(signUrl).then(() => {
+    ToastManager.success('¡Enlace copiado!', 'El enlace de firma se copió al portapapeles');
+  }).catch(err => {
+    console.error('Error al copiar:', err);
+    ToastManager.error('Error', 'No se pudo copiar el enlace');
+  });
+}
+
 function handleRecipientDownload(recipientId) {
   console.log('💾 Descargando documento firmado por:', recipientId);
-  ToastManager.success('Descargando', 'El documento firmado se está descargando');
+  
+  const docData = getDocumentDataFromURL();
+  
+  // Obtener user_id desde localStorage
+  const user = getCurrentUser();
+  if (!user || !user.user_id) {
+    ToastManager.error('Error', 'No hay sesión activa');
+    console.error('❌ No se pudo obtener user_id del usuario');
+    return;
+  }
 
-  // Aquí iría la lógica para descargar el PDF firmado
+  const userId = user.user_id;
+  console.log(`📥 Descargando para doc: ${docData.id}, recipient: ${recipientId}, user: ${userId}`);
+
+  // Mostrar toast de descarga
+  ToastManager.info('Descargando', 'Preparando el documento...', 0);
+
+  // Crear URL de descarga
+  const downloadUrl = `/api/documents/${docData.id}/recipients/${recipientId}/download?user_id=${userId}`;
+  
+  console.log(`🔗 URL de descarga: ${downloadUrl}`);
+  
+  // Usar window.open para forzar la descarga
+  window.open(downloadUrl, '_blank');
+  
+  // Actualizar toast después de un momento
+  setTimeout(() => {
+    ToastManager.success('¡Descarga iniciada!', 'El documento se está descargando');
+  }, 500);
 }
 
 function handleRecipientView(recipientId) {
@@ -319,8 +388,12 @@ document.addEventListener('click', (e) => {
   if (actionBtn) {
     const action = actionBtn.dataset.action;
     const recipientId = actionBtn.dataset.id;
+    const token = actionBtn.dataset.token; // Para el enlace de firma
 
     switch(action) {
+      case 'copy':
+        handleRecipientCopy(recipientId, token);
+        break;
       case 'download':
         handleRecipientDownload(recipientId);
         break;
@@ -417,6 +490,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // Obtener datos del documento desde URL
   const docData = getDocumentDataFromURL();
 
+  // ✅ Verificar si hay un documento válido
+  if (!docData.id || docData.id === 'null' || docData.id === 'undefined') {
+    console.log('⚠️ No hay documento válido en la URL');
+    showNoDocumentState();
+    return;
+  }
+
   // Actualizar título
   const titleEl = document.getElementById('documentTitle');
   if (titleEl) titleEl.textContent = docData.name;
@@ -424,8 +504,315 @@ document.addEventListener('DOMContentLoaded', () => {
   const folderEl = document.getElementById('folderName');
   if (folderEl) folderEl.textContent = docData.folder;
 
-  // Cargar destinatarios (demo por ahora)
-  renderRecipients(demoData.recipients);
+  // Verificar si el documento tiene campos asignados
+  checkDocumentFields(docData.id, docData.name);
 
   console.log('✅ Vista de seguimiento lista');
+});
+
+// ====== MOSTRAR ESTADO: NO HAY DOCUMENTO ======
+function showNoDocumentState() {
+  const noDocState = document.getElementById('noDocumentState');
+  const docHeader = document.getElementById('documentHeader');
+  const trackingSection = document.getElementById('trackingSection');
+  const emptyState = document.getElementById('emptyState');
+  const banner = document.getElementById('unassignedBanner');
+
+  if (noDocState) noDocState.style.display = 'block';
+  if (docHeader) docHeader.style.display = 'none';
+  if (trackingSection) trackingSection.style.display = 'none';
+  if (emptyState) emptyState.style.display = 'none';
+  if (banner) banner.style.display = 'none';
+
+  console.log('📄 Mostrando estado: Sin documento');
+}
+
+// ====== VERIFICAR CAMPOS DEL DOCUMENTO ======
+async function checkDocumentFields(docId, docName) {
+  console.log('🔍 Verificando campos del documento:', docId);
+  
+  try {
+    // ✅ CORREGIDO: Usar currentUser en lugar de token
+    const userStr = localStorage.getItem('currentUser');
+    if (!userStr) {
+      console.error('❌ No hay usuario autenticado');
+      return;
+    }
+
+    const user = JSON.parse(userStr);
+
+    const response = await fetch(`/api/documents/${docId}/fields?user_id=${user.user_id}`);
+
+    if (!response.ok) {
+      throw new Error('Error al obtener campos');
+    }
+
+    const data = await response.json();
+    const fields = data.data?.fields || [];
+
+    console.log(`📋 Campos encontrados: ${fields.length}`);
+
+    if (fields.length === 0) {
+      // Sin campos → Mostrar banner
+      showUnassignedBanner(docId, docName);
+      stopAutoRefresh(); // Detener auto-refresh si no hay campos
+    } else {
+      // Con campos → Ocultar banner y mostrar tracking
+      hideUnassignedBanner();
+      
+      // Cargar destinatarios reales desde el backend
+      loadRecipients(docId);
+      
+      // Activar auto-refresh para actualizar estados en tiempo real
+      startAutoRefresh(docId);
+    }
+
+  } catch (error) {
+    console.error('❌ Error al verificar campos:', error);
+    // En caso de error, mostrar empty state
+    hideUnassignedBanner();
+    renderRecipients([]);
+    stopAutoRefresh();
+  }
+}
+
+// ====== CARGAR DESTINATARIOS DESDE EL BACKEND ======
+async function loadRecipients(docId) {
+  try {
+    console.log('👥 Cargando destinatarios del documento:', docId);
+    
+    const userStr = localStorage.getItem('currentUser');
+    if (!userStr) {
+      console.error('❌ No hay usuario autenticado');
+      renderRecipients([]);
+      return;
+    }
+
+    const user = JSON.parse(userStr);
+
+    // Llamar al endpoint de destinatarios
+    const response = await fetch(`/api/documents/${docId}/recipients?user_id=${user.user_id}`);
+    const data = await response.json();
+    
+    if (data.success && data.data && data.data.recipients) {
+      console.log(`✅ ${data.data.recipients.length} destinatarios cargados`);
+      renderRecipients(data.data.recipients);
+    } else {
+      console.log('ℹ️ No hay destinatarios para este documento');
+      renderRecipients([]);
+    }
+
+  } catch (error) {
+    console.error('❌ Error al cargar destinatarios:', error);
+    renderRecipients([]);
+  }
+}
+
+// Auto-refresh cada 10 segundos para actualizar estados
+let autoRefreshInterval = null;
+
+function startAutoRefresh(docId) {
+  // Limpiar intervalo anterior si existe
+  if (autoRefreshInterval) {
+    clearInterval(autoRefreshInterval);
+  }
+  
+  // Crear nuevo intervalo
+  autoRefreshInterval = setInterval(() => {
+    console.log('🔄 Auto-refresh de destinatarios...');
+    loadRecipients(docId);
+  }, 10000); // 10 segundos
+}
+
+function stopAutoRefresh() {
+  if (autoRefreshInterval) {
+    clearInterval(autoRefreshInterval);
+    autoRefreshInterval = null;
+  }
+}
+
+// ====== MOSTRAR BANNER "NO ASIGNADO" ======
+function showUnassignedBanner(docId, docName) {
+  console.log('⚠️ Mostrando banner de sin campos asignados');
+  
+  const banner = document.getElementById('unassignedBanner');
+  const trackingSection = document.getElementById('trackingSection');
+  
+  if (banner) {
+    banner.style.display = 'flex';
+  }
+  
+  if (trackingSection) {
+    trackingSection.style.display = 'none';
+  }
+
+  // Configurar botón "EDITAR Y ASIGNAR CAMPOS"
+  const editBtn = document.getElementById('editFieldsBtn');
+  if (editBtn) {
+    editBtn.onclick = () => {
+      console.log('🎨 Redirigiendo a editor de campos...');
+      window.location.href = `/sign.html?id=${docId}&name=${encodeURIComponent(docName)}&mode=prepare`;
+    };
+  }
+}
+
+// ====== OCULTAR BANNER "NO ASIGNADO" ======
+function hideUnassignedBanner() {
+  const banner = document.getElementById('unassignedBanner');
+  const trackingSection = document.getElementById('trackingSection');
+  
+  if (banner) {
+    banner.style.display = 'none';
+  }
+  
+  if (trackingSection) {
+    trackingSection.style.display = 'block';
+  }
+}
+
+// ====== MODAL DE DESTINATARIOS ======
+
+// Cerrar modal
+function closeRecipientsModal() {
+  const modal = document.getElementById('recipientsModal');
+  if (modal) {
+    modal.classList.remove('show');
+    modal.setAttribute('aria-hidden', 'true');
+    
+    // Limpiar campos
+    document.getElementById('emailInput').value = '';
+    document.getElementById('phoneInput').value = '';
+  }
+}
+
+// Event listeners del modal
+document.getElementById('recipientsClose')?.addEventListener('click', closeRecipientsModal);
+document.getElementById('recipientsCancel')?.addEventListener('click', closeRecipientsModal);
+
+// Cerrar al hacer click fuera del modal
+document.getElementById('recipientsModal')?.addEventListener('click', (e) => {
+  if (e.target.id === 'recipientsModal') {
+    closeRecipientsModal();
+  }
+});
+
+// Cambiar pestañas
+document.querySelectorAll('.recipients-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    const tabName = tab.dataset.tab;
+    
+    // Desactivar todas las pestañas
+    document.querySelectorAll('.recipients-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    
+    // Activar la pestaña seleccionada
+    tab.classList.add('active');
+    document.getElementById(`tab-${tabName}`)?.classList.add('active');
+  });
+});
+
+// Agregar destinatarios
+document.getElementById('recipientsAdd')?.addEventListener('click', async () => {
+  console.log('📤 Enviando documento a destinatarios...');
+  
+  const activeTab = document.querySelector('.recipients-tab.active')?.dataset.tab;
+  const recipients = [];
+  
+  // Obtener destinatarios según la pestaña activa
+  if (activeTab === 'email') {
+    const emailText = document.getElementById('emailInput').value.trim();
+    if (!emailText) {
+      ToastManager.warning('Sin destinatarios', 'Debes agregar al menos un email');
+      return;
+    }
+    
+    // Separar por líneas, comas o espacios
+    const emails = emailText.split(/[\n,\s]+/).filter(e => e.trim());
+    
+    // Validar emails
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    for (const email of emails) {
+      if (!emailRegex.test(email)) {
+        ToastManager.error('Email inválido', `El email "${email}" no es válido`);
+        return;
+      }
+      recipients.push({ email: email.trim() });
+    }
+  } else if (activeTab === 'detailed') {
+    const name = document.querySelector('#tab-detailed input[placeholder="Nombre completo"]').value.trim();
+    const email = document.querySelector('#tab-detailed input[placeholder="Correo electrónico"]').value.trim();
+    
+    if (!email) {
+      ToastManager.warning('Email requerido', 'Debes proporcionar un email');
+      return;
+    }
+    
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      ToastManager.error('Email inválido', `El email "${email}" no es válido`);
+      return;
+    }
+    
+    recipients.push({ email: email, name: name || email });
+  } else {
+    ToastManager.info('En desarrollo', 'Esta opción estará disponible pronto');
+    return;
+  }
+  
+  if (recipients.length === 0) {
+    ToastManager.warning('Sin destinatarios', 'Debes agregar al menos un destinatario');
+    return;
+  }
+  
+  console.log(`   📧 Destinatarios: ${recipients.length}`, recipients);
+  
+  // Obtener datos del documento
+  const docData = getDocumentDataFromURL();
+  if (!docData.id) {
+    ToastManager.error('Error', 'No se pudo identificar el documento');
+    return;
+  }
+  
+  // Obtener usuario actual
+  const user = getCurrentUser();
+  if (!user || !user.user_id) {
+    ToastManager.error('Error', 'No hay sesión activa');
+    window.location.href = './login.html';
+    return;
+  }
+  
+  try {
+    // Enviar al backend
+    const response = await fetch(`/api/documents/${docData.id}/send?user_id=${user.user_id}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ recipients })
+    });
+    
+    const data = await response.json();
+    
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || 'Error al enviar documento');
+    }
+    
+    console.log('✅ Documento enviado:', data);
+    
+    ToastManager.success(
+      '¡Documento enviado!',
+      `Se envió a ${recipients.length} destinatario(s)`
+    );
+    
+    // Cerrar modal
+    closeRecipientsModal();
+    
+    // Recargar destinatarios y activar auto-refresh
+    loadRecipients(docData.id);
+    startAutoRefresh(docData.id);
+    
+  } catch (error) {
+    console.error('❌ Error al enviar documento:', error);
+    ToastManager.error('Error', error.message || 'No se pudo enviar el documento');
+  }
 });

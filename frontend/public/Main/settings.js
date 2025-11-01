@@ -131,64 +131,219 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   /* ============================
-     SMTP — persistencia simple
+     EMAIL CONFIG (SENDGRID) - Configuración por Usuario
   ============================ */
-  const smtpFields = [
-    'smtp-host', 'smtp-port', 'smtp-user', 'smtp-pass',
-    'smtp-domain', 'smtp-auth', 'smtp-from'
-  ];
 
-  // Cargar valores guardados
-  smtpFields.forEach(id => {
-    const el = document.getElementById(id);
-    if (!el) return;
+  // Obtener usuario actual
+  function getCurrentUser() {
     try {
-      const saved = localStorage.getItem('smtp_' + id);
-      if (saved !== null) el.value = saved;
-    } catch {}
-    el.addEventListener('change', () => {
-      // no persistimos password al teclear, solo al guardar
-      if (id === 'smtp-pass') return;
-      try { localStorage.setItem('smtp_' + id, el.value); } catch {}
-    });
-  });
-
-  // Radios de seguridad
-  const smtpSecName = 'smtp-sec';
-  const savedSec = (() => { try { return localStorage.getItem('smtp_sec'); } catch { return null; } })();
-  if (savedSec) {
-    const rb = document.querySelector(`input[name="${smtpSecName}"][value="${savedSec}"]`);
-    if (rb) rb.checked = true;
+      const userStr = localStorage.getItem('currentUser') || localStorage.getItem('user');
+      if (!userStr) return null;
+      return JSON.parse(userStr);
+    } catch {
+      return null;
+    }
   }
-  document.querySelectorAll(`input[name="${smtpSecName}"]`).forEach(r => {
-    r.addEventListener('change', () => {
-      try { localStorage.setItem('smtp_sec', r.value); } catch {}
-    });
-  });
 
-  // Guardar SMTP
+  // Toast notification system
+  function showToast(type, message) {
+    const toast = document.createElement('div');
+    toast.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 16px 24px;
+      background: ${type === 'success' ? '#4caf50' : type === 'error' ? '#f44336' : '#ff9800'};
+      color: white;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      z-index: 10000;
+      font-weight: 500;
+      animation: slideIn 0.3s ease;
+    `;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    setTimeout(() => {
+      toast.style.animation = 'slideOut 0.3s ease';
+      setTimeout(() => toast.remove(), 300);
+    }, 4000);
+  }
+
+  // Cargar configuración del usuario
+  async function loadEmailConfig() {
+    const user = getCurrentUser();
+    if (!user) {
+      console.error('No hay usuario autenticado');
+      return;
+    }
+
+    try {
+      console.log('🔄 Cargando configuración de email para user_id:', user.user_id);
+      const response = await fetch(`/api/email-config?user_id=${user.user_id}`, {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      const data = await response.json();
+      console.log('📧 Respuesta del servidor:', data);
+
+      if (data.success && data.configured) {
+        // Llenar formulario con datos guardados (sin API Key por seguridad)
+        const emailFromInput = document.getElementById('email-from');
+        const emailFromNameInput = document.getElementById('email-from-name');
+        const apiKeyInput = document.getElementById('sendgrid-api-key');
+
+        if (emailFromInput) emailFromInput.value = data.data.email_from;
+        if (emailFromNameInput) emailFromNameInput.value = data.data.email_from_name;
+        if (apiKeyInput) apiKeyInput.placeholder = '••••••••••••••••••••••••••••';
+
+        // Mostrar badge de configuración guardada
+        const statusDiv = document.getElementById('emailConfigStatus');
+        if (statusDiv) statusDiv.style.display = 'block';
+
+        console.log('✅ Configuración de email cargada:', data.data.email_from);
+      } else {
+        console.log('⚠️ No hay configuración de email para este usuario');
+      }
+    } catch (error) {
+      console.error('❌ Error al cargar configuración:', error);
+    }
+  }
+
+  // Guardar configuración
   const smtpForm = document.getElementById('smtpForm');
-  smtpForm?.addEventListener('submit', (e) => {
+  smtpForm?.addEventListener('submit', async (e) => {
     e.preventDefault();
 
-    const payload = {};
-    smtpFields.forEach(id => {
-      const el = document.getElementById(id);
-      payload[id] = el?.value ?? '';
-      try {
-        // Guardamos todo, incluido pass, SOLO al guardar
-        localStorage.setItem('smtp_' + id, payload[id]);
-      } catch {}
-    });
+    const user = getCurrentUser();
+    if (!user) {
+      showToast('error', 'No hay usuario autenticado');
+      return;
+    }
 
-    const sec = document.querySelector(`input[name="${smtpSecName}"]:checked`)?.value || 'ssl';
-    payload['smtp-sec'] = sec;
-    try { localStorage.setItem('smtp_sec', sec); } catch {}
+    const apiKey = document.getElementById('sendgrid-api-key').value.trim();
+    const emailFrom = document.getElementById('email-from').value.trim();
+    const emailFromName = document.getElementById('email-from-name').value.trim();
 
-    console.log('[SMTP] Guardar:', payload);
-    // TODO: llamada a backend
-    smtpForm.querySelector('.btn-save')?.blur();
+    // Validaciones
+    if (!apiKey || !emailFrom || !emailFromName) {
+      showToast('error', 'Todos los campos son requeridos');
+      return;
+    }
+
+    if (!apiKey.startsWith('SG.')) {
+      showToast('error', 'La API Key debe comenzar con "SG."');
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(emailFrom)) {
+      showToast('error', 'El formato del email es inválido');
+      return;
+    }
+
+    const saveBtn = document.getElementById('saveEmailBtn');
+    if (saveBtn) {
+      saveBtn.textContent = 'GUARDANDO...';
+      saveBtn.disabled = true;
+    }
+
+    try {
+      const response = await fetch('/api/email-config', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          sendgrid_api_key: apiKey,
+          email_from: emailFrom,
+          email_from_name: emailFromName,
+          user_id: user.user_id
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        showToast('success', '✓ Configuración guardada exitosamente');
+
+        // Mostrar badge de éxito
+        const statusDiv = document.getElementById('emailConfigStatus');
+        if (statusDiv) statusDiv.style.display = 'block';
+
+        // Limpiar API Key por seguridad
+        document.getElementById('sendgrid-api-key').value = '';
+        document.getElementById('sendgrid-api-key').placeholder = '••••••••••••••••••••••••••••';
+
+        console.log('✅ Configuración guardada:', data);
+      } else {
+        showToast('error', data.error || 'Error al guardar configuración');
+      }
+    } catch (error) {
+      console.error('❌ Error:', error);
+      showToast('error', 'Error de conexión con el servidor');
+    } finally {
+      if (saveBtn) {
+        saveBtn.textContent = 'GUARDAR CONFIGURACIÓN';
+        saveBtn.disabled = false;
+      }
+    }
   });
+
+  // Botón de prueba
+  const testEmailBtn = document.getElementById('testEmailBtn');
+  testEmailBtn?.addEventListener('click', async () => {
+    const user = getCurrentUser();
+    if (!user) {
+      showToast('error', 'No hay usuario autenticado');
+      return;
+    }
+
+    const emailFrom = document.getElementById('email-from').value.trim();
+    if (!emailFrom) {
+      showToast('error', 'Primero guarda tu configuración de email');
+      return;
+    }
+
+    // Pedir email de destino
+    const testEmail = prompt('¿A qué email quieres enviar la prueba?', emailFrom);
+    if (!testEmail) return;
+
+    testEmailBtn.textContent = 'ENVIANDO...';
+    testEmailBtn.disabled = true;
+
+    try {
+      const response = await fetch('/api/email-config/test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          to: testEmail,
+          user_id: user.user_id
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        showToast('success', `✓ Email de prueba enviado a ${testEmail}`);
+        alert(`Email enviado exitosamente!\n\nRevisa tu bandeja de entrada en: ${testEmail}\n\n(Puede tardar 1-2 minutos. Revisa también Spam/Correo no deseado)`);
+      } else {
+        showToast('error', data.error || 'Error al enviar email');
+        alert(`Error: ${data.error}\n\n${data.details ? JSON.stringify(data.details, null, 2) : ''}`);
+      }
+    } catch (error) {
+      console.error('❌ Error:', error);
+      showToast('error', 'Error de conexión con el servidor');
+    } finally {
+      testEmailBtn.textContent = 'PROBAR EMAIL';
+      testEmailBtn.disabled = false;
+    }
+  });
+
+  // Cargar configuración al iniciar
+  loadEmailConfig();
 
   /* ============================
      Soporte de deep-link con hash

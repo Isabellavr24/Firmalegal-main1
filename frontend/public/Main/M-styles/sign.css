@@ -84,8 +84,60 @@ body{margin:0;background:#fbf7f5;font:16px/1.4 Inter,system-ui,Segoe UI,Arial}
 .upload{width:100%;display:flex;justify-content:center}
 .upload .chip{width:100%;text-align:center}
 
-.canvas-wrap{position:relative;display:inline-block;background:#fff;border:1px solid var(--stroke);border-radius:12px}
-#pdfCanvas{display:block;border-radius:12px}
+/* ===== CONTENEDOR PRINCIPAL DEL PDF ===== */
+.panel main, main.panel {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  min-height: 100%;
+  padding: 20px;
+}
+
+#pagesContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  align-items: center;
+}
+
+.canvas-wrap{
+  position:relative;
+  display:inline-block;
+  background:#fff;
+  border:1px solid var(--stroke);
+  border-radius:12px;
+  margin: 0 auto;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.pdf-page-canvas{
+  display:block;
+  border-radius:12px;
+  /* ✅ Mejorar renderizado del canvas para alta resolución */
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+  -ms-interpolation-mode: nearest-neighbor;
+}
+
+.page-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: auto;
+  z-index: 10;
+}
+
+.page-number {
+  position: absolute;
+  bottom: -30px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 12px;
+  color: #666;
+  font-weight: 600;
+}
 
 /* overlay y campos */
 #overlay{
@@ -108,6 +160,27 @@ body{margin:0;background:#fbf7f5;font:16px/1.4 Inter,system-ui,Segoe UI,Arial}
   justify-content:center;
   padding:4px;
 }
+
+/* Estilo para campo mientras se dibuja (tipo DocuSeal) */
+.field.drawing-field {
+  border: 2px dashed #2a0d31;
+  background: rgba(42, 13, 49, 0.1);
+  pointer-events: none;
+  cursor: crosshair;
+  animation: drawingPulse 1s ease-in-out infinite;
+}
+
+@keyframes drawingPulse {
+  0%, 100% { 
+    background: rgba(42, 13, 49, 0.1);
+    border-color: #2a0d31;
+  }
+  50% { 
+    background: rgba(42, 13, 49, 0.15);
+    border-color: #7e5a88;
+  }
+}
+
 .field.signature.signed{
   border-style:solid;
   border-color:#7e5a88;

@@ -7,7 +7,7 @@
 
   <!-- CSS -->
   <link rel="stylesheet" href="/public/Main/M-styles/Styles.css?v=8">
-  <link rel="stylesheet" href="/public/Main/M-styles/tracking.css?v=1">
+  <link rel="stylesheet" href="/public/Main/M-styles/tracking.css?v=6">
   <link rel="stylesheet" href="/public/Main/M-styles/profile-menu.css?v=2">
 
   <!-- Fuente -->
@@ -40,8 +40,32 @@
 
   <!-- Main Content -->
   <main class="tracking-main">
+    <!-- Empty State: No Document Loaded -->
+    <div class="no-document-state" id="noDocumentState" style="display: none;">
+      <div class="empty-state-content">
+        <svg class="empty-state-icon" width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="#c4b5d0" stroke-width="1.5">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <circle cx="12" cy="14" r="3"/>
+          <line x1="12" y1="11" x2="12" y2="14"/>
+        </svg>
+        <h2 class="empty-state-title">Sin documento para rastrear</h2>
+        <p class="empty-state-description">
+          No hay un documento seleccionado para mostrar información de seguimiento.<br/>
+          Selecciona un documento desde el índice o una carpeta.
+        </p>
+        <button class="empty-state-btn" onclick="window.location.href='/index.html'">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+            <polyline points="9 22 9 12 15 12 15 22"/>
+          </svg>
+          Ir al inicio
+        </button>
+      </div>
+    </div>
+
     <!-- Document Header -->
-    <div class="document-header">
+    <div class="document-header" id="documentHeader">
       <div class="document-info">
         <button class="back-btn" onclick="window.history.back()" aria-label="Volver">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -92,8 +116,26 @@
       </div>
     </div>
 
+    <!-- Banner: No Asignado (oculto por defecto) -->
+    <div id="unassignedBanner" class="unassigned-banner" style="display: none;">
+      <div class="banner-icon">📋</div>
+      <div class="banner-content">
+        <h3>Documento sin campos asignados</h3>
+        <p>Este documento aún no tiene campos de firma o texto configurados. Debes asignar campos antes de enviarlo.</p>
+      </div>
+      <div class="banner-actions">
+        <button class="action-btn primary" id="editFieldsBtn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          </svg>
+          EDITAR Y ASIGNAR CAMPOS
+        </button>
+      </div>
+    </div>
+
     <!-- Tracking Section -->
-    <section class="tracking-section">
+    <section class="tracking-section" id="trackingSection">
       <div class="section-header">
         <h2 class="section-title">Envíos</h2>
         <div class="section-actions">
@@ -145,10 +187,90 @@
     </div>
   </main>
 
+  <!-- MODAL de destinatarios -->
+  <div id="recipientsModal" class="modal-back" aria-hidden="true">
+    <div class="modal modal-recipients" role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <h3>Agregar nuevos destinatarios</h3>
+        <button class="close-modal" id="recipientsClose">×</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Pestañas -->
+        <div class="recipients-tabs">
+          <button class="recipients-tab active" data-tab="email">por Email</button>
+          <button class="recipients-tab" data-tab="phone">por Teléfono</button>
+          <button class="recipients-tab" data-tab="detailed">Detallado</button>
+          <button class="recipients-tab" data-tab="upload">Subir lista</button>
+        </div>
+
+        <!-- Contenido de pestañas -->
+        <div class="recipients-content">
+          <!-- Pestaña Email -->
+          <div id="tab-email" class="tab-content active">
+            <textarea
+              id="emailInput"
+              class="recipients-textarea"
+              placeholder="Escribe correos electrónicos aquí..."
+              rows="6"
+            ></textarea>
+          </div>
+
+          <!-- Pestaña Teléfono -->
+          <div id="tab-phone" class="tab-content">
+            <textarea
+              id="phoneInput"
+              class="recipients-textarea"
+              placeholder="Escribe números de teléfono aquí..."
+              rows="6"
+            ></textarea>
+          </div>
+
+          <!-- Pestaña Detallado -->
+          <div id="tab-detailed" class="tab-content">
+            <div class="detailed-form">
+              <input type="text" class="form-input" placeholder="Nombre completo">
+              <input type="email" class="form-input" placeholder="Correo electrónico">
+              <input type="tel" class="form-input" placeholder="Teléfono (opcional)">
+            </div>
+          </div>
+
+          <!-- Pestaña Subir lista -->
+          <div id="tab-upload" class="tab-content">
+            <div class="upload-zone">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+              <p>Arrastra un archivo CSV o haz clic para seleccionar</p>
+              <input type="file" id="csvFileInput" accept=".csv" style="display:none">
+              <button class="upload-btn" onclick="document.getElementById('csvFileInput').click()">Seleccionar archivo</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Checkbox y opciones -->
+        <div class="recipients-options">
+          <label class="checkbox-label">
+            <input type="checkbox" id="sendEmailCheckbox" checked>
+            <span>Enviar correo electrónico</span>
+          </label>
+          <a href="#" class="edit-message-link" id="editMessageLink">Editar mensaje</a>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button id="recipientsCancel" class="btn btn-secondary">Cancelar</button>
+        <button id="recipientsAdd" class="btn btn-primary">AGREGAR DESTINATARIOS</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast Container -->
   <div class="toast-container"></div>
 
   <!-- Scripts -->
-  <script src="/public/Main/tracking.js?v=1"></script>
+  <script src="/public/Main/tracking.js?v=4"></script>
 </body>
 </html>

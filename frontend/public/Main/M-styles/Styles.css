@@ -74,12 +74,49 @@ body{
 
 /* Carpetas */
 .folder .folder-icon{display:grid;place-items:center;width:48px;height:48px;border-radius:12px;background:#fff;border:1px solid var(--border-color)}
-.meta .title{margin:0 0 4px 0;font-size:1.05rem}
+.meta .title{margin:0 0 4px 0;font-size:1.05rem;font-weight:600}
 .meta .sub{margin:0;color:var(--text-secondary);font-size:.9rem}
 
-/* Documentos */
-.doc .doc-body{padding:18px}
-.doc .title{margin:0 0 10px 0}
+/* Documentos - Diseño mejorado y más compacto */
+.card.doc{
+  max-width: 450px;
+  width: 100%;
+  min-height: 500px;
+}
+.doc .card-link{
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 18px;
+  padding-right: 50px;
+  height: 100%;
+  min-height: 195px;
+  display: flex;
+}
+.doc .title{
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.doc .meta{
+  width: 100%;
+  margin-top: auto;
+  align-self: flex-end;
+}
+.doc .owner{
+  margin: 0;
+  color: #94a3b8;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+.doc .date{
+  margin: 4px 0 0 0;
+  color: #cbd5e1;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
 .badges{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .small{font-size:.8rem;font-weight:600}
 .muted{color:var(--text-secondary)}
@@ -1010,9 +1047,86 @@ body{
 /* ============================
    Custom Select Dropdown
 ============================ */
+.custom-select {
+  position: relative;
+  width: 100%;
+}
+
 .custom-select-wrapper {
   position: relative;
   width: 100%;
+}
+
+/* Botón trigger del select customizado */
+.select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 12px 16px;
+  background: #fff;
+  border: 1px solid var(--stroke, #eadfd8);
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease;
+  font-size: 0.95rem;
+  color: var(--ink, #231426);
+}
+
+.select-trigger:hover {
+  border-color: var(--ink-soft, #6d6270);
+  background: var(--surface-light, #faf6f3);
+}
+
+.select-trigger:active {
+  transform: scale(0.99);
+}
+
+.select-text {
+  flex: 1;
+  text-align: left;
+  color: var(--ink, #231426);
+}
+
+.select-trigger.has-value .select-text {
+  font-weight: 500;
+}
+
+.select-arrow {
+  flex-shrink: 0;
+  margin-left: 8px;
+  color: var(--ink-soft, #6d6270);
+  transition: transform 0.2s ease;
+}
+
+.select-trigger.is-open .select-arrow {
+  transform: rotate(180deg);
+}
+
+/* Dropdown del select */
+.select-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  background: #fff;
+  border: 1px solid var(--stroke, #eadfd8);
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  max-height: 280px;
+  overflow-y: auto;
+  z-index: 9999;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-10px);
+  transition: all 0.2s ease;
+}
+
+.select-dropdown.is-open {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
 }
 
 .custom-select-trigger {
@@ -1101,146 +1215,107 @@ body{
   color: var(--ink, #231426);
 }
 
-/* Scrollbar personalizado para el dropdown */
-.custom-select-dropdown::-webkit-scrollbar {
+/* Scrollbar personalizado para los dropdowns */
+.custom-select-dropdown::-webkit-scrollbar,
+.select-dropdown::-webkit-scrollbar {
   width: 6px;
 }
 
-.custom-select-dropdown::-webkit-scrollbar-track {
+.custom-select-dropdown::-webkit-scrollbar-track,
+.select-dropdown::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.custom-select-dropdown::-webkit-scrollbar-thumb {
+.custom-select-dropdown::-webkit-scrollbar-thumb,
+.select-dropdown::-webkit-scrollbar-thumb {
   background: var(--stroke, #eadfd8);
   border-radius: 3px;
 }
 
-.custom-select-dropdown::-webkit-scrollbar-thumb:hover {
+.custom-select-dropdown::-webkit-scrollbar-thumb:hover,
+.select-dropdown::-webkit-scrollbar-thumb:hover {
   background: var(--ink-soft, #6d6270);
 }
 
 
 /* ==== Acciones en tarjetas de documento (hover) ==== */
-.card.doc{ position: relative; }
+.card.doc{
+  position: relative;
+  overflow: hidden !important;
+  min-height: 195px !important;
+}
 
 .doc-actions{
   position: absolute;
-  top: 12px; right: 12px;
-  display: flex; flex-direction: column; gap: 10px;
-  opacity: 0; transform: translateX(6px);
-  pointer-events: none;     /* no "tapan" la tarjeta cuando están ocultas */
-  transition: opacity .18s ease, transform .18s ease;
-}
-
-/* Mostrar solo cuando hay mouse encima o cuando hay foco interno (accesibilidad) */
-@media (hover:hover){
-  .card.doc:hover .doc-actions{ opacity:1; transform:translateX(0); pointer-events:auto; }
-}
-.card.doc:focus-within .doc-actions{ opacity:1; transform:translateX(0); pointer-events:auto; }
-
-/* Botón de icono */
-.icon-btn{
-  width: 32px; height: 32px;
-  display: grid; place-items: center;
-  border-radius: 10px;
-  border: 1px solid var(--stroke, #eadfd8);
-  background: #fff; color: var(--brand-plum, #2b0e31);
-  cursor: pointer;
-  box-shadow: 0 1px 0 rgba(0,0,0,.02);
-}
-.icon-btn:hover{ box-shadow: 0 0 0 4px rgba(42,13,49,.08); background:#f6f1ee; }
-.icon-btn svg{ width: 16px; height: 16px; color: currentColor; }
-
-/* Variante peligrosa (eliminar) */
-.icon-btn[data-action="delete"]{ color:#9b1c31; border-color:#efd6dc; }
-.icon-btn[data-action="delete"]:hover{ box-shadow:0 0 0 4px rgba(155,28,49,.12); background:#fdecef; }
-
-
-
-/* ===== ACCIONES DE DOCUMENTOS - VERSIÓN COMPACTA ===== */
-.card.doc {
-  position: relative;
-  overflow: visible;
-  min-height: 80px; /* Más compacta */
-  padding: 12px 16px;
-}
-
-.card.doc .card-link {
-  padding-right: 45px; /* Menos espacio */
-  min-height: 80px;
-  display: flex;
-  align-items: center;
-}
-
-.doc-actions {
-  position: absolute;
-  top: 12px; /* Desde arriba */
-  right: 10px;
+  top: 12px;
+  right: 12px;
   display: flex;
   flex-direction: column;
-  gap: 6px; /* Menos espacio entre botones */
+  gap: 6px;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.2s ease;
+  transition: opacity .25s ease;
   z-index: 10;
 }
 
-.card.doc:hover .doc-actions {
+/* Mostrar solo cuando hay mouse encima - FADE IN sin movimiento */
+.card.doc:hover .doc-actions{
   opacity: 1;
   pointer-events: auto;
 }
 
-.doc-actions .icon-btn {
-  width: 24px; /* MÁS PEQUEÑO */
-  height: 24px;
+/* Botón de icono - MÁS PEQUEÑO */
+.doc-actions .icon-btn{
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 5px;
-  border: none;
-  background: transparent;
-  color: #9ca3af; /* Gris más claro */
+  border-radius: 6px;
+  border: 1px solid var(--stroke, #eadfd8);
+  background: #fff;
+  color: var(--ink, #231426);
   cursor: pointer;
   transition: all 0.15s ease;
   flex-shrink: 0;
 }
 
-.doc-actions .icon-btn:hover {
-  background: #f3f4f6;
-  color: #374151;
+.doc-actions .icon-btn:hover{
+  box-shadow: 0 0 0 3px rgba(42,13,49,.08);
+  background: var(--bg-crema, #f9f5f2);
 }
 
-.doc-actions .icon-btn:active {
-  transform: scale(0.92);
+.doc-actions .icon-btn svg{
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  stroke-width: 2;
+  flex-shrink: 0;
 }
 
 /* Colores específicos en hover */
 .doc-actions .icon-btn[data-action="move"]:hover {
   background: #f3f0ff;
   color: #7c3aed;
+  border-color: #c4b5fd;
 }
 
 .doc-actions .icon-btn[data-action="edit"]:hover {
   background: #eff6ff;
   color: #2563eb;
+  border-color: #93c5fd;
 }
 
 .doc-actions .icon-btn[data-action="clone"]:hover {
   background: #f0fdf4;
   color: #16a34a;
+  border-color: #86efac;
 }
 
 .doc-actions .icon-btn[data-action="archive"]:hover {
-  background: #fffbeb;
+  background: #fef3c7;
   color: #d97706;
-}
-
-.doc-actions svg {
-  width: 16px; /* Iconos más pequeños */
-  height: 16px;
-  stroke: currentColor;
-  stroke-width: 2;
-  flex-shrink: 0;
+  border-color: #fde68a;
 }
 
 /* Meta content más compacto */
@@ -1400,95 +1475,7 @@ body{
 }
 
 /* ===== ACCIONES DE DOCUMENTOS - VERSIÓN COMPACTA ===== */
-.card.doc {
-  position: relative;
-  overflow: visible;
-  min-height: 80px;
-  padding: 12px 16px;
-}
-
-.card.doc .card-link {
-  padding-right: 45px;
-  min-height: 80px;
-  display: flex;
-  align-items: center;
-}
-
-.doc-actions {
-  position: absolute;
-  top: 12px;
-  right: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.2s ease;
-  z-index: 10;
-}
-
-.card.doc:hover .doc-actions {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.doc-actions .icon-btn {
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 5px;
-  border: none;
-  background: transparent;
-  color: #9ca3af;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  flex-shrink: 0;
-}
-
-.doc-actions .icon-btn:hover {
-  background: #f3f4f6;
-  color: #374151;
-}
-
-.doc-actions .icon-btn:active {
-  transform: scale(0.92);
-}
-
-.doc-actions .icon-btn[data-action="move"]:hover {
-  background: #f3f0ff;
-  color: #7c3aed;
-}
-
-.doc-actions .icon-btn[data-action="edit"]:hover {
-  background: #eff6ff;
-  color: #2563eb;
-}
-
-.doc-actions .icon-btn[data-action="clone"]:hover {
-  background: #f0fdf4;
-  color: #16a34a;
-}
-
-.doc-actions .icon-btn[data-action="archive"]:hover {
-  background: #fffbeb;
-  color: #d97706;
-}
-
-.doc-actions svg {
-  width: 16px;
-  height: 16px;
-  stroke: currentColor;
-  stroke-width: 2;
-  flex-shrink: 0;
-}
-
-.card.doc .meta {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
+/* Estilos duplicados eliminados - ver líneas 1153-1237 */
 
 .card.doc .meta .title {
   font-size: 0.9375rem;

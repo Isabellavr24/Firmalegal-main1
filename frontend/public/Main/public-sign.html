@@ -1,0 +1,1165 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Firma de Documento - FirmaLegal</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="/public/Main/M-styles/sign.css">
+  <style>
+    /* Loader inicial */
+    @keyframes spin { to { transform:rotate(360deg); } }
+    
+    /* Layout adaptado para 2 columnas (info + PDF) */
+    .layout {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      gap: 16px;
+      padding: 16px;
+      min-height: 100vh;
+    }
+    
+    /* Panel izquierdo con info */
+    .panel.left {
+      background: #fff;
+      border: 1px solid var(--stroke);
+      border-radius: 16px;
+      padding: 16px;
+      height: fit-content;
+    }
+    
+    /* Panel central del PDF - igual a sign.html */
+    main.panel, .panel main {
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 20px;
+      overflow: auto;
+    }
+    
+    #pagesContainer {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      align-items: center;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Loader inicial -->
+<div id="initialLoader" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(246,241,238,0.98); z-index:9999; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+  <div style="width:60px; height:60px; border:4px solid #eadfd8; border-top-color:#2a0d31; border-radius:50%; animation:spin 1s linear infinite;"></div>
+  <p style="margin-top:20px; color:#2a0d31; font-weight:600;">Cargando documento...</p>
+</div>
+
+<!-- Layout principal (solo 2 paneles: info lateral + visor central) -->
+<div class="layout">
+  
+  <!-- Panel izquierdo: información del documento -->
+  <aside class="panel left">
+    <div style="padding:16px; background:#fff; border-radius:8px; margin-bottom:16px;">
+      <h3 style="margin:0 0 12px; color:var(--plum); font-size:18px;">📄 Documento</h3>
+      <p id="docTitle" style="margin:0; font-weight:600; font-size:16px; color:#333;">Cargando...</p>
+    </div>
+
+    <div style="padding:16px; background:#fff; border-radius:8px; margin-bottom:16px;">
+      <h4 style="margin:0 0 8px; color:var(--plum); font-size:14px;">👤 Remitente</h4>
+      <p id="senderName" style="margin:0; font-size:14px; color:#666;">-</p>
+    </div>
+
+    <div style="padding:16px; background:#fff; border-radius:8px; margin-bottom:16px;">
+      <h4 style="margin:0 0 8px; color:var(--plum); font-size:14px;">📧 Destinatario</h4>
+      <p id="recipientEmail" style="margin:0; font-size:14px; color:#666; word-break:break-all; overflow-wrap:break-word;">-</p>
+    </div>
+
+    <div style="padding:16px; background:#fff; border-radius:8px;">
+      <h4 style="margin:0 0 8px; color:var(--plum); font-size:14px;">📅 Fecha de envío</h4>
+      <p id="sentDate" style="margin:0; font-size:14px; color:#666;">-</p>
+    </div>
+
+    <!-- Botón de envío - aparece solo cuando todos los campos están completados -->
+    <button id="sendBtn" style="
+      display: none;
+      width: 100%;
+      margin-top: 16px;
+      padding: 16px;
+      background: linear-gradient(135deg, #7e5a88 0%, #9b7ba5 100%);
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      font-size: 16px;
+      box-shadow: 0 4px 12px rgba(126, 90, 136, 0.3);
+      transition: all 0.3s ease;
+      opacity: 0;
+      transform: translateY(-10px);
+    " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 16px rgba(126, 90, 136, 0.4)'"
+       onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(126, 90, 136, 0.3)'">
+      📤 Enviar Documento Firmado
+    </button>
+
+    <div id="successMsg" style="
+      display: none;
+      margin-top: 16px;
+      padding: 20px;
+      background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+      border: 2px solid #28a745;
+      border-radius: 12px;
+      text-align: center;
+      opacity: 0;
+      transition: opacity 0.5s ease;
+      box-shadow: 0 4px 12px rgba(40, 167, 69, 0.2);
+    ">
+      <div style="font-size:48px; margin-bottom:12px;">✅</div>
+      <p style="margin:0 0 8px; color:#155724; font-weight:700; font-size:18px;">¡Documento firmado exitosamente!</p>
+      <p style="margin:0; color:#155724; font-size:14px;">Gracias por completar la firma.</p>
+    </div>
+  </aside>
+
+  <!-- Panel central: visor de PDF -->
+  <main class="panel" id="pdfViewer">
+    <div id="pagesContainer"></div>
+  </main>
+
+</div>
+
+<!-- ========================================
+     MODALES (idénticos a sign.html)
+     ======================================== -->
+
+<!-- MODAL de firma -->
+<div id="sigModal" class="modal-back" aria-hidden="true">
+  <div class="modal modal-signature" role="dialog" aria-modal="true">
+    <div class="modal-header">
+      <h3>✍️ Firma Digital</h3>
+      <button type="button" class="close-modal" id="sigClose">×</button>
+    </div>
+    <div class="modal-body">
+      <label class="input-label">Dibuja tu firma con el mouse o pantalla táctil</label>
+      <div class="sig-wrap"><canvas id="sigPad"></canvas></div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" id="sigClear" class="btn btn-secondary">🗑️ Limpiar</button>
+      <button type="button" id="sigCancel" class="btn btn-secondary">Cancelar</button>
+      <button type="button" id="sigOk" class="btn btn-primary">✓ Usar firma</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL de texto -->
+<div id="textModal" class="modal-back" aria-hidden="true">
+  <div class="modal modal-text" role="dialog" aria-modal="true">
+    <div class="modal-header">
+      <h3>✍️ Personalizar Texto</h3>
+      <button type="button" class="close-modal" id="textClose">×</button>
+    </div>
+    
+    <div class="modal-body">
+      <div class="text-input-section">
+        <label class="input-label">Contenido</label>
+        <textarea id="textInput" class="text-area" placeholder="Escribe tu texto aquí..." rows="3"></textarea>
+      </div>
+      
+      <div class="format-toolbar">
+        <!-- Fila 1: Fuente y Tamaño -->
+        <div class="toolbar-row">
+          <div class="toolbar-group">
+            <label class="toolbar-label">Fuente</label>
+            <select id="fontFamily" class="toolbar-select font-select">
+              <option value="Arial">Arial</option>
+              <option value="Helvetica">Helvetica</option>
+              <option value="Times New Roman">Times New Roman</option>
+              <option value="Courier New">Courier New</option>
+              <option value="Georgia">Georgia</option>
+              <option value="Verdana">Verdana</option>
+              <option value="Calibri">Calibri</option>
+              <option value="Cambria">Cambria</option>
+            </select>
+          </div>
+          
+          <div class="toolbar-group">
+            <label class="toolbar-label">Tamaño</label>
+            <select id="fontSize" class="toolbar-select size-select">
+              <option value="8">8</option>
+              <option value="9">9</option>
+              <option value="10">10</option>
+              <option value="11">11</option>
+              <option value="12" selected>12</option>
+              <option value="14">14</option>
+              <option value="16">16</option>
+              <option value="18">18</option>
+              <option value="20">20</option>
+              <option value="22">22</option>
+              <option value="24">24</option>
+              <option value="28">28</option>
+              <option value="32">32</option>
+            </select>
+          </div>
+          
+          <div class="toolbar-group">
+            <label class="toolbar-label">Color</label>
+            <div class="color-picker-wrapper">
+              <input type="color" id="fontColor" class="color-input" value="#000000">
+              <span class="color-preview" id="colorPreview"></span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Fila 2: Estilos y Alineación -->
+        <div class="toolbar-row">
+          <div class="toolbar-group">
+            <label class="toolbar-label">Formato</label>
+            <div class="format-buttons">
+              <button type="button" id="boldBtn" class="format-btn" title="Negrita (Ctrl+B)">
+                <strong>B</strong>
+              </button>
+              <button type="button" id="italicBtn" class="format-btn" title="Cursiva (Ctrl+I)">
+                <em>I</em>
+              </button>
+              <button type="button" id="underlineBtn" class="format-btn" title="Subrayado (Ctrl+U)">
+                <u>U</u>
+              </button>
+            </div>
+          </div>
+          
+          <div class="toolbar-group">
+            <label class="toolbar-label">Alineación</label>
+            <div class="format-buttons">
+              <button type="button" id="alignLeft" class="format-btn active" data-align="left" title="Alinear izquierda">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M2 3h12v2H2V3zm0 4h8v2H2V7zm0 4h12v2H2v-2z"/>
+                </svg>
+              </button>
+              <button type="button" id="alignCenter" class="format-btn" data-align="center" title="Centrar">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M4 3h8v2H4V3zm2 4h4v2H6V7zm-2 4h8v2H4v-2z"/>
+                </svg>
+              </button>
+              <button type="button" id="alignRight" class="format-btn" data-align="right" title="Alinear derecha">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M2 3h12v2H2V3zm4 4h8v2H6V7zm-4 4h12v2H2v-2z"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="preview-section">
+        <label class="input-label">Vista previa</label>
+        <div id="textPreview" class="text-preview">Tu texto aparecerá aquí...</div>
+      </div>
+    </div>
+    
+    <div class="modal-footer">
+      <button type="button" id="textCancel" class="btn btn-secondary">Cancelar</button>
+      <button type="button" id="textOk" class="btn btn-primary">✓ Aplicar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL de fecha -->
+<div id="dateModal" class="modal-back" aria-hidden="true">
+  <div class="modal modal-date" role="dialog" aria-modal="true">
+    <div class="modal-header">
+      <h3>📅 Seleccionar Fecha</h3>
+      <button type="button" class="close-modal" id="dateClose">×</button>
+    </div>
+    <div class="modal-body">
+      <label class="input-label">Fecha del documento</label>
+      <input type="date" id="dateInput" class="date-input">
+    </div>
+    <div class="modal-footer">
+      <button type="button" id="dateCancel" class="btn btn-secondary">Cancelar</button>
+      <button type="button" id="dateOk" class="btn btn-primary">✓ Agregar fecha</button>
+    </div>
+  </div>
+</div>
+
+<!-- Librerías PDF.js y pdf-lib -->
+<script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
+<!-- ✅ Usar Mozilla CDN oficial de PDF.js -->
+<script src="https://mozilla.github.io/pdf.js/build/pdf.mjs" type="module"></script>
+
+<script type="module">
+// ✅ Importar PDF.js como módulo ES6
+import * as pdfjsLib from 'https://mozilla.github.io/pdf.js/build/pdf.mjs';
+
+// Configurar worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://mozilla.github.io/pdf.js/build/pdf.worker.mjs';
+
+// Hacer pdfjsLib disponible globalmente
+window.pdfjsLib = pdfjsLib;
+
+console.log('✅ PDF.js cargado desde Mozilla CDN');
+
+// Variables globales
+let currentToken = null;
+let currentDocument = null;
+let pdfDoc = null;
+let allPages = []; // Para almacenar referencia de todas las páginas renderizadas
+let fields = []; // Para almacenar los campos del documento
+// signaturePad se declara más abajo en la sección de modales
+
+// Obtener token y cargar documento
+const urlParams = new URLSearchParams(window.location.search);
+currentToken = urlParams.get('token');
+
+if (!currentToken) {
+  showError('Token no proporcionado. El enlace no es válido.');
+} else {
+  loadDocument();
+}
+
+// Cargar documento desde el servidor
+async function loadDocument() {
+  try {
+    const response = await fetch(`/api/public/document/${currentToken}`);
+    
+    if (!response.ok) {
+      throw new Error('Documento no encontrado o token inválido');
+    }
+
+    const data = await response.json();
+    currentDocument = data.document; // ✅ El documento está dentro de data.document
+    
+    console.log('📄 Documento cargado:', currentDocument);
+    
+    // Actualizar información en el panel izquierdo
+    document.getElementById('docTitle').textContent = currentDocument.title || 'Documento sin título';
+    document.getElementById('senderName').textContent = currentDocument.senderName || '-';
+    document.getElementById('recipientEmail').textContent = currentDocument.recipientEmail || '-';
+    document.getElementById('sentDate').textContent = currentDocument.sentAt ? new Date(currentDocument.sentAt).toLocaleDateString('es-ES') : '-';
+
+    // Cargar PDF (construir URL completa si no tiene protocolo)
+    let pdfUrl = currentDocument.pdfPath;
+    if (!pdfUrl.startsWith('http://') && !pdfUrl.startsWith('https://')) {
+      const origin = window.location.origin; // http://localhost:3000
+      // Eliminar barra inicial de pdfUrl si existe para evitar doble barra
+      const path = pdfUrl.startsWith('/') ? pdfUrl.substring(1) : pdfUrl;
+      pdfUrl = `${origin}/${path}`;
+    }
+    console.log(`📄 URL del PDF: ${pdfUrl}`);
+    await loadPDF(pdfUrl);
+
+    // ✅ Cargar campos del documento después de renderizar el PDF
+    if (currentDocument.fields && currentDocument.fields.length > 0) {
+      console.log(`📋 Cargando ${currentDocument.fields.length} campo(s)...`);
+      loadExistingFields(currentDocument.fields);
+    } else {
+      console.log('ℹ️ El documento no tiene campos asignados');
+    }
+
+    // Ocultar loader
+    document.getElementById('initialLoader').style.display = 'none';
+
+  } catch (error) {
+    console.error('Error cargando documento:', error);
+    showError('Error al cargar el documento. Por favor, verifica el enlace e inténtalo nuevamente.');
+  }
+}
+
+// ✅ Esperar a que PDF.js esté disponible
+async function waitForPdfJs() {
+  let attempts = 0;
+  while (!window.pdfjsLib && attempts < 50) {
+    console.log('⏳ Esperando a que PDF.js se cargue...');
+    await new Promise(resolve => setTimeout(resolve, 100));
+    attempts++;
+  }
+  
+  if (!window.pdfjsLib) {
+    throw new Error('PDF.js no pudo cargarse después de 5 segundos');
+  }
+  
+  // Configurar worker si aún no está configurado
+  if (!window.pdfjsLib.GlobalWorkerOptions.workerSrc) {
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.js';
+  }
+  
+  console.log('✅ PDF.js cargado y configurado');
+}
+
+// Cargar y renderizar PDF
+async function loadPDF(pdfPath) {
+  try {
+    console.log(`📄 Intentando cargar PDF desde: ${pdfPath}`);
+    
+    // Verificar que PDF.js esté disponible
+    if (!window.pdfjsLib) {
+      throw new Error('PDF.js no está cargado');
+    }
+    
+    const loadingTask = window.pdfjsLib.getDocument(pdfPath);
+    pdfDoc = await loadingTask.promise;
+    
+    console.log(`✅ PDF cargado correctamente (${pdfDoc.numPages} página(s))`);
+
+    const container = document.getElementById('pagesContainer');
+    container.innerHTML = '';
+    allPages = []; // ✅ Limpiar array de páginas
+
+    // ✅ Configuración igual a sign.js
+    const baseScale = 1.4;
+    const dpr = window.devicePixelRatio || 1;
+
+    for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+      const page = await pdfDoc.getPage(pageNum);
+      const viewport = page.getViewport({ scale: baseScale });
+
+      // ✅ Crear wrapper para la página con position relative (igual a sign.js)
+      const pageWrapper = document.createElement('div');
+      pageWrapper.className = 'canvas-wrap';
+      pageWrapper.style.position = 'relative';
+      pageWrapper.style.marginBottom = '20px';
+      pageWrapper.style.display = 'inline-block';
+      pageWrapper.dataset.pageNum = pageNum;
+
+      const canvas = document.createElement('canvas');
+      canvas.className = 'pdf-page-canvas';
+      canvas.width = viewport.width * dpr;
+      canvas.height = viewport.height * dpr;
+      canvas.style.width = `${viewport.width}px`;
+      canvas.style.height = `${viewport.height}px`;
+
+      pageWrapper.appendChild(canvas);
+      container.appendChild(pageWrapper);
+
+      const context = canvas.getContext('2d');
+      context.scale(dpr, dpr);
+      await page.render({ canvasContext: context, viewport: viewport }).promise;
+
+      // ✅ Guardar referencia de la página
+      allPages.push({
+        pageNum: pageNum,
+        wrapper: pageWrapper,
+        canvas: canvas,
+        width: viewport.width,
+        height: viewport.height,
+        scale: baseScale
+      });
+
+      console.log(`✅ Página ${pageNum} renderizada (${viewport.width}x${viewport.height})`);
+    }
+  } catch (error) {
+    console.error('Error cargando PDF:', error);
+    showError('Error al cargar el archivo PDF.');
+  }
+}
+
+// ===== CARGAR CAMPOS EXISTENTES =====
+function loadExistingFields(existingFields) {
+  try {
+    console.log(`📥 Cargando ${existingFields.length} campo(s)...`);
+
+    // Limpiar campos actuales
+    fields.length = 0;
+
+    // Convertir campos del servidor al formato interno y renderizar
+    existingFields.forEach((field, index) => {
+      const fieldData = {
+        id: `field-${Date.now()}-${index}`,
+        field_id: field.field_id, // ✅ Guardar el field_id de la base de datos
+        type: field.type,
+        page: field.page || 1,
+        x: parseFloat(field.x),
+        y: parseFloat(field.y),
+        w: parseFloat(field.width),
+        h: parseFloat(field.height),
+        label: field.label || null,
+        required: field.required !== false,
+        signed: false,
+        dataUrl: null
+      };
+
+      fields.push(fieldData);
+      console.log(`   ✓ Campo ${index + 1}: ${field.type} en página ${field.page} (field_id: ${field.field_id})`);
+      
+      // Renderizar el campo visualmente en el PDF
+      renderFieldOnPage(fieldData);
+    });
+
+    console.log(`✅ ${fields.length} campo(s) renderizado(s) en el PDF`);
+
+  } catch (error) {
+    console.error('❌ Error al cargar campos existentes:', error);
+  }
+}
+
+// ===== RENDERIZAR CAMPO EN EL PDF (idéntico a sign.js) =====
+function renderFieldOnPage(fieldData) {
+  try {
+    // Buscar la página donde debe renderizarse
+    const pageData = allPages.find(p => p.pageNum === fieldData.page);
+    
+    if (!pageData) {
+      console.warn(`⚠️ Página ${fieldData.page} no encontrada para campo ${fieldData.id}`);
+      return;
+    }
+
+    // Crear elemento del campo con clase 'field' y tipo
+    const fieldDiv = document.createElement('div');
+    fieldDiv.id = fieldData.id;
+    fieldDiv.className = `field ${fieldData.type}`;
+    fieldDiv.dataset.fieldType = fieldData.type;
+    
+    // Aplicar posición y tamaño
+    fieldDiv.style.position = 'absolute';
+    fieldDiv.style.left = `${fieldData.x}px`;
+    fieldDiv.style.top = `${fieldData.y}px`;
+    fieldDiv.style.width = `${fieldData.w}px`;
+    fieldDiv.style.height = `${fieldData.h}px`;
+    
+    // ✅ Label del campo (arriba del campo, como en sign.html)
+    const label = document.createElement('div');
+    label.className = 'label';
+    
+    // Determinar texto del label según tipo
+    let labelText = '';
+    let labelIcon = '';
+    if (fieldData.type === 'signature') {
+      labelText = 'Firma';
+      labelIcon = '✍️';
+    } else if (fieldData.type === 'text') {
+      labelText = 'Texto';
+      labelIcon = '📝';
+    } else if (fieldData.type === 'date') {
+      labelText = 'Fecha';
+      labelIcon = '📅';
+    }
+    
+    label.textContent = `${labelIcon} ${labelText}`;
+    fieldDiv.appendChild(label);
+
+    // ✅ Agregar evento click para abrir modal según tipo
+    fieldDiv.addEventListener('click', () => {
+      console.log(`🖱️ Click en campo: ${fieldData.type} (${fieldData.id})`);
+      
+      if (fieldData.type === 'signature') {
+        openSignatureModal(fieldData);
+      } else if (fieldData.type === 'text') {
+        openTextModal(fieldData);
+      } else if (fieldData.type === 'date') {
+        openDateModal(fieldData);
+      }
+    });
+
+    // Agregar al wrapper de la página
+    pageData.wrapper.appendChild(fieldDiv);
+
+    console.log(`   ✓ Campo renderizado: ${fieldData.id} (${fieldData.type}) en página ${fieldData.page}`);
+
+  } catch (error) {
+    console.error('❌ Error al renderizar campo:', error);
+  }
+}
+
+// ========================================
+// MANEJO DE MODALES (idéntico a sign.js)
+// ========================================
+
+// Variables para SignaturePad
+const sigPad = document.getElementById('sigPad');
+const sigModal = document.getElementById('sigModal');
+const textModal = document.getElementById('textModal');
+const dateModal = document.getElementById('dateModal');
+let signaturePad = null;
+let currentFieldToSign = null;
+
+// Inicializar SignaturePad
+function initSignaturePad() {
+  if (!signaturePad) {
+    signaturePad = new SignaturePad(sigPad, {
+      backgroundColor: 'rgb(255, 255, 255)',
+      penColor: 'rgb(0, 0, 0)'
+    });
+    resizeCanvas();
+  }
+}
+
+function resizeCanvas() {
+  const ratio = Math.max(window.devicePixelRatio || 1, 1);
+  sigPad.width = sigPad.offsetWidth * ratio;
+  sigPad.height = sigPad.offsetHeight * ratio;
+  sigPad.getContext("2d").scale(ratio, ratio);
+  if (signaturePad) signaturePad.clear();
+}
+
+// ===== MODAL DE FIRMA =====
+function openSignatureModal(fieldData) {
+  currentFieldToSign = fieldData;
+  initSignaturePad();
+  
+  // ✅ Limpiar canvas al abrir
+  if (signaturePad) {
+    signaturePad.clear();
+  }
+  
+  sigModal.classList.add('show');
+  sigModal.setAttribute('aria-hidden', 'false');
+  
+  // ✅ Enfocar el canvas después de un pequeño delay para que se renderice correctamente
+  setTimeout(() => {
+    resizeCanvas();
+  }, 100);
+  
+  console.log(`📝 Abriendo modal de firma para campo: ${fieldData.id}`);
+}
+
+// Botones modal de firma
+document.getElementById('sigClear').addEventListener('click', (e) => {
+  e.preventDefault();
+  if (signaturePad) signaturePad.clear();
+});
+
+document.getElementById('sigClose').addEventListener('click', (e) => {
+  e.preventDefault();
+  document.activeElement.blur(); // ✅ Remover foco
+  
+  // Cerrar modal con pequeño delay para el blur
+  setTimeout(() => {
+    sigModal.classList.remove('show');
+    sigModal.setAttribute('aria-hidden', 'true');
+  }, 10);
+  
+  currentFieldToSign = null;
+});
+
+document.getElementById('sigCancel').addEventListener('click', (e) => {
+  e.preventDefault();
+  document.activeElement.blur(); // ✅ Remover foco
+  
+  // Cerrar modal con pequeño delay para el blur
+  setTimeout(() => {
+    sigModal.classList.remove('show');
+    sigModal.setAttribute('aria-hidden', 'true');
+  }, 10);
+  
+  currentFieldToSign = null;
+});
+
+document.getElementById('sigOk').addEventListener('click', (e) => {
+  e.preventDefault(); // ✅ Prevenir comportamiento de formulario
+  e.stopPropagation(); // ✅ Detener propagación
+  
+  if (!signaturePad || signaturePad.isEmpty()) {
+    alert('Por favor, dibuje su firma primero');
+    return;
+  }
+
+  if (!currentFieldToSign) return;
+
+  const signatureData = signaturePad.toDataURL('image/png');
+  
+  console.log(`💾 Guardando firma en campo ${currentFieldToSign.id}`, {
+    field_id: currentFieldToSign.field_id,
+    type: currentFieldToSign.type,
+    dataUrl_length: signatureData.length
+  });
+  
+  // Actualizar el campo en el array
+  const fieldIndex = fields.findIndex(f => f.id === currentFieldToSign.id);
+  if (fieldIndex !== -1) {
+    fields[fieldIndex].signed = true;
+    fields[fieldIndex].dataUrl = signatureData;
+    
+    console.log(`✅ Campo actualizado en array:`, {
+      field_id: fields[fieldIndex].field_id,
+      signed: fields[fieldIndex].signed,
+      has_dataUrl: !!fields[fieldIndex].dataUrl
+    });
+  } else {
+    console.error(`❌ No se encontró el campo ${currentFieldToSign.id} en el array`);
+  }
+
+  // Actualizar visualmente el campo
+  const fieldDiv = document.getElementById(currentFieldToSign.id);
+  if (fieldDiv) {
+    fieldDiv.classList.add('signed');
+    
+    // ✅ Preservar el label y agregar la imagen
+    const existingLabel = fieldDiv.querySelector('.label');
+    fieldDiv.innerHTML = '';
+    if (existingLabel) {
+      fieldDiv.appendChild(existingLabel);
+    }
+    
+    const img = document.createElement('img');
+    img.src = signatureData;
+    img.style.width = '100%';
+    img.style.height = '100%';
+    img.style.objectFit = 'contain';
+    img.style.position = 'absolute';
+    img.style.top = '0';
+    img.style.left = '0';
+    fieldDiv.appendChild(img);
+  }
+
+  console.log(`✅ Firma aplicada al campo ${currentFieldToSign.id}`);
+  
+  // ✅ Remover foco del botón ANTES de cerrar modal
+  document.activeElement.blur();
+  
+  // Cerrar modal con pequeño delay para el blur
+  setTimeout(() => {
+    sigModal.classList.remove('show');
+    sigModal.setAttribute('aria-hidden', 'true');
+  }, 10);
+  
+  currentFieldToSign = null;
+
+  // Verificar si todos los campos requeridos están firmados
+  checkAllFieldsSigned();
+});
+
+// ===== MODAL DE TEXTO =====
+function openTextModal(fieldData) {
+  currentFieldToSign = fieldData;
+  textModal.classList.add('show');
+  textModal.setAttribute('aria-hidden', 'false');
+  
+  // ✅ Limpiar input y resetear estilos
+  document.getElementById('textInput').value = '';
+  document.getElementById('fontFamily').value = 'Arial';
+  document.getElementById('fontSize').value = '12';
+  document.getElementById('fontColor').value = '#000000';
+  
+  // Resetear botones de formato
+  document.getElementById('boldBtn').classList.remove('active');
+  document.getElementById('italicBtn').classList.remove('active');
+  document.getElementById('underlineBtn').classList.remove('active');
+  
+  // Resetear alineación
+  document.querySelectorAll('[data-align]').forEach(btn => btn.classList.remove('active'));
+  document.getElementById('alignLeft').classList.add('active');
+  
+  updateTextPreview();
+  
+  console.log(`📝 Abriendo modal de texto para campo: ${fieldData.id}`);
+}
+
+// Actualizar vista previa de texto
+function updateTextPreview() {
+  const text = document.getElementById('textInput').value || 'Tu texto aparecerá aquí...';
+  const fontFamily = document.getElementById('fontFamily').value;
+  const fontSize = document.getElementById('fontSize').value;
+  const fontColor = document.getElementById('fontColor').value;
+  const bold = document.getElementById('boldBtn').classList.contains('active');
+  const italic = document.getElementById('italicBtn').classList.contains('active');
+  const underline = document.getElementById('underlineBtn').classList.contains('active');
+  
+  // Obtener alineación activa
+  let textAlign = 'left';
+  if (document.getElementById('alignCenter').classList.contains('active')) textAlign = 'center';
+  if (document.getElementById('alignRight').classList.contains('active')) textAlign = 'right';
+  
+  const preview = document.getElementById('textPreview');
+  preview.textContent = text;
+  preview.style.fontFamily = fontFamily;
+  preview.style.fontSize = `${fontSize}px`;
+  preview.style.color = fontColor;
+  preview.style.fontWeight = bold ? 'bold' : 'normal';
+  preview.style.fontStyle = italic ? 'italic' : 'normal';
+  preview.style.textDecoration = underline ? 'underline' : 'none';
+  preview.style.textAlign = textAlign;
+}
+
+// Event listeners para el modal de texto
+document.getElementById('textInput').addEventListener('input', updateTextPreview);
+
+// ✅ Prevenir que Enter cierre el modal
+document.getElementById('textInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault(); // Prevenir comportamiento por defecto
+    // Shift+Enter permite saltos de línea
+  }
+});
+
+document.getElementById('fontFamily').addEventListener('change', updateTextPreview);
+document.getElementById('fontSize').addEventListener('change', updateTextPreview);
+document.getElementById('fontColor').addEventListener('input', updateTextPreview);
+
+document.getElementById('boldBtn').addEventListener('click', function() {
+  this.classList.toggle('active');
+  updateTextPreview();
+});
+
+document.getElementById('italicBtn').addEventListener('click', function() {
+  this.classList.toggle('active');
+  updateTextPreview();
+});
+
+document.getElementById('underlineBtn').addEventListener('click', function() {
+  this.classList.toggle('active');
+  updateTextPreview();
+});
+
+document.getElementById('alignLeft').addEventListener('click', function() {
+  document.querySelectorAll('[data-align]').forEach(btn => btn.classList.remove('active'));
+  this.classList.add('active');
+  updateTextPreview();
+});
+
+document.getElementById('alignCenter').addEventListener('click', function() {
+  document.querySelectorAll('[data-align]').forEach(btn => btn.classList.remove('active'));
+  this.classList.add('active');
+  updateTextPreview();
+});
+
+document.getElementById('alignRight').addEventListener('click', function() {
+  document.querySelectorAll('[data-align]').forEach(btn => btn.classList.remove('active'));
+  this.classList.add('active');
+  updateTextPreview();
+});
+
+document.getElementById('textClose').addEventListener('click', (e) => {
+  e.preventDefault();
+  document.activeElement.blur(); // ✅ Remover foco
+  
+  // Cerrar modal con pequeño delay para el blur
+  setTimeout(() => {
+    textModal.classList.remove('show');
+    textModal.setAttribute('aria-hidden', 'true');
+  }, 10);
+  
+  currentFieldToSign = null;
+});
+
+document.getElementById('textCancel').addEventListener('click', (e) => {
+  e.preventDefault();
+  document.activeElement.blur(); // ✅ Remover foco
+  
+  // Cerrar modal con pequeño delay para el blur
+  setTimeout(() => {
+    textModal.classList.remove('show');
+    textModal.setAttribute('aria-hidden', 'true');
+  }, 10);
+  
+  currentFieldToSign = null;
+});
+
+document.getElementById('textOk').addEventListener('click', (e) => {
+  e.preventDefault(); // ✅ Prevenir comportamiento de formulario
+  e.stopPropagation(); // ✅ Detener propagación
+  
+  console.log('🔘 Botón textOk clickeado');
+  
+  const text = document.getElementById('textInput').value.trim();
+  
+  console.log(`📝 Texto capturado: "${text}" (longitud: ${text.length})`);
+  
+  if (!text) {
+    console.log('⚠️ Texto vacío, mostrando alerta');
+    alert('Por favor, escribe un texto');
+    return; // ✅ NO cerrar el modal, solo mostrar alerta
+  }
+
+  if (!currentFieldToSign) {
+    console.warn('⚠️ No hay campo seleccionado');
+    return;
+  }
+
+  console.log(`💾 Guardando texto: "${text}" en campo ${currentFieldToSign.id}`);
+
+  // Obtener estilos
+  const fontFamily = document.getElementById('fontFamily').value;
+  const fontSize = document.getElementById('fontSize').value;
+  const fontColor = document.getElementById('fontColor').value;
+  const bold = document.getElementById('boldBtn').classList.contains('active');
+  const italic = document.getElementById('italicBtn').classList.contains('active');
+  const underline = document.getElementById('underlineBtn').classList.contains('active');
+  
+  let textAlign = 'left';
+  if (document.getElementById('alignCenter').classList.contains('active')) textAlign = 'center';
+  if (document.getElementById('alignRight').classList.contains('active')) textAlign = 'right';
+
+  // Actualizar el campo en el array
+  const fieldIndex = fields.findIndex(f => f.id === currentFieldToSign.id);
+  if (fieldIndex !== -1) {
+    fields[fieldIndex].signed = true;
+    fields[fieldIndex].textValue = text;
+    fields[fieldIndex].textStyle = { fontFamily, fontSize, fontColor, bold, italic, underline, textAlign };
+    
+    console.log(`✅ Campo texto actualizado en array:`, {
+      field_id: fields[fieldIndex].field_id,
+      signed: fields[fieldIndex].signed,
+      has_textValue: !!fields[fieldIndex].textValue
+    });
+  } else {
+    console.error(`❌ No se encontró el campo ${currentFieldToSign.id} en el array`);
+  }
+
+  // Actualizar visualmente el campo
+  const fieldDiv = document.getElementById(currentFieldToSign.id);
+  if (fieldDiv) {
+    fieldDiv.classList.add('signed');
+    
+    // ✅ Preservar el label
+    const existingLabel = fieldDiv.querySelector('.label');
+    
+    fieldDiv.innerHTML = `
+      <div class="field-content" style="
+        font-family: ${fontFamily};
+        font-size: ${fontSize}px;
+        color: ${fontColor};
+        font-weight: ${bold ? 'bold' : 'normal'};
+        font-style: ${italic ? 'italic' : 'normal'};
+        text-decoration: ${underline ? 'underline' : 'none'};
+        text-align: ${textAlign};
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: ${textAlign === 'center' ? 'center' : textAlign === 'right' ? 'flex-end' : 'flex-start'};
+        padding: 4px;
+        box-sizing: border-box;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+      ">${text}</div>
+    `;
+    
+    // ✅ Re-agregar el label
+    if (existingLabel) {
+      fieldDiv.insertBefore(existingLabel, fieldDiv.firstChild);
+    }
+  }
+
+  console.log(`✅ Texto aplicado al campo ${currentFieldToSign.id}`);
+  
+  // ✅ Remover foco del botón ANTES de cerrar modal
+  document.activeElement.blur();
+  
+  // Cerrar modal con pequeño delay para el blur
+  setTimeout(() => {
+    textModal.classList.remove('show');
+    textModal.setAttribute('aria-hidden', 'true');
+  }, 10);
+  
+  currentFieldToSign = null;
+
+  checkAllFieldsSigned();
+});
+
+// ===== MODAL DE FECHA =====
+function openDateModal(fieldData) {
+  currentFieldToSign = fieldData;
+  dateModal.classList.add('show');
+  dateModal.setAttribute('aria-hidden', 'false');
+  
+  // Establecer fecha actual por defecto
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('dateInput').value = today;
+  
+  console.log(`📅 Abriendo modal de fecha para campo: ${fieldData.id}`);
+}
+
+document.getElementById('dateClose').addEventListener('click', (e) => {
+  e.preventDefault();
+  document.activeElement.blur(); // ✅ Remover foco
+  
+  // Cerrar modal con pequeño delay para el blur
+  setTimeout(() => {
+    dateModal.classList.remove('show');
+    dateModal.setAttribute('aria-hidden', 'true');
+  }, 10);
+  
+  currentFieldToSign = null;
+});
+
+document.getElementById('dateCancel').addEventListener('click', (e) => {
+  e.preventDefault();
+  document.activeElement.blur(); // ✅ Remover foco
+  
+  // Cerrar modal con pequeño delay para el blur
+  setTimeout(() => {
+    dateModal.classList.remove('show');
+    dateModal.setAttribute('aria-hidden', 'true');
+  }, 10);
+  
+  currentFieldToSign = null;
+});
+
+document.getElementById('dateOk').addEventListener('click', (e) => {
+  e.preventDefault(); // ✅ Prevenir comportamiento de formulario
+  e.stopPropagation(); // ✅ Detener propagación
+  
+  const dateValue = document.getElementById('dateInput').value;
+  
+  if (!dateValue) {
+    alert('Por favor, selecciona una fecha');
+    return;
+  }
+
+  if (!currentFieldToSign) return;
+
+  console.log(`💾 Guardando fecha: ${dateValue} en campo ${currentFieldToSign.id}`);
+
+  // Formatear fecha
+  const date = new Date(dateValue + 'T00:00:00');
+  const formattedDate = date.toLocaleDateString('es-ES', { 
+    year: 'numeric', 
+    month: 'long', 
+    day: 'numeric' 
+  });
+
+  // Actualizar el campo en el array
+  const fieldIndex = fields.findIndex(f => f.id === currentFieldToSign.id);
+  if (fieldIndex !== -1) {
+    fields[fieldIndex].signed = true;
+    fields[fieldIndex].dateValue = dateValue;
+    
+    console.log(`✅ Campo fecha actualizado en array:`, {
+      field_id: fields[fieldIndex].field_id,
+      signed: fields[fieldIndex].signed,
+      has_dateValue: !!fields[fieldIndex].dateValue
+    });
+  } else {
+    console.error(`❌ No se encontró el campo ${currentFieldToSign.id} en el array`);
+  }
+
+  // Actualizar visualmente el campo
+  const fieldDiv = document.getElementById(currentFieldToSign.id);
+  if (fieldDiv) {
+    fieldDiv.classList.add('signed');
+    
+    // ✅ Preservar el label
+    const existingLabel = fieldDiv.querySelector('.label');
+    
+    fieldDiv.innerHTML = `
+      <div class="field-content" style="
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        font-weight: 600;
+        color: #333;
+      ">${formattedDate}</div>
+    `;
+    
+    // ✅ Re-agregar el label
+    if (existingLabel) {
+      fieldDiv.insertBefore(existingLabel, fieldDiv.firstChild);
+    }
+  }
+
+  console.log(`✅ Fecha aplicada al campo ${currentFieldToSign.id}`);
+  
+  // ✅ Remover foco del botón ANTES de cerrar modal
+  document.activeElement.blur();
+  
+  // Cerrar modal con pequeño delay para el blur
+  setTimeout(() => {
+    dateModal.classList.remove('show');
+    dateModal.setAttribute('aria-hidden', 'true');
+  }, 10);
+  
+  currentFieldToSign = null;
+
+  checkAllFieldsSigned();
+});
+
+// ===== VERIFICAR SI TODOS LOS CAMPOS ESTÁN FIRMADOS =====
+function checkAllFieldsSigned() {
+  const allRequiredSigned = fields
+    .filter(f => f.required)
+    .every(f => f.signed);
+
+  if (allRequiredSigned) {
+    console.log('✅ Todos los campos requeridos están completados');
+    
+    // Mostrar botón con fade-in elegante
+    const sendBtn = document.getElementById('sendBtn');
+    sendBtn.style.display = 'block';
+    
+    // Pequeño delay para que la transición se vea suave
+    setTimeout(() => {
+      sendBtn.style.opacity = '1';
+      sendBtn.style.transform = 'translateY(0)';
+    }, 50);
+    
+    sendBtn.onclick = submitDocument;
+  }
+}
+
+// ===== ENVIAR DOCUMENTO FIRMADO =====
+async function submitDocument() {
+  try {
+    const btn = document.getElementById('sendBtn');
+    btn.disabled = true;
+    btn.textContent = '⏳ Procesando...';
+    btn.style.opacity = '0.7';
+
+    // 🔍 DEBUG: Mostrar qué se va a enviar
+    console.log('📤 Enviando campos al servidor:', fields.length);
+    fields.forEach((field, idx) => {
+      console.log(`   Campo ${idx + 1}:`, {
+        field_id: field.field_id,
+        type: field.type,
+        signed: field.signed,
+        has_dataUrl: !!field.dataUrl,
+        has_textValue: !!field.textValue,
+        has_dateValue: !!field.dateValue
+      });
+    });
+
+    const response = await fetch(`/api/public/sign/${currentToken}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fields: fields,
+        timestamp: new Date().toISOString()
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      // Mostrar mensaje de error específico del servidor
+      throw new Error(data.message || 'Error al procesar la firma');
+    }
+
+    console.log('✅ Documento enviado exitosamente:', data);
+    
+    // Mostrar mensaje de éxito
+    btn.style.display = 'none';
+    const successMsg = document.getElementById('successMsg');
+    successMsg.style.display = 'block';
+    
+    // Agregar fade-in al mensaje de éxito
+    setTimeout(() => {
+      successMsg.style.opacity = '1';
+    }, 50);
+
+  } catch (error) {
+    console.error('❌ Error firmando documento:', error);
+    
+    // Mostrar alerta con mensaje específico
+    alert(`❌ ${error.message}\n\nPor favor, inténtalo nuevamente.`);
+    
+    // Restaurar botón
+    const btn = document.getElementById('sendBtn');
+    btn.disabled = false;
+    btn.textContent = '📤 Enviar Documento Firmado';
+    btn.style.opacity = '1';
+  }
+}
+
+// Función para mostrar errores
+function showError(message) {
+  document.getElementById('initialLoader').innerHTML = `
+    <div style="text-align:center; max-width:500px;">
+      <div style="font-size:64px; margin-bottom:20px;">❌</div>
+      <h2 style="margin:0 0 12px; color:#c33;">Error</h2>
+      <p style="margin:0; color:#666;">${message}</p>
+    </div>
+  `;
+}
+
+</script>
+
+</body>
+</html>

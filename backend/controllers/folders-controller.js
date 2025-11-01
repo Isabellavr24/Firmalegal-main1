@@ -112,7 +112,8 @@ router.get('/', requireAuth, async (req, res) => {
             params.push(parseInt(level));
         }
 
-        query += ` GROUP BY f.folder_id ORDER BY f.created_at DESC`;
+        // ✅ Ordenar por fecha de creación ASCENDENTE (más antiguas primero)
+        query += ` GROUP BY f.folder_id ORDER BY f.created_at ASC`;
 
         console.log('   Query:', query);
         console.log('   Params:', params);
@@ -126,11 +127,20 @@ router.get('/', requireAuth, async (req, res) => {
 
         console.log(`✅ [FOLDERS] ${results.length} carpetas encontradas`);
 
+        // 🐛 DEBUG: Ver orden de carpetas desde la BD
+        console.log('🔍 [DEBUG] Orden de carpetas desde BD:');
+        results.forEach((f, index) => {
+            console.log(`   ${index + 1}. ID:${f.folder_id} - ${f.folder_name} - parent_id:${f.parent_id} - level:${f.folder_level}`);
+        });
+
         // Formatear respuesta para frontend
         const folders = results.map(f => ({
             id: f.folder_id,
             name: f.folder_name,
             slug: f.folder_slug,
+            parent_id: f.parent_id, // ✅ AGREGADO: Incluir parent_id para jerarquía
+            level: f.folder_level,  // ✅ AGREGADO: Incluir nivel
+            path: f.folder_path,    // ✅ AGREGADO: Incluir path
             item_count: (f.doc_count || 0) + (f.subfolder_count || 0), // ✅ Suma documentos + subcarpetas
             doc_count: f.doc_count || 0,
             subfolder_count: f.subfolder_count || 0,
@@ -141,6 +151,12 @@ router.get('/', requireAuth, async (req, res) => {
             created_at: f.created_at,
             updated_at: f.updated_at
         }));
+
+        // 🐛 DEBUG: Ver datos mapeados
+        console.log('🔍 [DEBUG] Datos mapeados para frontend:');
+        folders.forEach((f, index) => {
+            console.log(`   ${index + 1}. ID:${f.id} - ${f.name} - parent_id:${f.parent_id} - level:${f.level}`);
+        });
 
         // Log de actividad
         await logActivity(db, {

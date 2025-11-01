@@ -20,32 +20,58 @@
     .folder-title{font-size:2.1rem;font-weight:800;letter-spacing:-.02em}
     .folder-icon{width:32px;height:32px;display:grid;place-items:center;border:1px solid var(--stroke);border-radius:8px;background:#fff}
 
-    /* Doc actions */
-    .card.doc{ position: relative; }
-    .card.doc .card-link{ padding-right: 72px; }
+    /* Doc actions - FIX PARA EVITAR DEFORMACIÓN */
+    .card.doc{
+      position: relative;
+      min-height: 120px; /* Altura mínima fija para evitar saltos */
+    }
+    .card.doc .card-link{
+      padding-right: 80px; /* Espacio reservado fijo para botones */
+      min-height: 100px;
+    }
     .doc-actions{
-      position:absolute; top:50%; right:12px;
-      transform:translateY(-50%) translateX(8px);
-      display:flex; flex-direction:column; gap:12px;
-      opacity:0; pointer-events:none;
-      transition: opacity .18s ease, transform .18s ease;
+      position: absolute;
+      top: 50%;
+      right: 16px;
+      transform: translateY(-50%) translateX(60px); /* Oculto a la derecha inicialmente */
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .2s ease, transform .2s ease;
+      z-index: 10;
     }
-    .card.doc:hover .doc-actions{ opacity:1; transform:translateY(-50%) translateX(0); pointer-events:auto; }
+    .card.doc:hover .doc-actions{
+      opacity: 1;
+      transform: translateY(-50%) translateX(0); /* Se desliza a su posición final */
+      pointer-events: auto;
+    }
     .doc-actions .icon-btn{
-      width:34px; height:34px; display:grid; place-items:center;
-      border-radius:12px; border:1px solid transparent;
-      background:transparent; color:var(--brand-plum,#2b0e31); cursor:pointer;
-      transition: all .2s ease;
+      width: 36px;
+      height: 36px;
+      display: grid;
+      place-items: center;
+      border-radius: 10px;
+      border: 1px solid #e5e7eb;
+      background: #fff;
+      color: var(--brand-plum, #2b0e31);
+      cursor: pointer;
+      transition: all .18s ease;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
-    .doc-actions .icon-btn:hover{ background:#fff; border-color:#eadfd8; box-shadow:0 6px 16px rgba(0,0,0,.10); }
-    
+    .doc-actions .icon-btn:hover{
+      transform: scale(1.08);
+      box-shadow: 0 4px 12px rgba(0,0,0,.12);
+    }
+
     /* Colores específicos por acción */
     .doc-actions .icon-btn[data-action="move"]:hover { background: #f3f0ff; border-color: #d4bbff; }
     .doc-actions .icon-btn[data-action="edit"]:hover { background: #eff6ff; border-color: #bfdbfe; }
     .doc-actions .icon-btn[data-action="clone"]:hover { background: #f0fdf4; border-color: #bbf7d0; }
     .doc-actions .icon-btn[data-action="archive"]:hover { background: #fffbeb; border-color: #fde68a; }
-    
-    .doc-actions svg{ width:18px; height:18px; stroke:currentColor; }
+
+    .doc-actions svg{ width: 18px; height: 18px; stroke: currentColor; }
   </style>
 </head>
 <body>
@@ -92,15 +118,25 @@
     </div>
   </section>
 
-  <!-- Grid -->
-  <main id="docsGrid" class="cards" aria-live="polite"></main>
+  <!-- Grid de Carpetas -->
+  <div id="foldersContainer" style="display:none; max-width:var(--content-max); margin:0 auto 24px; padding:0 var(--page-gutter);">
+    <div id="foldersGrid" class="cards"></div>
+  </div>
+
+  <!-- Grid de Documentos -->
+  <div id="docsContainer" style="display:none; max-width:var(--content-max); margin:0 auto; padding:0 var(--page-gutter);">
+    <main id="docsGrid" class="cards"></main>
+  </div>
+
+  <!-- Estado vacío -->
+  <main id="emptyGrid" class="cards" style="display:none;"></main>
 
   <!-- TEMPLATE: Card de documento -->
   <template id="doc-card-template">
     <article class="card doc">
       <a class="card-link" data-open-doc>
+        <h3 class="title"></h3>
         <div class="meta">
-          <h3 class="title"></h3>
           <p class="owner"></p>
           <p class="date"></p>
         </div>
@@ -200,11 +236,23 @@
         </div>
 
         <div class="form-group">
-          <label class="form-label">Guardar en</label>
-          <div class="folder-selector" style="cursor: default; background: #f5f5f5;">
-            <span class="folder-selector-icon">📁</span>
-            <span id="ct-current-folder-name">Esta carpeta</span>
+          <label class="form-label">Guardar en carpeta</label>
+          <div class="custom-select-wrapper">
+            <div class="folder-selector custom-select-trigger" id="ct-folder-trigger">
+              <span class="folder-selector-icon">📁</span>
+              <span class="custom-select-value" id="ct-folder-value">Esta carpeta</span>
+              <svg class="custom-select-arrow" width="12" height="8" viewBox="0 0 12 8" fill="none">
+                <path d="M1 1.5L6 6.5L11 1.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <div class="custom-select-dropdown" id="ct-folder-dropdown">
+              <div class="custom-select-option selected" data-value="">
+                <span class="option-icon">📁</span>
+                <span class="option-text">Esta carpeta</span>
+              </div>
+            </div>
           </div>
+          <input type="hidden" id="ct-folder-select" value="" />
           <div style="margin-top:.5rem; text-align:center;">
             <button type="button" class="link-btn" id="ct-new-folder" style="font-size:.875rem; color:var(--brand-magenta);">
               + Crear subcarpeta
@@ -221,6 +269,96 @@
 
   <!-- Scripts -->
   <script src="/public/Main/permissions.js"></script>
+  <!-- MODAL: Mover documento -->
+  <div id="moveDocModal" class="modal" aria-hidden="true" style="display:none; z-index: 1100;">
+    <div class="modal-content create-modal" role="dialog" aria-modal="true" aria-labelledby="md-title" style="max-width:480px;">
+      <header class="modal-header">
+        <h2 id="md-title" class="modal-title">Mover documento</h2>
+        <button id="md-close" class="btn-close" aria-label="Cerrar modal">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </header>
+
+      <div class="modal-body">
+        <p id="md-doc-name" style="margin-bottom: 16px; color: var(--ink-soft); font-size: 0.9rem;"></p>
+
+        <div class="form-group">
+          <label class="form-label">Selecciona la carpeta destino</label>
+          <div id="md-folder-select" class="custom-select">
+            <button type="button" class="select-trigger">
+              <span class="select-text">Selecciona una carpeta...</span>
+              <svg class="select-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>
+            <div class="select-dropdown">
+              <!-- Opciones dinámicas -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <footer class="modal-footer">
+        <button id="md-cancel" class="btn btn-secondary">Cancelar</button>
+        <button id="md-move" class="btn btn-primary">Mover</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- MODAL: Editar nombre -->
+  <div id="editNameModal" class="modal" aria-hidden="true" style="display:none; z-index: 1100;">
+    <div class="modal-content create-modal" role="dialog" aria-modal="true" style="max-width:480px;">
+      <header class="modal-header">
+        <h2 class="modal-title">Editar nombre del documento</h2>
+        <button id="en-close" class="btn-close" aria-label="Cerrar modal">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </header>
+
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Nombre del documento</label>
+          <input id="en-input" type="text" class="ct-input" placeholder="Ingresa el nuevo nombre" />
+        </div>
+      </div>
+
+      <footer class="modal-footer">
+        <button id="en-cancel" class="btn btn-secondary">Cancelar</button>
+        <button id="en-save" class="btn btn-primary">Guardar</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- MODAL: Confirmar archivo -->
+  <div id="confirmModal" class="modal" aria-hidden="true" style="display:none; z-index: 1100;">
+    <div class="modal-content create-modal" role="dialog" aria-modal="true" style="max-width:480px;">
+      <header class="modal-header">
+        <h2 id="confirm-title" class="modal-title">Confirmar acción</h2>
+        <button id="confirm-close" class="btn-close" aria-label="Cerrar modal">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </header>
+
+      <div class="modal-body">
+        <p id="confirm-message" style="font-size: 1rem; color: var(--ink);"></p>
+      </div>
+
+      <footer class="modal-footer">
+        <button id="confirm-cancel" class="btn btn-secondary">Cancelar</button>
+        <button id="confirm-ok" class="btn btn-primary">Confirmar</button>
+      </footer>
+    </div>
+  </div>
+
   <script defer src="/public/Main/folder.js"></script>
   <script>
     document.addEventListener('DOMContentLoaded', () => {

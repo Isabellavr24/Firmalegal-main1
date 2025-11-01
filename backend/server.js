@@ -5,15 +5,14 @@ const path = require('path');
 const multer = require('multer');
 const fs = require('fs');
 
-// Importar controlador de firmas
-const signaturesController = require('./signatures-controller');
-
 // =============================================
 // IMPORTAR NUEVOS CONTROLADORES Y MIDDLEWARE
 // =============================================
 const foldersController = require('./controllers/folders-controller');
 const documentsController = require('./controllers/documents-controller');
+const signaturesController = require('./controllers/signatures-controller');
 const { requestLogger } = require('./middleware/auth');
+const { embedValuesInPdf } = require('./lib/pdf/embed-values');
 
 const app = express();
 const port = 3000;
@@ -89,11 +88,19 @@ app.get('/folder.html', (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'frontend', 'public', 'Main', 'folder.html'));
 });
 
+app.get('/tracking.html', (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'frontend', 'public', 'Main', 'tracking.html'));
+});
+
+app.get('/public-sign.html', (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'frontend', 'public', 'Main', 'public-sign.html'));
+});
+
 const db = mysql.createConnection({
     host: 'localhost',
-    port: 3307,
+    port: 3306,
     user: 'root',
-    password: '1234', 
+    password: '', 
     database: 'firmalegalonline'
 });
 
@@ -123,6 +130,161 @@ app.use('/api/folders', foldersController);
 app.use('/api/documents', documentsController);
 app.use('/api/templates', documentsController); // Alias para compatibilidad
 console.log('✅ Rutas registradas exitosamente');
+
+// =============================================
+// RUTAS DE CONFIGURACIÓN DE EMAIL POR USUARIO
+// =============================================
+const emailConfigController = require('./controllers/email-config-controller');
+console.log('📧 Registrando rutas de configuración de email...');
+app.use('/api/email-config', emailConfigController);
+console.log('✅ Rutas de configuración de email registradas');
+
+// =============================================
+// RUTAS DE EMAIL (SENDGRID)
+// =============================================
+const mailer = require('./lib/email/mailer');
+
+// Endpoint para verificar estado de configuración de email
+app.get('/api/email/status', (req, res) => {
+    console.log('\n📧 [EMAIL] GET /api/email/status');
+    const status = mailer.getStatus();
+    res.json({
+        success: true,
+        data: status
+    });
+});
+
+// Endpoint para enviar email de prueba
+app.post('/api/email/test', async (req, res) => {
+    console.log('\n📧 [EMAIL] POST /api/email/test');
+    const { to } = req.body;
+
+    if (!to) {
+        return res.status(400).json({
+            success: false,
+            error: 'El campo "to" (email destino) es requerido'
+        });
+    }
+
+    try {
+        const result = await mailer.sendTestEmail(to);
+
+        if (result.success) {
+            res.json({
+                success: true,
+                message: `Email de prueba enviado exitosamente a ${to}`,
+                data: result
+            });
+        } else {
+            res.status(500).json({
+                success: false,
+                error: 'Error al enviar email de prueba',
+                details: result.error
+            });
+        }
+    } catch (error) {
+        console.error('❌ [EMAIL] Error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Error interno al enviar email',
+            message: error.message
+        });
+    }
+});
+
+// Endpoint para enviar solicitud de firma
+app.post('/api/email/signature-request', async (req, res) => {
+    console.log('\n📧 [EMAIL] POST /api/email/signature-request');
+    const { to, recipientName, documentTitle, senderName, documentId } = req.body;
+
+    // Validaciones
+    if (!to || !recipientName || !documentTitle || !senderName || !documentId) {
+        return res.status(400).json({
+            success: false,
+            error: 'Faltan campos requeridos',
+            required: ['to', 'recipientName', 'documentTitle', 'senderName', 'documentId']
+        });
+    }
+
+    try {
+        const result = await mailer.sendSignatureRequest({
+            to,
+            recipientName,
+            documentTitle,
+            senderName,
+            documentId
+        });
+
+        if (result.success) {
+            res.json({
+                success: true,
+                message: `Solicitud de firma enviada a ${to}`,
+                data: result
+            });
+        } else {
+            res.status(500).json({
+                success: false,
+                error: 'Error al enviar solicitud de firma',
+                details: result.error
+            });
+        }
+    } catch (error) {
+        console.error('❌ [EMAIL] Error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Error interno al enviar email',
+            message: error.message
+        });
+    }
+});
+
+// Endpoint para notificar firma completada
+app.post('/api/email/signature-completed', async (req, res) => {
+    console.log('\n📧 [EMAIL] POST /api/email/signature-completed');
+    const { to, recipientName, documentTitle, signerName, documentId } = req.body;
+
+    // Validaciones
+    if (!to || !recipientName || !documentTitle || !signerName || !documentId) {
+        return res.status(400).json({
+            success: false,
+            error: 'Faltan campos requeridos',
+            required: ['to', 'recipientName', 'documentTitle', 'signerName', 'documentId']
+        });
+    }
+
+    try {
+        const result = await mailer.sendSignatureCompleted({
+            to,
+            recipientName,
+            documentTitle,
+            signerName,
+            documentId
+        });
+
+        if (result.success) {
+            res.json({
+                success: true,
+                message: `Notificación de firma completada enviada a ${to}`,
+                data: result
+            });
+        } else {
+            res.status(500).json({
+                success: false,
+                error: 'Error al enviar notificación',
+                details: result.error
+            });
+        }
+    } catch (error) {
+        console.error('❌ [EMAIL] Error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Error interno al enviar email',
+            message: error.message
+        });
+    }
+});
+
+console.log('✅ Rutas de email registradas exitosamente');
 
 // =========================================
 // MIDDLEWARE DE PERMISOS
@@ -736,6 +898,487 @@ app.delete('/api/users/:id/avatar', async (req, res) => {
     }
 });
 
-app.listen(port, () => {
-    console.log(`🚀 Servidor escuchando en http://localhost:${port}`);
+// =============================================
+// ENDPOINTS PÚBLICOS PARA FIRMA DE DOCUMENTOS
+// =============================================
+
+// GET /api/public/document/:token - Obtener información del documento por token
+app.get('/api/public/document/:token', async (req, res) => {
+    const { token } = req.params;
+    
+    try {
+        console.log(`📄 Solicitando documento con token: ${token}`);
+
+        // Buscar el destinatario por token
+        const recipientQuery = `
+            SELECT 
+                dr.recipient_id,
+                dr.document_id,
+                dr.email,
+                dr.name,
+                dr.status,
+                dr.sent_at,
+                dr.opened_at,
+                dr.completed_at,
+                d.title as document_title,
+                d.file_path,
+                d.owner_id,
+                u.first_name,
+                u.last_name,
+                u.email as sender_email
+            FROM document_recipients dr
+            INNER JOIN documents d ON dr.document_id = d.document_id
+            INNER JOIN users u ON d.owner_id = u.user_id
+            WHERE dr.token = ?
+        `;
+
+        const [recipients] = await new Promise((resolve, reject) => {
+            db.query(recipientQuery, [token], (err, results) => {
+                if (err) reject(err);
+                else resolve([results]);
+            });
+        });
+
+        if (recipients.length === 0) {
+            console.log('❌ Token no encontrado');
+            return res.status(404).json({
+                success: false,
+                message: 'Token inválido o documento no encontrado'
+            });
+        }
+
+        const recipient = recipients[0];
+
+        // Si el documento aún no se ha abierto, actualizar estado a opened
+        if (recipient.status === 'sent' && !recipient.opened_at) {
+            await new Promise((resolve, reject) => {
+                db.query(
+                    'UPDATE document_recipients SET status = ?, opened_at = NOW() WHERE token = ?',
+                    ['opened', token],
+                    (err, results) => {
+                        if (err) reject(err);
+                        else resolve(results);
+                    }
+                );
+            });
+            console.log('✅ Estado actualizado a opened');
+        }
+
+        // Obtener los campos del documento
+        const fieldsQuery = `
+            SELECT 
+                field_id, 
+                field_type as type, 
+                page_number as page, 
+                x_position as x, 
+                y_position as y, 
+                width, 
+                height, 
+                field_label as label, 
+                required
+            FROM document_fields
+            WHERE document_id = ?
+            ORDER BY field_id ASC
+        `;
+
+        const [fields] = await new Promise((resolve, reject) => {
+            db.query(fieldsQuery, [recipient.document_id], (err, results) => {
+                if (err) reject(err);
+                else resolve([results]);
+            });
+        });
+
+        console.log(`✅ ${fields.length} campo(s) encontrado(s) para el documento`);
+
+        // Construir ruta del PDF correctamente (evitar doble barra)
+        let pdfPath = recipient.file_path.replace(/\\/g, '/'); // Convertir barras invertidas
+        if (!pdfPath.startsWith('/')) {
+            pdfPath = '/' + pdfPath; // Agregar barra inicial solo si no existe
+        }
+
+        // Responder con la información del documento
+        res.json({
+            success: true,
+            document: {
+                id: recipient.document_id,
+                title: recipient.document_title,
+                pdfPath: pdfPath,
+                senderName: `${recipient.first_name} ${recipient.last_name}`,
+                senderEmail: recipient.sender_email,
+                recipientEmail: recipient.email,
+                recipientName: recipient.name,
+                sentAt: recipient.sent_at,
+                openedAt: recipient.opened_at,
+                status: recipient.status,
+                fields: fields || [] // ✅ Incluir campos en la respuesta
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error al obtener documento público:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al cargar el documento'
+        });
+    }
+});
+
+// POST /api/public/sign/:token - Guardar firma del documento
+app.post('/api/public/sign/:token', async (req, res) => {
+    const { token } = req.params;
+    const { fields, timestamp } = req.body;
+
+    try {
+        console.log(`✍️ Procesando firma para token: ${token}`);
+        console.log(`📝 Campos recibidos: ${fields ? fields.length : 0}`);
+
+        // Verificar que el token existe y no ha sido completado
+        const recipientQuery = `
+            SELECT 
+                dr.recipient_id,
+                dr.document_id,
+                dr.status,
+                d.file_path,
+                d.title
+            FROM document_recipients dr
+            INNER JOIN documents d ON dr.document_id = d.document_id
+            WHERE dr.token = ?
+        `;
+
+        const [recipients] = await new Promise((resolve, reject) => {
+            db.query(recipientQuery, [token], (err, results) => {
+                if (err) reject(err);
+                else resolve([results]);
+            });
+        });
+
+        if (recipients.length === 0) {
+            console.log('❌ Token no encontrado');
+            return res.status(404).json({
+                success: false,
+                message: 'Token inválido'
+            });
+        }
+
+        const recipient = recipients[0];
+
+        if (recipient.status === 'completed') {
+            console.log('⚠️ Documento ya fue firmado anteriormente');
+            return res.status(400).json({
+                success: false,
+                message: 'Este documento ya ha sido firmado'
+            });
+        }
+
+        // Guardar los valores de los campos en la base de datos
+        if (fields && fields.length > 0) {
+            console.log('💾 Guardando valores de campos en field_values...');
+            console.log(`📊 Total de campos recibidos: ${fields.length}`);
+            
+            for (const field of fields) {
+                console.log(`\n🔍 Procesando campo:`, {
+                    field_id: field.field_id,
+                    type: field.type,
+                    signed: field.signed,
+                    has_dataUrl: !!field.dataUrl,
+                    has_textValue: !!field.textValue,
+                    has_dateValue: !!field.dateValue
+                });
+                
+                if (field.signed && field.field_id) {
+                    let valueType = null;
+                    let textValue = null;
+                    let signaturePath = null;
+                    let dateValue = null;
+                    
+                    // Extraer el valor según el tipo de campo
+                    if (field.type === 'signature' && field.dataUrl) {
+                        valueType = 'signature_image';
+                        signaturePath = field.dataUrl; // Base64 de la imagen de firma
+                        console.log(`   ✅ Firma detectada con dataUrl de ${field.dataUrl.length} caracteres`);
+                    } else if (field.type === 'text' && field.textValue) {
+                        valueType = 'text';
+                        textValue = JSON.stringify({
+                            text: field.textValue,
+                            style: field.textStyle
+                        });
+                        console.log(`   ✅ Texto detectado: "${field.textValue}"`);
+                    } else if (field.type === 'date' && field.dateValue) {
+                        valueType = 'date';
+                        dateValue = field.dateValue;
+                        console.log(`   ✅ Fecha detectada: ${field.dateValue}`);
+                    }
+                    
+                    if (valueType) {
+                        // Insertar en tabla field_values
+                        try {
+                            await new Promise((resolve, reject) => {
+                                db.query(
+                                    `INSERT INTO field_values 
+                                    (field_id, recipient_id, value_type, text_value, signature_path, date_value) 
+                                    VALUES (?, ?, ?, ?, ?, ?)
+                                    ON DUPLICATE KEY UPDATE 
+                                    value_type = VALUES(value_type),
+                                    text_value = VALUES(text_value),
+                                    signature_path = VALUES(signature_path),
+                                    date_value = VALUES(date_value),
+                                    created_at = NOW()`,
+                                    [field.field_id, recipient.recipient_id, valueType, textValue, signaturePath, dateValue],
+                                    (err, results) => {
+                                        if (err) reject(err);
+                                        else resolve(results);
+                                    }
+                                );
+                            });
+                            console.log(`   ✓ Campo ${field.type} (field_id: ${field.field_id}) guardado en BD`);
+                        } catch (err) {
+                            console.error(`   ❌ Error guardando campo ${field.field_id}:`, err.message);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Actualizar el estado del recipient a 'completed'
+        await new Promise((resolve, reject) => {
+            db.query(
+                'UPDATE document_recipients SET status = ?, completed_at = NOW() WHERE token = ?',
+                ['completed', token],
+                (err, results) => {
+                    if (err) reject(err);
+                    else resolve(results);
+                }
+            );
+        });
+
+        console.log('✅ Documento firmado exitosamente');
+        console.log('📊 Estado actualizado a completed');
+
+        // TODO: Aquí se puede agregar lógica para:
+        // 1. Guardar las imágenes de firma en el sistema de archivos
+        // 3. Generar PDF firmado con todos los campos incrustados
+        // 4. Enviar notificación por email al remitente
+
+        res.json({
+            success: true,
+            message: 'Documento firmado exitosamente',
+            data: {
+                documentId: recipient.document_id,
+                documentTitle: recipient.title,
+                completedAt: new Date().toISOString(),
+                fieldsProcessed: fields ? fields.filter(f => f.signed).length : 0
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error al procesar firma:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al procesar la firma',
+            error: error.message
+        });
+    }
+});
+
+// GET /api/documents/:docId/recipients/:recipientId/values - Obtener valores completados
+app.get('/api/documents/:docId/recipients/:recipientId/values', async (req, res) => {
+    const { docId, recipientId } = req.params;
+    const userId = req.query.user_id;
+
+    try {
+        console.log(`📥 Obteniendo valores completados para doc: ${docId}, recipient: ${recipientId}`);
+
+        // Verificar que el usuario sea el propietario del documento
+        const ownerCheck = await new Promise((resolve, reject) => {
+            db.query(
+                'SELECT owner_id FROM documents WHERE document_id = ?',
+                [docId],
+                (err, results) => {
+                    if (err) reject(err);
+                    else resolve(results);
+                }
+            );
+        });
+
+        if (ownerCheck.length === 0 || ownerCheck[0].owner_id != userId) {
+            return res.status(403).json({
+                success: false,
+                message: 'No tienes permiso para ver este documento'
+            });
+        }
+
+        // Obtener los valores completados
+        const valuesQuery = `
+            SELECT 
+                fv.value_id,
+                fv.field_id,
+                fv.value_type,
+                fv.text_value,
+                fv.signature_path,
+                fv.date_value,
+                fv.created_at,
+                df.field_type,
+                df.field_label
+            FROM field_values fv
+            INNER JOIN document_fields df ON fv.field_id = df.field_id
+            WHERE fv.recipient_id = ?
+            ORDER BY fv.field_id ASC
+        `;
+
+        const [values] = await new Promise((resolve, reject) => {
+            db.query(valuesQuery, [recipientId], (err, results) => {
+                if (err) reject(err);
+                else resolve([results]);
+            });
+        });
+
+        console.log(`✅ ${values.length} valor(es) encontrado(s)`);
+
+        res.json({
+            success: true,
+            values: values
+        });
+
+    } catch (error) {
+        console.error('❌ Error obteniendo valores completados:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al obtener los valores',
+            error: error.message
+        });
+    }
+});
+
+// GET /api/documents/:docId/recipients/:recipientId/download - Descargar PDF completado
+app.get('/api/documents/:docId/recipients/:recipientId/download', async (req, res) => {
+    const { docId, recipientId } = req.params;
+    const userId = req.query.user_id;
+
+    try {
+        console.log(`📥 Descargando PDF para doc: ${docId}, recipient: ${recipientId}`);
+
+        // Verificar que el usuario sea el propietario del documento
+        const [documentInfo] = await new Promise((resolve, reject) => {
+            db.query(
+                `SELECT d.document_id, d.title, d.file_path, d.owner_id, 
+                        dr.email, dr.completed_at, dr.status as recipient_status
+                 FROM documents d 
+                 INNER JOIN document_recipients dr ON d.document_id = dr.document_id 
+                 WHERE d.document_id = ? AND dr.recipient_id = ?`,
+                [docId, recipientId],
+                (err, results) => {
+                    if (err) reject(err);
+                    else resolve([results]);
+                }
+            );
+        });
+
+        if (documentInfo.length === 0) {
+            return res.status(404).json({ success: false, message: 'Documento no encontrado' });
+        }
+
+        const document = documentInfo[0];
+        
+        console.log(`📋 Documento: ${document.title}, Status recipient: ${document.recipient_status}`);
+
+        if (document.owner_id != userId) {
+            return res.status(403).json({ success: false, message: 'No tienes permiso para descargar este documento' });
+        }
+
+        // Obtener la ruta del archivo original
+        // Eliminar la barra inicial si existe para que path.resolve funcione correctamente
+        let relativePath = document.file_path;
+        if (relativePath.startsWith('/')) {
+            relativePath = relativePath.substring(1);
+        }
+        const filePath = path.resolve(__dirname, '..', relativePath);
+        
+        console.log(`📁 Ruta del archivo: ${filePath}`);
+        
+        if (!fs.existsSync(filePath)) {
+            console.error(`❌ Archivo no encontrado en: ${filePath}`);
+            return res.status(404).json({ success: false, message: 'Archivo no encontrado' });
+        }
+
+        // Definir nombre del archivo
+        const fileName = document.recipient_status === 'completed'
+            ? `${document.title}_completado_${document.email}.pdf`
+            : `${document.title}_${document.email}.pdf`;
+
+        // Si el documento NO está completado, enviar el PDF original
+        if (document.recipient_status !== 'completed') {
+            console.log('📄 Documento sin completar, enviando PDF original');
+            
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
+            
+            const fileStream = fs.createReadStream(filePath);
+            fileStream.pipe(res);
+            
+            console.log(`✅ PDF original enviado: ${fileName}`);
+            return;
+        }
+
+        // Si está completado, obtener campos y valores para embeber
+        console.log('✅ Documento completado, embebiendo valores...');
+
+        // Obtener campos del documento
+        const [fields] = await new Promise((resolve, reject) => {
+            db.query(
+                `SELECT field_id, field_type as type, page_number as page, 
+                        x_position as x, y_position as y, width as w, height as h, field_label
+                 FROM document_fields 
+                 WHERE document_id = ? 
+                 ORDER BY field_id ASC`,
+                [docId],
+                (err, results) => {
+                    if (err) reject(err);
+                    else resolve([results]);
+                }
+            );
+        });
+
+        // Obtener valores completados
+        const [values] = await new Promise((resolve, reject) => {
+            db.query(
+                `SELECT fv.field_id, fv.value_type, fv.text_value, fv.signature_path, fv.date_value
+                 FROM field_values fv
+                 WHERE fv.recipient_id = ?`,
+                [recipientId],
+                (err, results) => {
+                    if (err) reject(err);
+                    else resolve([results]);
+                }
+            );
+        });
+
+        console.log(`📊 Campos: ${fields.length}, Valores: ${values.length}`);
+
+        // Embeber valores en el PDF
+        const pdfBytes = await embedValuesInPdf(filePath, fields, values);
+
+        // Enviar el PDF modificado
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
+        res.setHeader('Content-Length', pdfBytes.length);
+        
+        res.send(Buffer.from(pdfBytes));
+
+        console.log(`✅ PDF completado enviado: ${fileName} (${pdfBytes.length} bytes)`);
+
+    } catch (error) {
+        console.error('❌ Error descargando PDF:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al descargar el PDF',
+            error: error.message
+        });
+    }
+});
+
+// ==================== INICIAR SERVIDOR ====================
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+    console.log(`🚀 Servidor escuchando en http://localhost:${PORT}`);
 });

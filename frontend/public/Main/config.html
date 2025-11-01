@@ -254,79 +254,65 @@
         </ul>
       </section>
 
-      <!-- CORREO ELECTRÓNICO (SMTP) -->
+      <!-- CORREO ELECTRÓNICO (SENDGRID) -->
       <section class="set-section" id="sec-correo" aria-labelledby="sec-correo-h">
-        <h1 class="page-h1" id="sec-correo-h">Email SMTP</h1>
+        <h1 class="page-h1" id="sec-correo-h">Configuración de Email</h1>
+
+        <p style="margin-bottom: 20px; color: #6d6270; font-size: .95rem;">
+          Configura tu cuenta de SendGrid para enviar notificaciones de firma electrónica.
+          <a href="https://signup.sendgrid.com/" target="_blank" style="color: #c2185b; font-weight: 700; text-decoration: underline;">Obtener cuenta gratuita</a>
+        </p>
+
+        <div id="emailConfigStatus" style="display: none; padding: 18px 20px; border-radius: 16px; margin-bottom: 24px; background: #f6f1ee; border: 1.5px solid #eadfd8;">
+          <strong style="color: #2b0e31; font-size: 1rem; font-weight: 800;">✓ Configuración guardada</strong>
+          <p style="margin: 6px 0 0 0; color: #6d6270; font-size: .9rem;">Tu email está configurado y listo para enviar notificaciones</p>
+        </div>
 
         <form class="set-form" id="smtpForm">
-          <div class="grid-2">
-            <div class="field">
-              <label for="smtp-host">Host</label>
-              <input id="smtp-host" type="text" class="input-pill" value="mail.pkiservices.co" />
-            </div>
-            <div class="field">
-              <label for="smtp-port">Port</label>
-              <input id="smtp-port" type="number" class="input-pill" value="465" />
-            </div>
-          </div>
-
-          <div class="grid-2">
-            <div class="field">
-              <label for="smtp-user">Username</label>
-              <input id="smtp-user" type="email" class="input-pill" value="firmalegalonline@pkiservices.co" />
-            </div>
-            <div class="field">
-              <label for="smtp-pass">Password</label>
-              <input id="smtp-pass" type="password" class="input-pill" placeholder="••••••••" />
-            </div>
-          </div>
-
-          <div class="grid-2">
-            <div class="field">
-              <label for="smtp-domain">Domain (opcional)</label>
-              <input id="smtp-domain" type="text" class="input-pill" />
-            </div>
-            <div class="field">
-              <label for="smtp-auth">Authentication</label>
-              <div class="select-wrap">
-                <select id="smtp-auth" class="select-pill">
-                  <option value="plain" selected>Plain</option>
-                  <option value="login">LOGIN</option>
-                  <option value="cram-md5">CRAM-MD5</option>
-                </select>
-                <span class="select-arrow">▾</span>
-              </div>
-            </div>
-          </div>
-
           <div class="field">
-            <label>SMTP Security</label>
-            <div class="radio-set">
-              <label class="radio-pill">
-                <input type="radio" name="smtp-sec" id="smtp-sec-auto" value="auto" />
-                <span>Auto</span>
+            <label for="sendgrid-api-key" style="font-weight: 600; color: #2b0e31;">
+              SendGrid API Key
+            </label>
+            <input id="sendgrid-api-key" type="password" class="input-pill" placeholder="SG.xxxxxxxxxxxxxxxxxxxxxxxxxx" required />
+            <small style="color: #6d6270; display: block; margin-top: 8px; font-size: .88rem;">
+              La API Key debe comenzar con "SG." y tener permisos de "Mail Send"
+            </small>
+          </div>
+
+          <div class="grid-2">
+            <div class="field">
+              <label for="email-from" style="font-weight: 600; color: #2b0e31;">
+                Email Remitente
               </label>
-              <label class="radio-pill">
-                <input type="radio" name="smtp-sec" id="smtp-sec-ssl" value="ssl" checked />
-                <span>SSL</span>
+              <input id="email-from" type="email" class="input-pill" placeholder="tu-email@gmail.com" required />
+              <small style="color: #6d6270; display: block; margin-top: 8px; font-size: .88rem;">
+                Email que controlas (ej: tu-email@gmail.com)
+              </small>
+            </div>
+            <div class="field">
+              <label for="email-from-name" style="font-weight: 600; color: #2b0e31;">
+                Nombre del Remitente
               </label>
-              <label class="radio-pill">
-                <input type="radio" name="smtp-sec" id="smtp-sec-tls" value="tls" />
-                <span>TLS</span>
-              </label>
-              <label class="radio-pill">
-                <input type="radio" name="smtp-sec" id="smtp-sec-noverify" value="noverify" />
-                <span>Noverify</span>
-              </label>
+              <input id="email-from-name" type="text" class="input-pill" placeholder="Tu Nombre - FirmaLegal" value="FirmaLegal Online" required />
             </div>
           </div>
 
-          <div class="field">
-            <label for="smtp-from">Enviar desde correo electrónico</label>
-            <input id="smtp-from" type="email" class="input-pill" value="firmalegalonline@pkiservices.co" />
+          <div style="background: #faf6f3; padding: 18px 20px; border-radius: 16px; border: 1.5px solid #eadfd8; margin: 20px 0;">
+            <strong style="color: #2b0e31; font-size: .95rem; font-weight: 800; display: flex; align-items: center; gap: 8px;">
+              <span style="color: #c2185b;">⚠️</span> Importante - Verificación del Email
+            </strong>
+            <p style="margin: 10px 0 0 0; color: #6d6270; font-size: .88rem; line-height: 1.6;">
+              Después de guardar, debes <strong style="color: #2b0e31;">verificar tu email en SendGrid</strong>:<br>
+              1. Ve a <a href="https://app.sendgrid.com/settings/sender_auth/senders" target="_blank" style="color: #c2185b; text-decoration: underline; font-weight: 700;">Settings → Sender Authentication → Single Sender Verification</a><br>
+              2. Agrega tu email remitente<br>
+              3. Verifica el email que recibirás en tu bandeja
+            </p>
           </div>
 
-          <button type="submit" class="btn-primary-xl btn-save">GUARDAR</button>
+          <div style="display: flex; gap: 12px; margin-top: 24px; align-items: center;">
+            <button type="submit" class="btn-primary-xl" id="saveEmailBtn" style="flex: 1; height: 54px; display: flex; align-items: center; justify-content: center; margin: 0;">GUARDAR CONFIGURACIÓN</button>
+            <button type="button" id="testEmailBtn" class="btn-primary-xl" style="flex: 1; height: 54px; display: flex; align-items: center; justify-content: center; background: #c2185b; border-color: #c2185b; margin: 0;">PROBAR EMAIL</button>
+          </div>
         </form>
       </section>
 

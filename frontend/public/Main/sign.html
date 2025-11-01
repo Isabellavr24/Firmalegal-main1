@@ -5,8 +5,53 @@
   <title>Editor de Firma</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <link rel="stylesheet" href="/public/Main/M-styles/sign.css">
+  <style>
+    /* Loader inicial - visible por defecto */
+    #initialLoader {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(255, 255, 255, 0.95);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 99999;
+      backdrop-filter: blur(4px);
+    }
+    #initialLoader.hidden {
+      display: none;
+    }
+    .spinner {
+      width: 60px;
+      height: 60px;
+      border: 4px solid #f3f0ff;
+      border-top: 4px solid #2a0d31;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .loader-text {
+      margin-top: 20px;
+      color: #2a0d31;
+      font-weight: 600;
+      font-size: 14px;
+      font-family: Inter, system-ui, sans-serif;
+    }
+  </style>
 </head>
 <body>
+
+  <!-- ✅ Loader inicial - Se muestra INMEDIATAMENTE -->
+  <div id="initialLoader">
+    <div class="spinner"></div>
+    <p class="loader-text">Cargando documento...</p>
+  </div>
 
   <!-- Barra superior -->
   <div class="bar">
@@ -34,10 +79,10 @@
     </aside>
 
     <!-- CENTRO -->
-    <main class="panel" style="overflow:auto">
-      <div class="canvas-wrap" id="pageWrap" aria-label="Página PDF">
-        <canvas id="pdfCanvas"></canvas>
-        <div id="overlay"></div>
+    <main class="panel" style="overflow:auto" id="pdfViewer">
+      <!-- ✅ Contenedor para TODAS las páginas del PDF -->
+      <div id="pagesContainer">
+        <!-- Las páginas se generarán dinámicamente aquí -->
       </div>
     </main>
 
@@ -49,8 +94,9 @@
       <div id="toolDate" class="tool">📅 <div>Fecha</div></div>
 
       <ul class="tips">
-        <li>Selecciona una herramienta y haz clic en el PDF para colocar campos.</li>
-        <li>Luego pulsa <b>Guardar</b> para generar el PDF.</li>
+        <li>Selecciona una herramienta y <b>arrastra</b> en el PDF para dibujar el campo del tamaño deseado.</li>
+        <li>Puedes mover y redimensionar los campos después de colocarlos.</li>
+        <li>Pulsa <b>GUARDAR</b> para almacenar los campos.</li>
       </ul>
     </aside>
   </div>
@@ -311,6 +357,144 @@
   </script>
 
   <!-- Tu JS - versión corregida -->
+  <parameter name="script">
   <script src="/public/Main/sign.js"></script>
+
+  <!-- Cargar valores completados si es vista de documento firmado -->
+  <script>
+    (async function() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const docId = urlParams.get('id');
+      const recipientId = urlParams.get('recipient');
+      const userId = urlParams.get('user_id') || localStorage.getItem('user_id') || '1';
+
+      // Si hay recipient, significa que estamos viendo un documento completado
+      if (docId && recipientId) {
+        console.log(`📥 Cargando valores completados para doc ${docId}, recipient ${recipientId}`);
+        
+        try {
+          const response = await fetch(`/api/documents/${docId}/recipients/${recipientId}/values?user_id=${userId}`);
+          const data = await response.json();
+
+          if (data.success && data.values && data.values.length > 0) {
+            console.log(`✅ ${data.values.length} valor(es) cargado(s)`, data.values);
+
+            // Esperar a que los campos se rendericen
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            // Aplicar valores a los campos
+            data.values.forEach(value => {
+              console.log(`🔍 Procesando valor:`, {
+                field_id: value.field_id,
+                value_type: value.value_type,
+                has_signature: !!value.signature_path,
+                has_text: !!value.text_value,
+                has_date: !!value.date_value
+              });
+              
+              const fieldDiv = document.querySelector(`[data-field-id="${value.field_id}"]`);
+              console.log(`🔍 Campo en DOM:`, fieldDiv ? 'Encontrado ✅' : 'No encontrado ❌');
+              
+              if (fieldDiv) {
+                fieldDiv.classList.add('signed');
+                
+                // Obtener o crear label
+                let label = fieldDiv.querySelector('.label');
+                if (!label && value.field_label) {
+                  label = document.createElement('div');
+                  label.className = 'label';
+                  label.textContent = value.field_label;
+                }
+
+                // Aplicar valor según el tipo
+                if (value.value_type === 'signature_image' && value.signature_path) {
+                  // Firma
+                  console.log(`🖼️ Aplicando firma...`);
+                  fieldDiv.innerHTML = '';
+                  if (label) fieldDiv.appendChild(label);
+                  const img = document.createElement('img');
+                  img.src = value.signature_path;
+                  img.style.width = '100%';
+                  img.style.height = '100%';
+                  img.style.objectFit = 'contain';
+                  fieldDiv.appendChild(img);
+                  console.log(`   ✓ Firma aplicada al campo ${value.field_id}`);
+                  
+                } else if (value.value_type === 'text' && value.text_value) {
+                  // Texto
+                  try {
+                    const textData = JSON.parse(value.text_value);
+                    fieldDiv.innerHTML = '';
+                    if (label) fieldDiv.appendChild(label);
+                    
+                    const contentDiv = document.createElement('div');
+                    contentDiv.className = 'field-content';
+                    contentDiv.textContent = textData.text;
+                    contentDiv.style.fontFamily = textData.style?.fontFamily || 'Arial';
+                    contentDiv.style.fontSize = `${textData.style?.fontSize || 12}px`;
+                    contentDiv.style.color = textData.style?.fontColor || '#000';
+                    contentDiv.style.fontWeight = textData.style?.bold ? 'bold' : 'normal';
+                    contentDiv.style.fontStyle = textData.style?.italic ? 'italic' : 'normal';
+                    contentDiv.style.textDecoration = textData.style?.underline ? 'underline' : 'none';
+                    contentDiv.style.textAlign = textData.style?.textAlign || 'left';
+                    contentDiv.style.width = '100%';
+                    contentDiv.style.height = '100%';
+                    contentDiv.style.display = 'flex';
+                    contentDiv.style.alignItems = 'center';
+                    contentDiv.style.padding = '4px';
+                    fieldDiv.appendChild(contentDiv);
+                    console.log(`   ✓ Texto aplicado al campo ${value.field_id}`);
+                  } catch (e) {
+                    console.error('Error parseando texto:', e);
+                  }
+                  
+                } else if (value.value_type === 'date' && value.date_value) {
+                  // Fecha
+                  console.log(`📅 Procesando fecha:`, value.date_value);
+                  
+                  // La fecha viene en formato YYYY-MM-DD desde la BD
+                  const [year, month, day] = value.date_value.split('-');
+                  const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                  
+                  console.log(`📅 Fecha parseada:`, date);
+                  
+                  const formattedDate = date.toLocaleDateString('es-ES', { 
+                    year: 'numeric', 
+                    month: 'long', 
+                    day: 'numeric' 
+                  });
+                  
+                  console.log(`📅 Fecha formateada:`, formattedDate);
+                  
+                  fieldDiv.innerHTML = '';
+                  if (label) fieldDiv.appendChild(label);
+                  
+                  const contentDiv = document.createElement('div');
+                  contentDiv.className = 'field-content';
+                  contentDiv.textContent = formattedDate;
+                  contentDiv.style.width = '100%';
+                  contentDiv.style.height = '100%';
+                  contentDiv.style.display = 'flex';
+                  contentDiv.style.alignItems = 'center';
+                  contentDiv.style.justifyContent = 'center';
+                  contentDiv.style.fontSize = '14px';
+                  contentDiv.style.fontWeight = '600';
+                  contentDiv.style.color = '#333';
+                  fieldDiv.appendChild(contentDiv);
+                  console.log(`   ✓ Fecha aplicada al campo ${value.field_id}`);
+                }
+              } else {
+                console.warn(`⚠️ Campo con field_id ${value.field_id} no encontrado en DOM`);
+              }
+            });
+
+            console.log('✅ Todos los valores han sido aplicados');
+          }
+        } catch (error) {
+          console.error('❌ Error cargando valores completados:', error);
+        }
+      }
+    })();
+  </script>
 </body>
 </html>
