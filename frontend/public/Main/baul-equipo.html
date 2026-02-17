@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Baúl del Equipo - FirmaLegalOnline</title>
+  <link rel="stylesheet" href="/public/Main/M-styles/Styles.css?v=8">
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    .icon-svg { display:inline-block; width:18px; height:18px; vertical-align:middle; flex-shrink:0; }
+    .avatar { position:relative; overflow:hidden; display:flex; align-items:center; justify-content:center; width:34px; height:34px; border-radius:50%; }
+    .avatar img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; border-radius:50%; }
+
+    /* Baúl grid */
+    .vault-section { max-width:var(--content-max,1200px); margin:0 auto; padding:0 var(--page-gutter,24px) 32px; }
+    .vault-section h2 { font-size:15px; font-weight:700; color:#374151; margin:24px 0 12px; display:flex; align-items:center; gap:8px; }
+
+    .vault-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px; }
+
+    .vault-card {
+      background:#fff; border:1px solid #e5e7eb; border-radius:14px;
+      padding:16px; cursor:pointer; transition:box-shadow .2s,transform .15s;
+      display:flex; align-items:center; gap:12px;
+    }
+    .vault-card:hover { box-shadow:0 4px 16px rgba(0,0,0,.08); transform:translateY(-2px); }
+    .vault-card .vc-icon { flex-shrink:0; }
+    .vault-card .vc-info { flex:1; min-width:0; }
+    .vault-card .vc-name { font-size:14px; font-weight:600; color:#1f2937; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .vault-card .vc-meta { font-size:12px; color:#9ca3af; margin-top:2px; }
+
+    /* Share panel */
+    .share-panel {
+      background:#f9fafb; border:1px dashed #d1d5db; border-radius:14px;
+      padding:20px; margin-top:16px; text-align:center;
+    }
+    .share-panel p { font-size:14px; color:#6b7280; margin:0 0 12px; }
+
+    /* Members strip */
+    .members-strip { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+    .member-chip {
+      display:flex; align-items:center; gap:6px; padding:4px 10px;
+      background:#fff; border:1px solid #e5e7eb; border-radius:20px; font-size:13px;
+    }
+    .member-dot { width:8px; height:8px; border-radius:50%; background:#7c3aed; }
+
+    .empty-state { text-align:center; padding:48px 24px; color:#9ca3af; }
+    .empty-state svg { margin-bottom:12px; }
+    .empty-state p { font-size:14px; margin:4px 0; }
+
+    /* Modal share content */
+    .share-list { max-height:280px; overflow-y:auto; display:flex; flex-direction:column; gap:4px; }
+    .share-item {
+      display:flex; align-items:center; gap:10px; padding:8px 10px;
+      border-radius:8px; cursor:pointer; font-size:14px;
+    }
+    .share-item:hover { background:#f3f4f6; }
+    .share-item input[type=checkbox] { width:18px; height:18px; accent-color:#7c3aed; flex-shrink:0; }
+  </style>
+</head>
+<body>
+  <header class="main-header">
+    <div class="brand-wrap">
+      <img class="brand-logo-full" src="/img/Nuevologo.jpg" alt="PKI Services" />
+    </div>
+    <nav class="top-actions">
+      <a class="link-config" href="/config.html" id="configLink" style="display:none;">Configuración</a>
+      <details class="user-menu" id="userMenu" style="opacity:0;">
+        <summary class="avatar" aria-label="Perfil"></summary>
+        <div class="user-dropdown" role="menu">
+          <a class="menu-item" href="/config.html#perfil" role="menuitem">Perfil</a>
+          <button class="menu-item" id="logoutBtn" type="button">Cerrar sesión</button>
+        </div>
+      </details>
+    </nav>
+  </header>
+
+  <section class="page-head">
+    <div class="left">
+      <a href="/config.html#inquilinos" style="text-decoration:none;color:#6b7280;font-size:14px;margin-right:12px;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;"><polyline points="15 18 9 12 15 6"/></svg>
+        Inquilinos
+      </a>
+      <h1 id="pageTitle">Baúl del equipo</h1>
+    </div>
+    <div class="right">
+      <button class="ghost-btn" id="shareFolderBtn" title="Compartir carpeta">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.8a2 2 0 0 1-1.7-.9l-.8-1.1A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/></svg>
+        Compartir carpeta
+      </button>
+      <button class="ghost-btn" id="shareDocBtn" title="Compartir documento">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Compartir documento
+      </button>
+    </div>
+  </section>
+
+  <!-- Tabs -->
+  <nav class="tabs">
+    <button class="tab is-active" data-tab="vault">Baúl compartido</button>
+    <button class="tab" data-tab="members">Miembros</button>
+  </nav>
+
+  <!-- TAB: Baúl -->
+  <div id="tabVault" class="vault-section">
+    <div id="vaultLoading" style="text-align:center;padding:40px;color:#9ca3af;">Cargando...</div>
+    <div id="vaultContent" style="display:none;">
+      <div id="foldersSection">
+        <h2>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.8a2 2 0 0 1-1.7-.9l-.8-1.1A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/></svg>
+          Carpetas
+        </h2>
+        <div id="foldersGrid" class="vault-grid"></div>
+      </div>
+      <div id="docsSection" style="margin-top:8px;">
+        <h2>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Documentos
+        </h2>
+        <div id="docsGrid" class="vault-grid"></div>
+      </div>
+      <div id="emptyVault" class="empty-state" style="display:none;">
+        <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+        <p><strong>El baúl está vacío</strong></p>
+        <p>Usa los botones "Compartir carpeta" o "Compartir documento" para agregar contenido.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: Miembros -->
+  <div id="tabMembers" class="vault-section" style="display:none;">
+    <h2 style="margin-top:0;">Miembros del equipo</h2>
+    <div id="membersList"></div>
+    <div style="margin-top:16px; display:flex; gap:8px;" id="addMemberRow">
+      <input type="email" id="addMemberEmail" placeholder="Email del usuario a agregar..."
+        style="flex:1;padding:10px 14px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;font-family:inherit;" />
+      <button class="primary-btn" id="addMemberBtn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+        Agregar
+      </button>
+    </div>
+  </div>
+
+  <!-- MODAL: Compartir carpeta/documento -->
+  <div id="shareModal" class="modal" aria-hidden="true" style="display:none;">
+    <div class="modal-content create-modal" role="dialog" aria-modal="true" style="max-width:500px;">
+      <header class="modal-header">
+        <h2 id="shareModalTitle">Compartir con el equipo</h2>
+        <button class="close-btn" id="shareModalClose" aria-label="Cerrar">&times;</button>
+      </header>
+      <div class="modal-body create-body">
+        <p id="shareModalDesc" style="font-size:13px;color:#6b7280;margin-bottom:12px;"></p>
+        <div id="shareList" class="share-list">
+          <p style="text-align:center;color:#9ca3af;padding:20px;">Cargando...</p>
+        </div>
+      </div>
+      <footer class="modal-footer create-footer">
+        <button type="button" class="btn secondary" id="shareModalCancel">Cancelar</button>
+        <button type="button" class="cta-create" id="shareModalSave">Compartir</button>
+      </footer>
+    </div>
+  </div>
+
+  <script src="/public/Main/auth-helper.js"></script>
+  <script>if(typeof requireAuth==='function') requireAuth();</script>
+  <script src="/public/Main/permissions.js"></script>
+  <script>
+  document.addEventListener('DOMContentLoaded', () => {
+    if(window.permissions) {
+      const l=document.getElementById('configLink');
+      if(l&&window.permissions.canAccessConfig?.()) l.style.display='';
+      window.permissions.updateAllAvatars?.();
+      document.getElementById('userMenu').style.opacity='1';
+    }
+    const lb=document.getElementById('logoutBtn');
+    if(lb&&typeof logout==='function') lb.addEventListener('click',logout);
+    document.addEventListener('click',(e)=>{
+      const dd=document.getElementById('userMenu');
+      if(dd&&!dd.contains(e.target)) dd.removeAttribute('open');
+    });
+  });
+  </script>
+  <script>
+  /*****  Baúl del equipo — lógica principal  *****/
+  (function() {
+    const params    = new URLSearchParams(location.search);
+    const tenantId  = parseInt(params.get('tenant_id') || '0');
+    const tenantName= decodeURIComponent(params.get('name') || 'Equipo');
+
+    document.getElementById('pageTitle').textContent = tenantName;
+    document.title = tenantName + ' — FirmaLegalOnline';
+
+    if (!tenantId) {
+      document.getElementById('vaultLoading').textContent = 'Inquilino no especificado.';
+      return;
+    }
+
+    function authFetch(url, opts={}) {
+      const isForm = opts.body instanceof FormData;
+      return fetch(url, {
+        ...opts, credentials:'include',
+        headers: isForm ? opts.headers : {'Content-Type':'application/json',...opts.headers}
+      });
+    }
+    function escHtml(s) {
+      const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML;
+    }
+    function showToast(msg, ok=true) {
+      const t=document.createElement('div');
+      t.style.cssText=`position:fixed;bottom:20px;right:20px;z-index:9999;padding:12px 20px;border-radius:10px;font-size:14px;font-weight:600;color:#fff;background:${ok?'#059669':'#dc2626'};box-shadow:0 4px 12px rgba(0,0,0,.15);`;
+      t.textContent=msg; document.body.appendChild(t);
+      setTimeout(()=>t.remove(), 3500);
+    }
+
+    // ---- Tabs
+    document.querySelectorAll('.tabs .tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tabs .tab').forEach(b=>b.classList.remove('is-active'));
+        btn.classList.add('is-active');
+        const tab = btn.dataset.tab;
+        document.getElementById('tabVault').style.display   = tab==='vault'   ? '' : 'none';
+        document.getElementById('tabMembers').style.display = tab==='members' ? '' : 'none';
+        if (tab==='members') loadMembers();
+      });
+    });
+
+    // ---- Cargar baúl
+    async function loadVault() {
+      try {
+        const res  = await authFetch(`/api/tenants/${tenantId}/vault`);
+        const json = await res.json();
+        document.getElementById('vaultLoading').style.display = 'none';
+        document.getElementById('vaultContent').style.display = '';
+
+        if (!json.ok) { showToast(json.error||'Error al cargar baúl', false); return; }
+
+        const { folders, documents } = json.data;
+        const fGrid = document.getElementById('foldersGrid');
+        const dGrid = document.getElementById('docsGrid');
+        fGrid.innerHTML = ''; dGrid.innerHTML = '';
+
+        if (folders.length===0 && documents.length===0) {
+          document.getElementById('foldersSection').style.display='none';
+          document.getElementById('docsSection').style.display='none';
+          document.getElementById('emptyVault').style.display='';
+          return;
+        }
+
+        document.getElementById('emptyVault').style.display='none';
+        document.getElementById('foldersSection').style.display = folders.length ? '' : 'none';
+        document.getElementById('docsSection').style.display    = documents.length ? '' : 'none';
+
+        folders.forEach(f => {
+          const card = document.createElement('div');
+          card.className = 'vault-card';
+          card.innerHTML = `
+            <div class="vc-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2">
+                <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.8a2 2 0 0 1-1.7-.9l-.8-1.1A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/>
+              </svg>
+            </div>
+            <div class="vc-info">
+              <div class="vc-name">${escHtml(f.name)}</div>
+              <div class="vc-meta">${f.doc_count||0} ítem(s) · ${escHtml(f.owner_name)}</div>
+            </div>`;
+          card.addEventListener('click', ()=>{
+            location.href=`/folder.html?id=${f.id}&name=${encodeURIComponent(f.name)}`;
+          });
+          fGrid.appendChild(card);
+        });
+
+        documents.forEach(d => {
+          const date = d.created_at ? new Date(d.created_at).toLocaleDateString('es-CO',{day:'2-digit',month:'short',year:'numeric'}) : '';
+          const card = document.createElement('div');
+          card.className = 'vault-card';
+          card.innerHTML = `
+            <div class="vc-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+              </svg>
+            </div>
+            <div class="vc-info">
+              <div class="vc-name">${escHtml(d.title)}</div>
+              <div class="vc-meta">${escHtml(d.owner_name)} · ${date}</div>
+            </div>`;
+          card.addEventListener('click', ()=>{
+            location.href=`/tracking.html?id=${d.document_id}&name=${encodeURIComponent(d.title)}`;
+          });
+          dGrid.appendChild(card);
+        });
+
+      } catch(e) {
+        document.getElementById('vaultLoading').textContent='Error al cargar el baúl.';
+        console.error(e);
+      }
+    }
+
+    // ---- Cargar miembros
+    async function loadMembers() {
+      const container = document.getElementById('membersList');
+      container.innerHTML = '<p style="color:#9ca3af;font-size:14px;">Cargando...</p>';
+      try {
+        const res  = await authFetch(`/api/tenants/${tenantId}`);
+        const json = await res.json();
+        if (!json.ok) { container.innerHTML='<p style="color:#dc2626;">Error al cargar miembros.</p>'; return; }
+        const { members, my_role } = json.data;
+        container.innerHTML='';
+        const isAdmin = ['owner','admin'].includes(my_role);
+        document.getElementById('addMemberRow').style.display = isAdmin ? '' : 'none';
+
+        members.forEach(m => {
+          const initials = (m.first_name?.[0]||'')+(m.last_name?.[0]||'');
+          const row = document.createElement('div');
+          row.style.cssText='display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f3f4f6;';
+          row.innerHTML=`
+            <div style="width:36px;height:36px;border-radius:50%;background:#7c3aed;color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;">${initials}</div>
+            <div style="flex:1;">
+              <div style="font-size:14px;font-weight:600;color:#1f2937;">${escHtml(m.first_name)} ${escHtml(m.last_name)}</div>
+              <div style="font-size:12px;color:#9ca3af;">${escHtml(m.email)}</div>
+            </div>
+            <span style="font-size:11px;font-weight:600;padding:3px 8px;border-radius:6px;text-transform:uppercase;background:${m.role==='owner'?'#fef3c7':m.role==='admin'?'#dbeafe':'#f3f4f6'};color:${m.role==='owner'?'#92400e':m.role==='admin'?'#1e40af':'#6b7280'};">${m.role}</span>
+            ${(isAdmin && m.role!=='owner') ? `<button onclick="removeMember(${m.user_id})" title="Remover" style="width:30px;height:30px;display:grid;place-items:center;background:none;border:none;cursor:pointer;color:#9ca3af;border-radius:8px;" onmouseover="this.style.background='#fee2e2';this.style.color='#dc2626';" onmouseout="this.style.background='none';this.style.color='#9ca3af';"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>` : ''}
+          `;
+          container.appendChild(row);
+        });
+      } catch(e) { container.innerHTML='<p style="color:#dc2626;">Error al cargar.</p>'; }
+    }
+
+    window.removeMember = async function(userId) {
+      if (!confirm('¿Remover este miembro del equipo?')) return;
+      try {
+        const res  = await authFetch(`/api/tenants/${tenantId}/members/${userId}`, {method:'DELETE'});
+        const json = await res.json();
+        if (json.ok) { showToast('Miembro removido'); loadMembers(); }
+        else { showToast(json.error||'Error', false); }
+      } catch(e) { showToast('Error de conexión', false); }
+    };
+
+    document.getElementById('addMemberBtn').addEventListener('click', async () => {
+      const email = document.getElementById('addMemberEmail').value.trim();
+      if (!email) return;
+      try {
+        const res  = await authFetch(`/api/tenants/${tenantId}/members`, {
+          method:'POST', body: JSON.stringify({email})
+        });
+        const json = await res.json();
+        if (json.ok) { showToast(json.message); document.getElementById('addMemberEmail').value=''; loadMembers(); }
+        else { showToast(json.error||'Error', false); }
+      } catch(e) { showToast('Error de conexión', false); }
+    });
+
+    document.getElementById('addMemberEmail').addEventListener('keydown', e => {
+      if(e.key==='Enter') document.getElementById('addMemberBtn').click();
+    });
+
+    // ---- Modal compartir
+    let shareType = 'folder'; // 'folder' | 'document'
+
+    function openShareModal(type) {
+      shareType = type;
+      document.getElementById('shareModalTitle').textContent = type==='folder' ? 'Compartir carpeta' : 'Compartir documento';
+      document.getElementById('shareModalDesc').textContent  = type==='folder'
+        ? 'Selecciona las carpetas propias para agregar al baúl del equipo:'
+        : 'Selecciona los documentos propios para agregar al baúl del equipo:';
+      document.getElementById('shareModal').style.display='flex';
+      loadShareItems(type);
+    }
+
+    async function loadShareItems(type) {
+      const list = document.getElementById('shareList');
+      list.innerHTML='<p style="text-align:center;color:#9ca3af;padding:20px;">Cargando...</p>';
+      try {
+        let items=[];
+        if (type==='folder') {
+          const res  = await authFetch('/api/folders?level=0');
+          const json = await res.json();
+          if(json.ok) items = json.data.filter(f=>!f.tenant_id);
+        } else {
+          const res  = await authFetch('/api/documents?status=active');
+          const json = await res.json();
+          if(json.success) items = json.data.filter(d=>!d.tenant_id && !d.folder_id);
+        }
+        list.innerHTML='';
+        if(items.length===0) {
+          list.innerHTML='<p style="text-align:center;color:#9ca3af;padding:20px;">No hay elementos disponibles para compartir.</p>';
+          return;
+        }
+        items.forEach(item => {
+          const id   = type==='folder' ? item.id : (item.document_id||item.id);
+          const name = type==='folder' ? item.name : item.title;
+          const lbl  = document.createElement('label');
+          lbl.className='share-item';
+          lbl.innerHTML=`
+            <input type="checkbox" value="${id}"/>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2">
+              ${type==='folder'
+                ? '<path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.8a2 2 0 0 1-1.7-.9l-.8-1.1A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/>'
+                : '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>'}
+            </svg>
+            <span>${escHtml(name)}</span>`;
+          list.appendChild(lbl);
+        });
+      } catch(e) { list.innerHTML='<p style="color:#dc2626;text-align:center;padding:20px;">Error al cargar.</p>'; }
+    }
+
+    document.getElementById('shareFolderBtn').addEventListener('click', () => openShareModal('folder'));
+    document.getElementById('shareDocBtn').addEventListener('click',    () => openShareModal('document'));
+    document.getElementById('shareModalClose').addEventListener('click',  () => { document.getElementById('shareModal').style.display='none'; });
+    document.getElementById('shareModalCancel').addEventListener('click', () => { document.getElementById('shareModal').style.display='none'; });
+
+    document.getElementById('shareModalSave').addEventListener('click', async () => {
+      const checked = [...document.querySelectorAll('#shareList input[type=checkbox]:checked')];
+      if (!checked.length) { showToast('Selecciona al menos un elemento', false); return; }
+      const endpoint = shareType==='folder' ? 'share-folder' : 'share-document';
+      const key      = shareType==='folder' ? 'folder_id'    : 'document_id';
+      let ok=0, err=0;
+      for (const cb of checked) {
+        try {
+          const res  = await authFetch(`/api/tenants/${tenantId}/${endpoint}`, {
+            method:'POST', body: JSON.stringify({[key]: parseInt(cb.value)})
+          });
+          const json = await res.json();
+          json.ok ? ok++ : err++;
+        } catch { err++; }
+      }
+      document.getElementById('shareModal').style.display='none';
+      if(ok)  showToast(`${ok} elemento(s) compartido(s) con el equipo`);
+      if(err) showToast(`${err} elemento(s) no se pudieron compartir`, false);
+      loadVault();
+    });
+
+    // ---- Inicio
+    loadVault();
+  })();
+  </script>
+</body>
+</html>

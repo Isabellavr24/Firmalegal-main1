@@ -930,266 +930,252 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ============================
-// Inquilinos (demo con localStorage)
+// Inquilinos — API real
 // ============================
 (function () {
-  const key = 'demo_tenants';
-  const tListEl = document.getElementById('tenantList');
-  const mDocs = document.getElementById('tm-docs');
+  const tListEl  = document.getElementById('tenantList');
+  const mDocs    = document.getElementById('tm-docs');
   const mTemplates = document.getElementById('tm-templates');
-  const mUsers = document.getElementById('tm-users');
+  const mUsers   = document.getElementById('tm-users');
   const mTenants = document.getElementById('tm-tenants');
 
-  // -------- helpers storage
-  function cryptoId() {
-    return Math.random().toString(36).slice(2) + Date.now().toString(36);
-  }
-  function loadTenants() {
-    try {
-      const raw = localStorage.getItem(key);
-      if (raw) return JSON.parse(raw);
-    } catch {}
-    const seed = [
-      {
-        id: cryptoId(),
-        name: 'Pki Teem',
-        slug: 'pki-team',
-        email: 'info@pkiservices.co',
-        lang: 'es',
-        tz: 'America/Bogota',
-        inheritStorage: true,
-        inheritBrand: true,
-        metrics: { docs: 204, templates: 23, users: 1 },
-        logo: null
-      }
-    ];
-    saveTenants(seed);
-    return seed;
-  }
-  function saveTenants(list) {
-    try {
-      localStorage.setItem(key, JSON.stringify(list));
-    } catch {}
-  }
   function escapeHtml(s) {
-    return (s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    return (s || '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  function authFetch(url, opts = {}) {
+    const isForm = opts.body instanceof FormData;
+    return fetch(url, {
+      ...opts,
+      credentials: 'include',
+      headers: isForm ? opts.headers : { 'Content-Type': 'application/json', ...opts.headers }
+    });
+  }
+  function showModal(mod) { mod?.classList.add('show'); mod?.setAttribute('aria-hidden','false'); }
+  function hideModal(mod) { mod?.classList.remove('show'); mod?.setAttribute('aria-hidden','true'); }
+
+  // -------- Cargar métricas
+  async function loadMetrics() {
+    try {
+      const res  = await authFetch('/api/tenants/metrics');
+      const json = await res.json();
+      if (json.ok) {
+        if (mDocs)      mDocs.textContent      = json.data.docs;
+        if (mTemplates) mTemplates.textContent = json.data.templates;
+        if (mUsers)     mUsers.textContent     = json.data.users;
+        if (mTenants)   mTenants.textContent   = json.data.tenants;
+      }
+    } catch (e) { console.warn('[Tenants] métricas:', e); }
   }
 
-  let tenants = loadTenants();
-
-  // -------- render
-  function renderMetrics() {
-    const totals = tenants.reduce(
-      (acc, t) => {
-        acc.docs += t.metrics?.docs || 0;
-        acc.templates += t.metrics?.templates || 0;
-        acc.users += t.metrics?.users || 0;
-        return acc;
-      },
-      { docs: 0, templates: 0, users: 0 }
-    );
-    if (mDocs) mDocs.textContent = totals.docs;
-    if (mTemplates) mTemplates.textContent = totals.templates;
-    if (mUsers) mUsers.textContent = totals.users;
-    if (mTenants) mTenants.textContent = tenants.length;
+  // -------- Cargar y renderizar lista
+  async function loadAndRender() {
+    try {
+      const res  = await authFetch('/api/tenants');
+      const json = await res.json();
+      if (!json.ok) return;
+      renderList(json.data);
+    } catch (e) { console.warn('[Tenants] load:', e); }
   }
 
-  function renderList() {
+  function renderList(tenants) {
     if (!tListEl) return;
     tListEl.innerHTML = '';
+    if (tenants.length === 0) {
+      tListEl.innerHTML = '<div style="padding:16px;color:#9ca3af;font-size:14px;">No hay inquilinos. Crea el primero.</div>';
+      return;
+    }
     tenants.forEach((t) => {
       const row = document.createElement('div');
       row.className = 'tt-row';
       row.innerHTML = `
-        <div class="tt-col name">${escapeHtml(t.name)}</div>
+        <div class="tt-col name">${escapeHtml(t.tenant_name)}</div>
         <div class="tt-col actions">
-          <button class="pill-action" data-action="logo" data-id="${t.id}">LOGOTIPO</button>
-          <button class="pill-action" data-action="edit" data-id="${t.id}">EDITAR</button>
-          <button class="pill-action" data-action="view" data-id="${t.id}">VISTA</button>
+          <button class="pill-action" data-action="logo" data-id="${t.tenant_id}">LOGOTIPO</button>
+          <button class="pill-action" data-action="edit" data-id="${t.tenant_id}">EDITAR</button>
+          <button class="pill-action" data-action="view" data-id="${t.tenant_id}" data-name="${escapeHtml(t.tenant_name)}">VISTA</button>
         </div>
       `;
       tListEl.appendChild(row);
     });
   }
 
-  // -------- util modales (clase .show en CSS)
-  function showModal(mod) {
-    mod?.classList.add('show');
-    mod?.setAttribute('aria-hidden', 'false');
-  }
-  function hideModal(mod) {
-    mod?.classList.remove('show');
-    mod?.setAttribute('aria-hidden', 'true');
-  }
-
-  // ----- CREAR
-  const btnNew = document.getElementById('tNewBtn');
+  // -------- Modales CREAR
+  const btnNew      = document.getElementById('tNewBtn');
   const createModal = document.getElementById('tenantCreateModal');
   const createClose = createModal?.querySelector('[data-close="tc"]');
-  const createBtn = document.getElementById('tc-create');
+  const createBtn   = document.getElementById('tc-create');
 
   function openCreateModal() {
     if (!createModal) return;
-    document.getElementById('tc-name').value = '';
-    document.getElementById('tc-sub').value = '';
-    document.getElementById('tc-email').value = '';
-    document.getElementById('tc-lang').value = 'es';
-    document.getElementById('tc-tz').value = 'America/Bogota';
-    document.getElementById('tc-inherit-storage').checked = true;
-    document.getElementById('tc-inherit-brand').checked = true;
+    ['tc-name','tc-sub','tc-email'].forEach(id => { const el = document.getElementById(id); if(el) el.value=''; });
+    const lang = document.getElementById('tc-lang'); if(lang) lang.value='es';
+    const tz   = document.getElementById('tc-tz');   if(tz)   tz.value='America/Bogota';
+    const is   = document.getElementById('tc-inherit-storage'); if(is) is.checked=true;
+    const ib   = document.getElementById('tc-inherit-brand');   if(ib) ib.checked=true;
     showModal(createModal);
-    setTimeout(() => document.getElementById('tc-name').focus(), 30);
+    setTimeout(() => document.getElementById('tc-name')?.focus(), 30);
   }
 
   btnNew?.addEventListener('click', openCreateModal);
   createClose?.addEventListener('click', () => hideModal(createModal));
-  createModal?.addEventListener('click', (e) => {
-    if (e.target === createModal) hideModal(createModal);
-  });
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') hideModal(createModal);
+  createModal?.addEventListener('click', (e) => { if(e.target===createModal) hideModal(createModal); });
+
+  createBtn?.addEventListener('click', async () => {
+    const name = document.getElementById('tc-name')?.value.trim();
+    const slug = document.getElementById('tc-sub')?.value.trim();
+    if (!name || !slug) { document.getElementById('tc-name')?.focus(); return; }
+    createBtn.disabled = true;
+    createBtn.textContent = 'Creando...';
+    try {
+      const res = await authFetch('/api/tenants', {
+        method: 'POST',
+        body: JSON.stringify({
+          tenant_name: name,
+          tenant_slug: slug,
+          tenant_email: document.getElementById('tc-email')?.value.trim(),
+          lang:     document.getElementById('tc-lang')?.value,
+          timezone: document.getElementById('tc-tz')?.value,
+          inherit_storage: document.getElementById('tc-inherit-storage')?.checked,
+          inherit_brand:   document.getElementById('tc-inherit-brand')?.checked
+        })
+      });
+      const json = await res.json();
+      if (json.ok) {
+        hideModal(createModal);
+        await loadMetrics();
+        await loadAndRender();
+      } else {
+        alert(json.error || 'Error al crear');
+      }
+    } catch(e) { alert('Error de conexión'); }
+    createBtn.disabled = false;
+    createBtn.textContent = 'Crear';
   });
 
-  createBtn?.addEventListener('click', () => {
-    const name = document.getElementById('tc-name').value.trim();
-    const slug = document.getElementById('tc-sub').value.trim();
-    if (!name || !slug) {
-      document.getElementById('tc-name').focus();
-      return;
-    }
-    const item = {
-      id: cryptoId(),
-      name,
-      slug,
-      email: document.getElementById('tc-email').value.trim(),
-      lang: document.getElementById('tc-lang').value,
-      tz: document.getElementById('tc-tz').value,
-      inheritStorage: document.getElementById('tc-inherit-storage').checked,
-      inheritBrand: document.getElementById('tc-inherit-brand').checked,
-      metrics: { docs: 0, templates: 0, users: 0 },
-      logo: null
-    };
-    tenants = [item, ...tenants];
-    saveTenants(tenants);
-    renderMetrics();
-    renderList();
-    hideModal(createModal);
-  });
-
-  // ----- EDITAR
+  // -------- Modal EDITAR
   const editModal = document.getElementById('tenantEditModal');
   const editClose = editModal?.querySelector('[data-close="te"]');
-  const editSave = document.getElementById('te-save');
+  const editSave  = document.getElementById('te-save');
+  let editingTenantId = null;
 
-  function openEditModal(t) {
+  async function openEditModal(tenantId) {
     if (!editModal) return;
-    document.getElementById('te-id').value = t.id;
-    document.getElementById('te-name').value = t.name;
-    document.getElementById('te-sub').value = t.slug;
-    document.getElementById('te-email').value = t.email || '';
-    document.getElementById('te-lang').value = t.lang || 'es';
-    document.getElementById('te-tz').value = t.tz || 'America/Bogota';
-    document.getElementById('te-inherit-storage').checked = !!t.inheritStorage;
-    document.getElementById('te-inherit-brand').checked = !!t.inheritBrand;
-    showModal(editModal);
-    setTimeout(() => document.getElementById('te-name').focus(), 30);
+    try {
+      const res  = await authFetch(`/api/tenants/${tenantId}`);
+      const json = await res.json();
+      if (!json.ok) { alert(json.error); return; }
+      const t = json.data;
+      editingTenantId = tenantId;
+      document.getElementById('te-id').value   = tenantId;
+      document.getElementById('te-name').value = t.tenant_name || '';
+      document.getElementById('te-sub').value  = t.tenant_slug || '';
+      document.getElementById('te-email').value= t.tenant_email || '';
+      const lang = document.getElementById('te-lang'); if(lang) lang.value = t.lang || 'es';
+      const tz   = document.getElementById('te-tz');   if(tz)   tz.value   = t.timezone || 'America/Bogota';
+      const is   = document.getElementById('te-inherit-storage'); if(is) is.checked = !!t.inherit_storage;
+      const ib   = document.getElementById('te-inherit-brand');   if(ib) ib.checked = !!t.inherit_brand;
+      showModal(editModal);
+      setTimeout(() => document.getElementById('te-name')?.focus(), 30);
+    } catch(e) { alert('Error al cargar datos'); }
   }
 
   editClose?.addEventListener('click', () => hideModal(editModal));
-  editModal?.addEventListener('click', (e) => {
-    if (e.target === editModal) hideModal(editModal);
+  editModal?.addEventListener('click', (e) => { if(e.target===editModal) hideModal(editModal); });
+
+  editSave?.addEventListener('click', async () => {
+    if (!editingTenantId) return;
+    editSave.disabled = true;
+    editSave.textContent = 'Guardando...';
+    try {
+      const res = await authFetch(`/api/tenants/${editingTenantId}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          tenant_name:     document.getElementById('te-name')?.value.trim(),
+          tenant_email:    document.getElementById('te-email')?.value.trim(),
+          lang:            document.getElementById('te-lang')?.value,
+          timezone:        document.getElementById('te-tz')?.value,
+          inherit_storage: document.getElementById('te-inherit-storage')?.checked,
+          inherit_brand:   document.getElementById('te-inherit-brand')?.checked
+        })
+      });
+      const json = await res.json();
+      if (json.ok) {
+        hideModal(editModal);
+        await loadAndRender();
+      } else { alert(json.error || 'Error al guardar'); }
+    } catch(e) { alert('Error de conexión'); }
+    editSave.disabled = false;
+    editSave.textContent = 'Guardar';
   });
 
-  editSave?.addEventListener('click', () => {
-    const id = document.getElementById('te-id').value;
-    const idx = tenants.findIndex((x) => x.id === id);
-    if (idx < 0) return;
-    tenants[idx].name = document.getElementById('te-name').value.trim();
-    tenants[idx].slug = document.getElementById('te-sub').value.trim();
-    tenants[idx].email = document.getElementById('te-email').value.trim();
-    tenants[idx].lang = document.getElementById('te-lang').value;
-    tenants[idx].tz = document.getElementById('te-tz').value;
-    tenants[idx].inheritStorage = document.getElementById('te-inherit-storage').checked;
-    tenants[idx].inheritBrand = document.getElementById('te-inherit-brand').checked;
-    saveTenants(tenants);
-    renderList();
-    hideModal(editModal);
-  });
-
-  // ----- LOGO
+  // -------- Modal LOGO
   const logoModal = document.getElementById('tenantLogoModal');
   const logoClose = logoModal?.querySelector('[data-close="tl"]');
-  const logoPick = document.getElementById('tl-pick');
-  const logoFile = document.getElementById('tl-file');
-  const logoSave = document.getElementById('tl-save');
-  const logoPrev = document.getElementById('tl-preview')?.querySelector('img');
+  const logoPick  = document.getElementById('tl-pick');
+  const logoFile  = document.getElementById('tl-file');
+  const logoSave  = document.getElementById('tl-save');
+  const logoPrev  = document.getElementById('tl-preview')?.querySelector('img');
   let currentLogoTenantId = null;
+  let currentLogoData     = null;
 
-  function openLogoModal(t) {
+  function openLogoModal(tenantId) {
     if (!logoModal) return;
-    currentLogoTenantId = t.id;
-    if (t.logo && logoPrev) {
-      logoPrev.src = t.logo;
-      document.getElementById('tl-preview').hidden = false;
-    } else {
-      logoPrev?.removeAttribute('src');
-      document.getElementById('tl-preview').hidden = true;
-    }
+    currentLogoTenantId = tenantId;
+    currentLogoData     = null;
+    if (logoPrev) logoPrev.removeAttribute('src');
+    document.getElementById('tl-preview').hidden = true;
     showModal(logoModal);
   }
 
   logoClose?.addEventListener('click', () => hideModal(logoModal));
-  logoModal?.addEventListener('click', (e) => {
-    if (e.target === logoModal) hideModal(logoModal);
-  });
-
+  logoModal?.addEventListener('click', (e) => { if(e.target===logoModal) hideModal(logoModal); });
   logoPick?.addEventListener('click', () => logoFile?.click());
+
   logoFile?.addEventListener('change', (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-      if (logoPrev) {
-        logoPrev.src = reader.result;
-        document.getElementById('tl-preview').hidden = false;
-      }
+      currentLogoData = reader.result;
+      if (logoPrev) { logoPrev.src = currentLogoData; document.getElementById('tl-preview').hidden = false; }
     };
     reader.readAsDataURL(file);
   });
 
-  logoSave?.addEventListener('click', () => {
-    if (!currentLogoTenantId || !logoPrev?.src) return;
-    const idx = tenants.findIndex((x) => x.id === currentLogoTenantId);
-    if (idx < 0) return;
-    tenants[idx].logo = logoPrev.src; // DEMO: guarda DataURL; en prod -> subir y guardar URL
-    saveTenants(tenants);
-    hideModal(logoModal);
+  logoSave?.addEventListener('click', async () => {
+    if (!currentLogoTenantId || !currentLogoData) return;
+    logoSave.disabled = true;
+    try {
+      const res  = await authFetch(`/api/tenants/${currentLogoTenantId}/logo`, {
+        method: 'POST',
+        body: JSON.stringify({ logo_url: currentLogoData })
+      });
+      const json = await res.json();
+      if (json.ok) { hideModal(logoModal); }
+      else { alert(json.error || 'Error al guardar logo'); }
+    } catch(e) { alert('Error de conexión'); }
+    logoSave.disabled = false;
   });
 
-  // eventos de acciones en lista
+  // -------- Eventos de fila (LOGO / EDITAR / VISTA)
   tListEl?.addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
-    const id = btn.dataset.id;
-    const t = tenants.find((x) => x.id === id);
-    if (!t) return;
-
+    const id   = parseInt(btn.dataset.id);
+    const name = btn.dataset.name || '';
     switch (btn.dataset.action) {
-      case 'logo':
-        openLogoModal(t);
-        break;
-      case 'edit':
-        openEditModal(t);
-        break;
+      case 'logo': openLogoModal(id); break;
+      case 'edit': openEditModal(id); break;
       case 'view':
-        alert(`Vista del inquilino: ${t.name} (${t.slug})`);
+        // Navegar al baúl compartido del inquilino
+        window.location.href = `/baul-equipo.html?tenant_id=${id}&name=${encodeURIComponent(name)}`;
         break;
     }
   });
 
-  // inicial
-  renderMetrics();
-  renderList();
+  // -------- Inicio
+  loadMetrics();
+  loadAndRender();
 })();
 
 /* ============================

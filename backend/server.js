@@ -35,6 +35,7 @@ const PythonSignerClient = require('./lib/signatures/python-signer-client');
 const templatesController = require('./controllers/templates-controller');
 const bulkSendEnhanced = require('./controllers/bulk-send-controller-enhanced');
 const teamsController = require('./controllers/teams-controller');
+const tenantsController = require('./controllers/tenants-controller');
 
 const app = express();
 const port = 3000;
@@ -251,8 +252,8 @@ app.get('/verify.html', (req, res) => {
     res.sendFile(resolveFromRoot('frontend', 'public', 'Main', 'verify.html'));
 });
 
-app.get('/teams.html', (req, res) => {
-    res.sendFile(resolveFromRoot('frontend', 'public', 'Main', 'teams.html'));
+app.get('/baul-equipo.html', (req, res) => {
+    res.sendFile(resolveFromRoot('frontend', 'public', 'Main', 'baul-equipo.html'));
 });
 
 // ✅ Pool de conexiones MySQL con reconexión automática
@@ -896,6 +897,7 @@ app.use('/api/folders', foldersController);
 app.use('/api/documents', documentsController);
 app.use('/api/templates', documentsController); // Alias para compatibilidad
 app.use('/api/teams', teamsController);
+app.use('/api/tenants', tenantsController);
 console.log('✅ Rutas registradas exitosamente');
 
 // =============================================

@@ -528,47 +528,70 @@ async function loadArchivedDocuments() {
   }
 }
 
-// ====== Documentos compartidos via equipos ======
+// ====== Documentos compartidos via inquilinos (tenants) ======
 async function loadSharedDocuments() {
   const user = getCurrentUser();
   if (!user) return;
 
   try {
-    const res = await authFetch('/api/teams/shared-with-me/documents');
+    const res = await authFetch('/api/tenants/shared-with-me/vault');
     const json = await res.json();
 
-    if (json.ok && json.data && json.data.length > 0) {
-      console.log(`✅ [API] ${json.data.length} documentos compartidos encontrados`);
+    if (json.ok && json.data) {
+      const { folders, documents } = json.data;
+      console.log(`✅ [API] ${documents.length} documentos y ${folders.length} carpetas compartidas via inquilinos`);
 
-      docsContainer.style.display = 'block';
-
-      json.data.forEach(doc => {
-        const formattedDate = doc.created_at ? new Date(doc.created_at).toLocaleDateString('es-CO', {
-          day: '2-digit', month: 'short', year: 'numeric'
-        }) : '';
-
-        const card = createDocCard({
-          id: doc.document_id || doc.id,
-          title: doc.title || 'Sin título',
-          owner: doc.owner_name || 'Equipo',
-          date: formattedDate,
-          folderName: doc.folder_name || null,
-          documentType: doc.document_type || 'normal'
+      // Mostrar carpetas compartidas
+      if (folders && folders.length > 0) {
+        foldersContainer.style.display = 'block';
+        folders.forEach(f => {
+          const folderCard = document.createElement('article');
+          folderCard.className = 'card folder';
+          folderCard.innerHTML = `
+            <a class="card-link" href="/folder.html?id=${f.id}&name=${encodeURIComponent(f.name)}">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;">
+                <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.8a2 2 0 0 1-1.7-.9l-.8-1.1A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/>
+              </svg>
+              <div>
+                <h3 class="title">${f.name}</h3>
+                <div class="meta"><p class="owner">${f.owner_name || ''}</p></div>
+              </div>
+            </a>`;
+          foldersGrid.appendChild(folderCard);
         });
+      }
 
-        // Add team badge to the card
-        if (doc.team_name) {
-          const badge = document.createElement('span');
-          badge.style.cssText = `display:inline-block; font-size:11px; font-weight:600; padding:2px 8px; border-radius:6px; background:${doc.team_color || '#7c3aed'}22; color:${doc.team_color || '#7c3aed'}; margin-top:4px;`;
-          badge.textContent = doc.team_name;
-          const meta = card.querySelector('.meta');
-          if (meta) meta.appendChild(badge);
-        }
+      // Mostrar documentos compartidos
+      if (documents && documents.length > 0) {
+        docsContainer.style.display = 'block';
+        documents.forEach(doc => {
+          const formattedDate = doc.created_at ? new Date(doc.created_at).toLocaleDateString('es-CO', {
+            day: '2-digit', month: 'short', year: 'numeric'
+          }) : '';
 
-        grid.appendChild(card);
-      });
-    } else {
-      console.log('ℹ️ [API] No hay documentos compartidos');
+          const card = createDocCard({
+            id: doc.document_id || doc.id,
+            title: doc.title || 'Sin título',
+            owner: doc.owner_name || 'Equipo',
+            date: formattedDate,
+            folderName: doc.folder_name || null,
+            documentType: doc.document_type || 'normal'
+          });
+
+          // Badge del inquilino
+          if (doc.tenant_name) {
+            const badge = document.createElement('span');
+            badge.style.cssText = `display:inline-block; font-size:11px; font-weight:600; padding:2px 8px; border-radius:6px; background:${doc.tenant_color || '#7c3aed'}22; color:${doc.tenant_color || '#7c3aed'}; margin-top:4px;`;
+            badge.textContent = doc.tenant_name;
+            const meta = card.querySelector('.meta');
+            if (meta) meta.appendChild(badge);
+          }
+
+          grid.appendChild(card);
+        });
+      } else {
+        console.log('ℹ️ [API] No hay documentos compartidos via inquilinos');
+      }
     }
   } catch (error) {
     console.error('❌ [API] Error al cargar documentos compartidos:', error);
