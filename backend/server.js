@@ -1456,29 +1456,45 @@ app.post('/api/users', async (req, res) => {
 
         console.log('✅ Usuario creado exitosamente');
 
-        // Enviar email de bienvenida con credenciales
-        const welcomeTemplate = require('./lib/email/templates/welcome-user');
-        const loginUrl = `${mailer.APP_URL}/login.html`;
-        const emailHtml = welcomeTemplate({
-            firstName,
-            lastName,
-            email,
-            password: plainPassword,
-            roleName: roleResult[0].role_name,
-            loginUrl,
-            appUrl: mailer.APP_URL
-        });
-
+        // Enviar email de bienvenida usando config dinámica del admin (email_config en DB)
         try {
-            await mailer.sendEmail({
-                to: email,
-                subject: '🎉 Bienvenido/a a FirmaLegal Online — Tus credenciales de acceso',
-                text: `Hola ${firstName},\n\nTu cuenta en FirmaLegal Online ha sido creada.\n\nCorreo: ${email}\nContraseña: ${plainPassword}\nRol: ${roleResult[0].role_name}\n\nInicia sesión en: ${loginUrl}\n\nTe recomendamos cambiar tu contraseña en el primer inicio de sesión.\n\nFirmaLegal Online`,
-                html: emailHtml
+            const welcomeTemplate = require('./lib/email/templates/welcome-user');
+            const APP_URL = process.env.APP_URL || 'http://localhost:3000';
+            const loginUrl = `${APP_URL}/login.html`;
+            const emailHtml = welcomeTemplate({
+                firstName, lastName, email,
+                password: plainPassword,
+                roleName: roleResult[0].role_name,
+                loginUrl, appUrl: APP_URL
             });
-            console.log(`📧 Email de bienvenida enviado a ${email}`);
+            const emailText = `Hola ${firstName},\n\nTu cuenta en FirmaLegal Online ha sido creada.\n\nCorreo: ${email}\nContraseña: ${plainPassword}\nRol: ${roleResult[0].role_name}\n\nInicia sesión en: ${loginUrl}\n\nTe recomendamos cambiar tu contraseña en el primer inicio de sesión.\n\nFirmaLegal Online`;
+
+            // Buscar config de email del usuario que crea (requestingUserId)
+            const emailConfig = await mailerDynamic.getUserEmailConfig(db, requestingUserId);
+
+            let result;
+            if (emailConfig) {
+                result = await mailerDynamic.sendEmailWithUserConfig(emailConfig, {
+                    to: email,
+                    subject: '🎉 Bienvenido/a a FirmaLegal Online — Tus credenciales de acceso',
+                    text: emailText,
+                    html: emailHtml
+                });
+            } else {
+                result = await mailer.sendEmail({
+                    to: email,
+                    subject: '🎉 Bienvenido/a a FirmaLegal Online — Tus credenciales de acceso',
+                    text: emailText,
+                    html: emailHtml
+                });
+            }
+
+            if (result && result.success) {
+                console.log(`📧 Email de bienvenida enviado a ${email}`);
+            } else {
+                console.warn('⚠️ Email de bienvenida no pudo enviarse:', result?.error);
+            }
         } catch (emailErr) {
-            // No fallar la creación si el email falla
             console.warn('⚠️ Usuario creado pero no se pudo enviar el email de bienvenida:', emailErr.message);
         }
 
