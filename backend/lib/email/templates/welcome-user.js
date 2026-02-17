@@ -58,10 +58,6 @@ module.exports = function welcomeUserTemplate({ firstName, lastName, email, pass
                 </div>
             </div>
 
-            <div class="security-note">
-                <strong>⚠️ Por tu seguridad:</strong> Te recomendamos cambiar tu contraseña la primera vez que inicies sesión. Ve a <em>Configuración → Perfil → Cambiar contraseña</em>.
-            </div>
-
             <div style="text-align: center; margin: 36px 0 0;">
                 <a href="${loginUrl}" class="btn-login" style="display:inline-block;background:#2a0d31;color:#FFFFFF;padding:16px 48px;text-decoration:none;border-radius:999px;font-weight:700;font-size:16px;letter-spacing:0.3px;">Iniciar sesión ahora →</a>
             </div>
