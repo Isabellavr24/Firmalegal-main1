@@ -1,0 +1,2608 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Firma de Documento - FirmaLegal</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="/public/Main/M-styles/sign.css">
+  <!-- Google Fonts para firmas tipográficas -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@400;700&family=Great+Vibes&family=Allura&family=Pacifico&display=swap" rel="stylesheet">
+  <style>
+    /* Iconos SVG inline */
+    .icon-svg { display:inline-block; width:18px; height:18px; vertical-align:middle; flex-shrink:0; }
+    .icon-svg-lg { display:inline-block; width:32px; height:32px; vertical-align:middle; flex-shrink:0; }
+    .icon-svg-xl { display:block; width:48px; height:48px; margin:0 auto; }
+
+    /* Loader inicial */
+    @keyframes spin { to { transform:rotate(360deg); } }
+    
+    /* Layout adaptado para 2 columnas (info + PDF) */
+    .layout {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      gap: 16px;
+      padding: 16px;
+      min-height: 100vh;
+    }
+    
+    /* Panel izquierdo con info */
+    .panel.left {
+      background: #fff;
+      border: 1px solid var(--stroke);
+      border-radius: 16px;
+      padding: 16px;
+      height: fit-content;
+    }
+    
+    /* Panel central del PDF - igual a sign.html */
+    main.panel, .panel main {
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 20px;
+      overflow: auto;
+    }
+    
+    #pagesContainer {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      align-items: center;
+    }
+
+    /* ===== ESTILOS PARA MODAL DE 3 OPCIONES DE FIRMA ===== */
+
+    /* Tabs de opciones */
+    .signature-tabs {
+      display: flex;
+      gap: 8px;
+      border-bottom: 2px solid #eadfd8;
+      margin-bottom: 24px;
+    }
+
+    .signature-tab {
+      flex: 1;
+      padding: 14px 16px;
+      background: transparent;
+      border: none;
+      border-bottom: 3px solid transparent;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 14px;
+      color: #6d6270;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .signature-tab:hover {
+      background: rgba(43, 14, 49, 0.04);
+      color: #2b0e31;
+    }
+
+    .signature-tab.active {
+      color: #2b0e31;
+      border-bottom-color: #2b0e31;
+    }
+
+    /* Contenido de cada tab */
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+      animation: fadeIn 0.3s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Tab 1: Firma Tipográfica */
+    .typed-signature-section {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .typed-input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .typed-input-group label {
+      font-size: 13px;
+      font-weight: 600;
+      color: #2b0e31;
+    }
+
+    .typed-input-group input {
+      padding: 12px 16px;
+      border: 2px solid #eadfd8;
+      border-radius: 8px;
+      font-size: 15px;
+      font-family: inherit;
+      transition: all 0.2s ease;
+    }
+
+    .typed-input-group input:focus {
+      outline: none;
+      border-color: #2b0e31;
+      box-shadow: 0 0 0 3px rgba(43, 14, 49, 0.1);
+    }
+
+    .font-selector {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+
+    .font-option {
+      padding: 16px;
+      border: 2px solid #eadfd8;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-align: center;
+      background: white;
+    }
+
+    .font-option:hover {
+      border-color: #c2b5c9;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(43, 14, 49, 0.1);
+    }
+
+    .font-option.selected {
+      border-color: #2b0e31;
+      background: rgba(43, 14, 49, 0.04);
+      box-shadow: 0 4px 12px rgba(43, 14, 49, 0.15);
+    }
+
+    .font-name {
+      font-size: 12px;
+      color: #6d6270;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+
+    .font-preview {
+      font-size: 28px;
+      color: #2b0e31;
+    }
+
+    .font-dancing { font-family: 'Dancing Script', cursive; }
+    .font-vibes { font-family: 'Great Vibes', cursive; }
+    .font-allura { font-family: 'Allura', cursive; }
+    .font-pacifico { font-family: 'Pacifico', cursive; }
+
+    .typed-preview {
+      padding: 32px;
+      background: linear-gradient(135deg, #f9f5f2 0%, #eadfd8 100%);
+      border-radius: 12px;
+      text-align: center;
+      min-height: 100px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 2px dashed #c2b5c9;
+    }
+
+    .typed-preview-text {
+      font-size: 36px;
+      color: #2b0e31;
+    }
+
+    .typed-preview-empty {
+      font-size: 14px;
+      color: #6d6270;
+      font-style: italic;
+    }
+
+    /* Tab 2: Canvas (ya existe, solo ajustar) */
+    .sig-wrap canvas {
+      border: 2px solid #eadfd8;
+      border-radius: 8px;
+    }
+
+    /* Tab 3: Cargar Imagen */
+    .upload-section {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .upload-zone {
+      border: 3px dashed #c2b5c9;
+      border-radius: 12px;
+      padding: 48px 24px;
+      text-align: center;
+      background: linear-gradient(135deg, #f9f5f2 0%, #eadfd8 100%);
+      cursor: pointer;
+      transition: all 0.3s ease;
+      position: relative;
+    }
+
+    .upload-zone:hover {
+      border-color: #2b0e31;
+      background: linear-gradient(135deg, #eadfd8 0%, #d0c5bd 100%);
+      transform: translateY(-2px);
+    }
+
+    .upload-zone.dragover {
+      border-color: #2b0e31;
+      background: rgba(43, 14, 49, 0.08);
+      transform: scale(1.02);
+    }
+
+    .upload-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+    }
+
+    .upload-text {
+      font-size: 16px;
+      font-weight: 600;
+      color: #2b0e31;
+      margin-bottom: 8px;
+    }
+
+    .upload-hint {
+      font-size: 13px;
+      color: #6d6270;
+    }
+
+    .upload-preview {
+      display: none;
+      padding: 24px;
+      background: white;
+      border: 2px solid #eadfd8;
+      border-radius: 12px;
+      text-align: center;
+    }
+
+    .upload-preview.show {
+      display: block;
+    }
+
+    .upload-preview img {
+      max-width: 100%;
+      max-height: 150px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+    }
+
+    .upload-remove {
+      padding: 8px 16px;
+      background: #e63946;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .upload-remove:hover {
+      background: #d62839;
+    }
+
+    /* Responsive */
+    @media (max-width: 640px) {
+      .signature-tabs {
+        flex-direction: column;
+      }
+
+      .signature-tab {
+        border-bottom: none;
+        border-left: 3px solid transparent;
+      }
+
+      .signature-tab.active {
+        border-bottom: none;
+        border-left-color: #2b0e31;
+      }
+
+      .font-selector {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* ===== RESPONSIVE: public-sign ===== */
+    @media (max-width: 767px) {
+      .layout {
+        grid-template-columns: 1fr;
+        padding: 8px;
+        gap: 8px;
+        min-height: auto;
+      }
+      .panel.left {
+        display: block !important;
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        padding: 10px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      }
+      main.panel {
+        padding: 4px;
+        overflow: visible;
+      }
+      .canvas-wrap {
+        max-width: 100%;
+        overflow: hidden;
+      }
+      .pdf-page-canvas {
+        max-width: 100%;
+        height: auto !important;
+      }
+      .page-overlay {
+        width: 100% !important;
+        height: 100% !important;
+      }
+      #sendBtn {
+        position: fixed !important;
+        bottom: 12px;
+        left: 12px;
+        right: 12px;
+        width: auto !important;
+        z-index: 90;
+        border-radius: 16px;
+        margin: 0 !important;
+      }
+      #successMsg {
+        margin-bottom: 60px;
+      }
+    }
+    @media (min-width: 768px) and (max-width: 1023px) {
+      .layout {
+        grid-template-columns: 220px 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Loader inicial -->
+<div id="initialLoader" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(246,241,238,0.98); z-index:9999; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+  <div style="width:60px; height:60px; border:4px solid #eadfd8; border-top-color:#2a0d31; border-radius:50%; animation:spin 1s linear infinite;"></div>
+  <p style="margin-top:20px; color:#2a0d31; font-weight:600;">Cargando documento...</p>
+</div>
+
+<!-- Layout principal (solo 2 paneles: info lateral + visor central) -->
+<div class="layout">
+  
+  <!-- Panel izquierdo: información del documento -->
+  <aside class="panel left">
+    <!-- Toggle para mobile -->
+    <button class="mobile-info-toggle" onclick="this.classList.toggle('expanded'); document.getElementById('mobileInfoBody').classList.toggle('expanded')">
+      <span><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Info del documento</span>
+      <svg class="chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+    </button>
+
+    <div id="mobileInfoBody" class="mobile-info-body">
+      <div style="padding:16px; background:#fff; border-radius:8px; margin-bottom:16px;">
+        <h3 style="margin:0 0 12px; color:var(--plum); font-size:18px;"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Documento</h3>
+        <p id="docTitle" style="margin:0; font-weight:600; font-size:16px; color:#333;">Cargando...</p>
+      </div>
+
+      <div style="padding:16px; background:#fff; border-radius:8px; margin-bottom:16px;">
+        <h4 style="margin:0 0 8px; color:var(--plum); font-size:14px;"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Remitente</h4>
+        <p id="senderName" style="margin:0; font-size:14px; color:#666;">-</p>
+      </div>
+
+      <div style="padding:16px; background:#fff; border-radius:8px; margin-bottom:16px;">
+        <h4 style="margin:0 0 8px; color:var(--plum); font-size:14px;"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg> Destinatario</h4>
+        <p id="recipientEmail" style="margin:0; font-size:14px; color:#666; word-break:break-all; overflow-wrap:break-word;">-</p>
+      </div>
+
+      <div style="padding:16px; background:#fff; border-radius:8px;">
+        <h4 style="margin:0 0 8px; color:var(--plum); font-size:14px;"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Fecha de envío</h4>
+        <p id="sentDate" style="margin:0; font-size:14px; color:#666;">-</p>
+      </div>
+    </div>
+
+    <!-- Botón de envío - aparece solo cuando todos los campos están completados -->
+    <button id="sendBtn" style="
+      display: none;
+      width: 100%;
+      margin-top: 16px;
+      padding: 16px;
+      background: linear-gradient(135deg, #7e5a88 0%, #9b7ba5 100%);
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      font-size: 16px;
+      box-shadow: 0 4px 12px rgba(126, 90, 136, 0.3);
+      transition: all 0.3s ease;
+      opacity: 0;
+      transform: translateY(-10px);
+    " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 16px rgba(126, 90, 136, 0.4)'"
+       onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(126, 90, 136, 0.3)'">
+      <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Enviar Documento Firmado
+    </button>
+
+    <div id="successMsg" style="
+      display: none;
+      margin-top: 16px;
+      padding: 20px;
+      background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+      border: 2px solid #28a745;
+      border-radius: 12px;
+      text-align: center;
+      opacity: 0;
+      transition: opacity 0.5s ease;
+      box-shadow: 0 4px 12px rgba(40, 167, 69, 0.2);
+    ">
+      <div style="margin-bottom:12px;"><svg style="width:48px;height:48px;" viewBox="0 0 24 24" fill="none" stroke="#28a745" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
+      <p style="margin:0 0 8px; color:#155724; font-weight:700; font-size:18px;">¡Documento firmado exitosamente!</p>
+      <p style="margin:0; color:#155724; font-size:14px;">Gracias por completar la firma.</p>
+    </div>
+  </aside>
+
+  <!-- Panel central: visor de PDF -->
+  <main class="panel" id="pdfViewer" style="position: relative;">
+    <!-- Botón REGISTRO DE EVENTOS - OCULTO en vista pública -->
+    <button id="eventsBtn" style="display: none;">
+      REGISTRO DE EVENTOS
+    </button>
+
+    <div id="pagesContainer"></div>
+  </main>
+
+</div>
+
+<!-- ========================================
+     MODALES (idénticos a sign.html)
+     ======================================== -->
+
+<!-- MODAL de firma con 3 opciones -->
+<div id="sigModal" class="modal-back" aria-hidden="true">
+  <div class="modal modal-signature" role="dialog" aria-modal="true" style="max-width: 700px;">
+    <div class="modal-header">
+      <h3><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Firma Digital</h3>
+      <button type="button" class="close-modal" id="sigClose">×</button>
+    </div>
+
+    <!-- TABS -->
+    <div class="signature-tabs">
+      <button class="signature-tab active" data-tab="typed">
+        <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L9.19 8.63 2 9.24l5.46 4.73L5.82 21 12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61z"/></svg>
+        <span>Firma Tipográfica</span>
+      </button>
+      <button class="signature-tab" data-tab="draw">
+        <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        <span>Dibujar Firma</span>
+      </button>
+      <button class="signature-tab" data-tab="upload">
+        <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <span>Cargar Imagen</span>
+      </button>
+    </div>
+
+    <div class="modal-body">
+      <!-- TAB 1: Firma Tipográfica -->
+      <div class="tab-content active" id="typedTab">
+        <div class="typed-signature-section">
+          <div class="typed-input-group">
+            <label for="typedNameInput">Escribe tu nombre completo</label>
+            <input type="text" id="typedNameInput" placeholder="Ej: Juan Pérez García" autocomplete="name">
+          </div>
+
+          <div>
+            <label class="input-label" style="margin-bottom: 12px; display: block;">Selecciona un estilo de firma</label>
+            <div class="font-selector">
+              <div class="font-option selected" data-font="dancing">
+                <div class="font-name">Dancing Script</div>
+                <div class="font-preview font-dancing">Firma</div>
+              </div>
+              <div class="font-option" data-font="vibes">
+                <div class="font-name">Great Vibes</div>
+                <div class="font-preview font-vibes">Firma</div>
+              </div>
+              <div class="font-option" data-font="allura">
+                <div class="font-name">Allura</div>
+                <div class="font-preview font-allura">Firma</div>
+              </div>
+              <div class="font-option" data-font="pacifico">
+                <div class="font-name">Pacifico</div>
+                <div class="font-preview font-pacifico">Firma</div>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label class="input-label" style="margin-bottom: 12px; display: block;">Vista Previa</label>
+            <div class="typed-preview" id="typedPreview">
+              <span class="typed-preview-empty">Tu firma aparecerá aquí...</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 2: Dibujar Firma (Canvas) -->
+      <div class="tab-content" id="drawTab">
+        <label class="input-label">Dibuja tu firma con el mouse o pantalla táctil</label>
+        <div class="sig-wrap"><canvas id="sigPad"></canvas></div>
+        <div style="margin-top: 12px; text-align: right;">
+          <button type="button" id="sigClear" class="btn btn-secondary" style="display: inline-flex; align-items: center; gap: 6px;">
+            <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Limpiar
+          </button>
+        </div>
+      </div>
+
+      <!-- TAB 3: Cargar Imagen -->
+      <div class="tab-content" id="uploadTab">
+        <div class="upload-section">
+          <div class="upload-zone" id="uploadZone">
+            <input type="file" id="uploadInput" accept="image/png,image/jpeg,image/jpg" style="display: none;">
+            <div class="upload-icon"><svg style="width:32px;height:32px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
+            <div class="upload-text">Arrastra tu imagen aquí o haz clic para seleccionar</div>
+            <div class="upload-hint">Formatos soportados: JPG, PNG (máx. 5MB)</div>
+          </div>
+
+          <div class="upload-preview" id="uploadPreview">
+            <img id="uploadPreviewImg" src="" alt="Vista previa">
+            <button type="button" class="upload-remove" id="uploadRemove">
+              <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Eliminar imagen
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button type="button" id="sigCancel" class="btn btn-secondary">Cancelar</button>
+      <button type="button" id="sigOk" class="btn btn-primary">✓ Usar firma</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL de texto -->
+<div id="textModal" class="modal-back" aria-hidden="true">
+  <div class="modal modal-text" role="dialog" aria-modal="true">
+    <div class="modal-header">
+      <h3><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Personalizar Texto</h3>
+      <button type="button" class="close-modal" id="textClose">×</button>
+    </div>
+    
+    <div class="modal-body">
+      <div class="text-input-section">
+        <label class="input-label">Contenido</label>
+        <textarea id="textInput" class="text-area" placeholder="Escribe tu texto aquí..." rows="3"></textarea>
+      </div>
+      
+      <div class="format-toolbar">
+        <!-- Fila 1: Fuente y Tamaño -->
+        <div class="toolbar-row">
+          <div class="toolbar-group">
+            <label class="toolbar-label">Fuente</label>
+            <select id="fontFamily" class="toolbar-select font-select">
+              <option value="Arial">Arial</option>
+              <option value="Helvetica">Helvetica</option>
+              <option value="Times New Roman">Times New Roman</option>
+              <option value="Courier New">Courier New</option>
+              <option value="Georgia">Georgia</option>
+              <option value="Verdana">Verdana</option>
+              <option value="Calibri">Calibri</option>
+              <option value="Cambria">Cambria</option>
+            </select>
+          </div>
+          
+          <div class="toolbar-group">
+            <label class="toolbar-label">Tamaño</label>
+            <select id="fontSize" class="toolbar-select size-select">
+              <option value="8">8</option>
+              <option value="9">9</option>
+              <option value="10">10</option>
+              <option value="11">11</option>
+              <option value="12" selected>12</option>
+              <option value="14">14</option>
+              <option value="16">16</option>
+              <option value="18">18</option>
+              <option value="20">20</option>
+              <option value="22">22</option>
+              <option value="24">24</option>
+              <option value="28">28</option>
+              <option value="32">32</option>
+            </select>
+          </div>
+          
+          <div class="toolbar-group">
+            <label class="toolbar-label">Color</label>
+            <div class="color-picker-wrapper">
+              <input type="color" id="fontColor" class="color-input" value="#000000">
+              <span class="color-preview" id="colorPreview"></span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Fila 2: Estilos y Alineación -->
+        <div class="toolbar-row">
+          <div class="toolbar-group">
+            <label class="toolbar-label">Formato</label>
+            <div class="format-buttons">
+              <button type="button" id="boldBtn" class="format-btn" title="Negrita (Ctrl+B)">
+                <strong>B</strong>
+              </button>
+              <button type="button" id="italicBtn" class="format-btn" title="Cursiva (Ctrl+I)">
+                <em>I</em>
+              </button>
+              <button type="button" id="underlineBtn" class="format-btn" title="Subrayado (Ctrl+U)">
+                <u>U</u>
+              </button>
+            </div>
+          </div>
+          
+          <div class="toolbar-group">
+            <label class="toolbar-label">Alineación</label>
+            <div class="format-buttons">
+              <button type="button" id="alignLeft" class="format-btn active" data-align="left" title="Alinear izquierda">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M2 3h12v2H2V3zm0 4h8v2H2V7zm0 4h12v2H2v-2z"/>
+                </svg>
+              </button>
+              <button type="button" id="alignCenter" class="format-btn" data-align="center" title="Centrar">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M4 3h8v2H4V3zm2 4h4v2H6V7zm-2 4h8v2H4v-2z"/>
+                </svg>
+              </button>
+              <button type="button" id="alignRight" class="format-btn" data-align="right" title="Alinear derecha">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M2 3h12v2H2V3zm4 4h8v2H6V7zm-4 4h12v2H2v-2z"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="preview-section">
+        <label class="input-label">Vista previa</label>
+        <div id="textPreview" class="text-preview">Tu texto aparecerá aquí...</div>
+      </div>
+    </div>
+    
+    <div class="modal-footer">
+      <button type="button" id="textCancel" class="btn btn-secondary">Cancelar</button>
+      <button type="button" id="textOk" class="btn btn-primary">✓ Aplicar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL de fecha -->
+<div id="dateModal" class="modal-back" aria-hidden="true">
+  <div class="modal modal-date" role="dialog" aria-modal="true">
+    <div class="modal-header">
+      <h3><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Seleccionar Fecha</h3>
+      <button type="button" class="close-modal" id="dateClose">×</button>
+    </div>
+    <div class="modal-body">
+      <label class="input-label">Fecha del documento</label>
+      <input type="date" id="dateInput" class="date-input">
+    </div>
+    <div class="modal-footer">
+      <button type="button" id="dateCancel" class="btn btn-secondary">Cancelar</button>
+      <button type="button" id="dateOk" class="btn btn-primary">✓ Agregar fecha</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL de Registro de Auditoría / Trazabilidad -->
+<div id="eventsModal" class="modal-back" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" style="max-width: 900px; max-height: 90vh; overflow-y: auto;">
+    <div class="modal-header" style="background: #2a0d31; color: white; padding: 20px;">
+      <div>
+        <h3 style="margin: 0 0 4px; font-size: 20px;">Registro de Auditoría</h3>
+        <p style="margin: 0; font-size: 13px; opacity: 0.9;">Documento Construido con Plataforma de Firma Electrónica PKI TECH®</p>
+      </div>
+      <button type="button" class="close-modal" id="eventsClose" style="background: transparent; color: white; font-size: 28px;">×</button>
+    </div>
+
+    <div class="modal-body" style="padding: 24px; background: #f8f9fa;">
+
+      <!-- Documento Original -->
+      <div style="background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; border: 1px solid #dee2e6;">
+        <h4 style="margin: 0 0 16px; color: #2a0d31; font-size: 16px; font-weight: 700;">Documento Original</h4>
+        <div style="display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; font-size: 14px;">
+          <span style="font-weight: 600;">Título:</span>
+          <span id="auditDocTitle">-</span>
+
+          <span style="font-weight: 600;">ID:</span>
+          <span id="auditDocId">-</span>
+
+          <span style="font-weight: 600;">Fecha y Hora:</span>
+          <span id="auditDocDate">-</span>
+        </div>
+      </div>
+
+      <!-- Hash SHA256 del Documento Firmado -->
+      <div style="background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; border: 1px solid #dee2e6;">
+        <h4 style="margin: 0 0 8px; color: #2a0d31; font-size: 16px; font-weight: 700;">Hash SHA256 del Documento Firmado</h4>
+        <p id="auditDocHash" style="margin: 0; font-family: 'Courier New', monospace; font-size: 12px; word-break: break-all; color: #495057; background: #f8f9fa; padding: 12px; border-radius: 4px;">-</p>
+      </div>
+
+      <!-- Participantes -->
+      <div id="participantsSection" style="background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; border: 1px solid #dee2e6;">
+        <!-- Se llenará dinámicamente con JavaScript -->
+      </div>
+
+      <!-- Prueba de Trazabilidad -->
+      <div id="eventsSection" style="background: white; border-radius: 8px; padding: 20px; border: 1px solid #dee2e6;">
+        <!-- Se llenará dinámicamente con JavaScript -->
+      </div>
+
+    </div>
+
+    <div class="modal-footer">
+      <button type="button" id="eventsCloseBtn" class="btn btn-secondary">Cerrar</button>
+      <button type="button" id="downloadAuditBtn" class="btn btn-primary"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Descargar Reporte</button>
+    </div>
+  </div>
+</div>
+
+<!-- Librerías PDF.js y pdf-lib -->
+<script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
+<!-- ✅ Usar UNPKG para PDF.js (sin problemas de CORS) -->
+<script src="https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.min.mjs" type="module"></script>
+
+<script type="module">
+// ✅ Importar PDF.js como módulo ES6 desde UNPKG
+import * as pdfjsLib from 'https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.min.mjs';
+
+// Configurar worker desde UNPKG
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs';
+
+// Hacer pdfjsLib disponible globalmente
+window.pdfjsLib = pdfjsLib;
+
+console.log('✅ PDF.js cargado desde UNPKG');
+
+// Variables globales
+let currentToken = null;
+let currentDocument = null;
+let recipientPartId = null; // 🔥 NUEVO: part_id del destinatario actual
+let isFinalSigner = false; // 🔥 NUEVO: Flag para firmante definitivo (pagarés)
+let pdfDoc = null;
+let allPages = []; // Para almacenar referencia de todas las páginas renderizadas
+let fields = []; // Para almacenar los campos del documento
+// signaturePad se declara más abajo en la sección de modales
+
+// Obtener token y cargar documento
+const urlParams = new URLSearchParams(window.location.search);
+currentToken = urlParams.get('token');
+
+if (!currentToken) {
+  showError('Token no proporcionado. El enlace no es válido.');
+} else {
+  loadDocument();
+}
+
+// Cargar documento desde el servidor
+async function loadDocument() {
+  try {
+    const response = await fetch(`/api/public/document/${currentToken}`);
+    
+    if (!response.ok) {
+      throw new Error('Documento no encontrado o token inválido');
+    }
+
+    const data = await response.json();
+    currentDocument = data.document; // ✅ El documento está dentro de data.document
+    recipientPartId = currentDocument.recipientPartId; // 🔥 NUEVO: Guardar part_id del destinatario
+    isFinalSigner = currentDocument.isFinalSigner || false; // 🔥 NUEVO: Flag de firmante definitivo
+    window.isFinalSigner = isFinalSigner; // ✅ También asignar a window para acceso global
+
+    console.log('📄 Documento cargado:', currentDocument);
+    console.log('🔍 DEBUG - Status:', currentDocument.status);
+    console.log('🔍 DEBUG - signedPdfUrl:', currentDocument.signedPdfUrl);
+    console.log('🎯 DEBUG - recipientPartId:', recipientPartId);
+    console.log('🎯 DEBUG - isFinalSigner:', isFinalSigner); // 🔥 NUEVO
+    console.log('🎯 DEBUG - hasPersonalizedPdf:', currentDocument.hasPersonalizedPdf); // 🔥 NUEVO
+
+    // Actualizar información en el panel izquierdo
+    document.getElementById('docTitle').textContent = currentDocument.title || 'Documento sin título';
+    document.getElementById('senderName').textContent = currentDocument.senderName || '-';
+    document.getElementById('recipientEmail').textContent = currentDocument.recipientEmail || '-';
+    document.getElementById('sentDate').textContent = currentDocument.sentAt ? new Date(currentDocument.sentAt).toLocaleDateString('es-ES') : '-';
+
+    // ✅ Si el documento está completado Y hay PDF firmado final (todos firmaron), mostrar el PDF firmado final
+    if (currentDocument.status === 'completed' && currentDocument.signedPdfUrl) {
+      console.log('✅ Todos firmaron - Mostrando PDF firmado final con sello PKI');
+
+      // Mostrar mensaje de documento completado
+      const sendBtn = document.getElementById('sendBtn');
+      sendBtn.style.display = 'none';
+
+      const successMsg = document.getElementById('successMsg');
+      successMsg.innerHTML = `
+        <div style="margin-bottom:12px;"><svg style="width:48px;height:48px;" viewBox="0 0 24 24" fill="none" stroke="#28a745" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
+        <p style="margin:0 0 8px; color:#155724; font-weight:700; font-size:18px;">¡Documento firmado exitosamente!</p>
+        <p style="margin:0 0 16px; color:#155724; font-size:14px;">
+          El documento ha sido firmado digitalmente con certificado PKI.<br>
+          Los sellos de certificación están visibles en el PDF.
+        </p>
+        <a href="${currentDocument.signedPdfUrl}"
+           download="documento_firmado.pdf"
+           style="
+             display: inline-block;
+             padding: 12px 24px;
+             background: #28a745;
+             color: white;
+             text-decoration: none;
+             border-radius: 8px;
+             font-weight: 600;
+             font-size: 14px;
+             margin-top: 8px;
+             box-shadow: 0 2px 8px rgba(40, 167, 69, 0.3);
+           ">
+          <svg style="width:16px;height:16px;vertical-align:middle;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Descargar PDF Firmado
+        </a>
+      `;
+      successMsg.style.display = 'block';
+      successMsg.style.opacity = '1';
+
+      // Cargar el PDF firmado en el visor
+      let signedPdfUrl = currentDocument.signedPdfUrl;
+      if (!signedPdfUrl.startsWith('http://') && !signedPdfUrl.startsWith('https://')) {
+        const origin = window.location.origin;
+        const path = signedPdfUrl.startsWith('/') ? signedPdfUrl.substring(1) : signedPdfUrl;
+        signedPdfUrl = `${origin}/${path}`;
+      }
+      console.log(`📄 URL del PDF firmado final: ${signedPdfUrl}`);
+      await loadPDF(signedPdfUrl);
+
+    } else if (currentDocument.status === 'completed' && !currentDocument.signedPdfUrl) {
+      // Usuario ya firmó pero aún faltan otros destinatarios
+      console.log('✅ Ya firmaste - Esperando a otros destinatarios');
+
+      // Ocultar botón de enviar
+      const sendBtn = document.getElementById('sendBtn');
+      sendBtn.style.display = 'none';
+
+      // Mostrar mensaje de espera
+      const successMsg = document.getElementById('successMsg');
+      successMsg.innerHTML = `
+        <div style="margin-bottom:12px;"><svg style="width:48px;height:48px;" viewBox="0 0 24 24" fill="none" stroke="#28a745" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
+        <p style="margin:0 0 8px; color:#155724; font-weight:700; font-size:18px;">¡Ya completaste tu firma!</p>
+        <p style="margin:0 0 16px; color:#155724; font-size:14px;">
+          Tu firma ha sido registrada correctamente.<br>
+          Esperando a que los demás destinatarios completen sus firmas.<br>
+          El documento final con sello PKI estará disponible cuando todos firmen.
+        </p>
+      `;
+      successMsg.style.display = 'block';
+      successMsg.style.opacity = '1';
+
+      // Cargar PDF intermedio con las firmas actuales (solo lectura)
+      let pdfUrl = currentDocument.pdfPath;
+      if (!pdfUrl.startsWith('http://') && !pdfUrl.startsWith('https://')) {
+        const origin = window.location.origin;
+        const path = pdfUrl.startsWith('/') ? pdfUrl.substring(1) : pdfUrl;
+        pdfUrl = `${origin}/${path}`;
+      }
+      // Agregar timestamp para evitar caché del navegador
+      pdfUrl += `?t=${Date.now()}`;
+      console.log(`📄 URL del PDF intermedio (solo lectura): ${pdfUrl}`);
+      await loadPDF(pdfUrl);
+
+      // No cargar campos (solo mostrar el PDF)
+      
+    } else {
+      // Documento no completado - Cargar PDF original con campos editables
+      console.log('📝 Documento pendiente - Mostrando campos para completar');
+
+      // Cargar PDF (construir URL completa si no tiene protocolo)
+      let pdfUrl = currentDocument.pdfPath;
+      if (!pdfUrl.startsWith('http://') && !pdfUrl.startsWith('https://')) {
+        const origin = window.location.origin; // http://localhost:3000
+        // Eliminar barra inicial de pdfUrl si existe para evitar doble barra
+        const path = pdfUrl.startsWith('/') ? pdfUrl.substring(1) : pdfUrl;
+        pdfUrl = `${origin}/${path}`;
+      }
+      // Agregar timestamp para evitar caché del navegador
+      pdfUrl += `?t=${Date.now()}`;
+      console.log(`📄 URL del PDF: ${pdfUrl}`);
+      await loadPDF(pdfUrl);
+
+      // ✅ Cargar campos del documento después de renderizar el PDF
+      if (currentDocument.fields && currentDocument.fields.length > 0) {
+        console.log(`📋 Cargando ${currentDocument.fields.length} campo(s)...`);
+        loadExistingFields(currentDocument.fields);
+      } else {
+        console.log('ℹ️ El documento no tiene campos asignados');
+      }
+    }
+
+    // Ocultar loader
+    document.getElementById('initialLoader').style.display = 'none';
+
+  } catch (error) {
+    console.error('Error cargando documento:', error);
+    showError('Error al cargar el documento. Por favor, verifica el enlace e inténtalo nuevamente.');
+  }
+}
+
+// ✅ Esperar a que PDF.js esté disponible
+async function waitForPdfJs() {
+  let attempts = 0;
+  while (!window.pdfjsLib && attempts < 50) {
+    console.log('⏳ Esperando a que PDF.js se cargue...');
+    await new Promise(resolve => setTimeout(resolve, 100));
+    attempts++;
+  }
+  
+  if (!window.pdfjsLib) {
+    throw new Error('PDF.js no pudo cargarse después de 5 segundos');
+  }
+  
+  // Configurar worker si aún no está configurado
+  if (!window.pdfjsLib.GlobalWorkerOptions.workerSrc) {
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.js';
+  }
+  
+  console.log('✅ PDF.js cargado y configurado');
+}
+
+// Cargar y renderizar PDF
+async function loadPDF(pdfPath) {
+  try {
+    console.log(`📄 Intentando cargar PDF desde: ${pdfPath}`);
+    
+    // Verificar que PDF.js esté disponible
+    if (!window.pdfjsLib) {
+      throw new Error('PDF.js no está cargado');
+    }
+    
+    const loadingTask = window.pdfjsLib.getDocument(pdfPath);
+    pdfDoc = await loadingTask.promise;
+    
+    console.log(`✅ PDF cargado correctamente (${pdfDoc.numPages} página(s))`);
+
+    const container = document.getElementById('pagesContainer');
+    container.innerHTML = '';
+    allPages = []; // ✅ Limpiar array de páginas
+
+    // ✅ Configuración igual a sign.js
+    const baseScale = 1.4;
+    const dpr = window.devicePixelRatio || 1;
+
+    for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+      const page = await pdfDoc.getPage(pageNum);
+      const viewport = page.getViewport({ scale: baseScale });
+
+      // ✅ Crear wrapper para la página con position relative (igual a sign.js)
+      const pageWrapper = document.createElement('div');
+      pageWrapper.className = 'canvas-wrap';
+      pageWrapper.style.position = 'relative';
+      pageWrapper.style.marginBottom = '20px';
+      pageWrapper.style.display = 'inline-block';
+      pageWrapper.dataset.pageNum = pageNum;
+
+      const canvas = document.createElement('canvas');
+      canvas.className = 'pdf-page-canvas';
+      canvas.width = viewport.width * dpr;
+      canvas.height = viewport.height * dpr;
+      canvas.style.width = `${viewport.width}px`;
+      canvas.style.height = `${viewport.height}px`;
+
+      pageWrapper.appendChild(canvas);
+      container.appendChild(pageWrapper);
+
+      const context = canvas.getContext('2d');
+      context.scale(dpr, dpr);
+      await page.render({ canvasContext: context, viewport: viewport }).promise;
+
+      // ✅ Guardar referencia de la página
+      allPages.push({
+        pageNum: pageNum,
+        wrapper: pageWrapper,
+        canvas: canvas,
+        width: viewport.width,
+        height: viewport.height,
+        scale: baseScale
+      });
+
+      console.log(`✅ Página ${pageNum} renderizada (${viewport.width}x${viewport.height})`);
+    }
+
+    // 🔥 FIRMANTE DEFINITIVO: Los placeholders se renderizan individualmente por campo
+    if (isFinalSigner) {
+      console.log('🔒 Firmante definitivo detectado: Los placeholders se aplicarán sobre cada campo...');
+    }
+  } catch (error) {
+    console.error('Error cargando PDF:', error);
+    showError('Error al cargar el archivo PDF.');
+  }
+}
+
+// 🔥 NUEVA FUNCIÓN: Renderizar placeholder individual sobre un campo
+function renderPrivacyPlaceholder(pageData, fieldData, tipo) {
+  // Crear un pequeño overlay sobre el campo específico
+  const placeholder = document.createElement('div');
+  placeholder.className = 'privacy-placeholder';
+  placeholder.style.position = 'absolute';
+  placeholder.style.left = `${fieldData.x}px`;
+  placeholder.style.top = `${fieldData.y}px`;
+  placeholder.style.width = `${fieldData.w}px`;
+  placeholder.style.height = `${fieldData.h}px`;
+  placeholder.style.background = 'linear-gradient(135deg, #f5f7fa 0%, #e9ecef 100%)';
+  placeholder.style.border = '2px solid #dee2e6';
+  placeholder.style.borderRadius = '8px';
+  placeholder.style.display = 'flex';
+  placeholder.style.flexDirection = 'column';
+  placeholder.style.alignItems = 'center';
+  placeholder.style.justifyContent = 'center';
+  placeholder.style.fontFamily = "'Segoe UI', 'Inter', -apple-system, system-ui, sans-serif";
+  placeholder.style.zIndex = '1000'; // 🔥 Z-index muy alto para cubrir el texto del PDF
+  placeholder.style.pointerEvents = 'none';
+  placeholder.style.boxSizing = 'border-box';
+  placeholder.style.padding = '8px';
+  placeholder.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
+
+  // Contenido según el tipo
+  if (tipo === 'texto') {
+    placeholder.innerHTML = `
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6c757d" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+        </svg>
+        <span style="
+          font-size: 12px;
+          font-weight: 600;
+          color: #495057;
+          letter-spacing: 0.3px;
+        ">Dato protegido</span>
+      </div>
+    `;
+  } else if (tipo === 'firma') {
+    placeholder.innerHTML = `
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#28a745" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+        <span style="
+          font-size: 12px;
+          font-weight: 600;
+          color: #28a745;
+          letter-spacing: 0.3px;
+        ">Firmado</span>
+      </div>
+    `;
+  }
+
+  pageData.wrapper.appendChild(placeholder);
+}
+
+// ===== CARGAR CAMPOS EXISTENTES =====
+function loadExistingFields(existingFields) {
+  try {
+    console.log(`📥 Cargando ${existingFields.length} campo(s)...`);
+
+    // ✅ Filtrar campos tipo 'seal' - no deben mostrarse al usuario final
+    let interactiveFields = existingFields.filter(field => field.type !== 'seal');
+
+    if (interactiveFields.length < existingFields.length) {
+      const sealCount = existingFields.length - interactiveFields.length;
+      console.log(`🔐 ${sealCount} campo(s) de tipo 'seal' filtrado(s) (se renderizarán automáticamente al firmar)`);
+    }
+
+    // 🔥 NUEVO: Filtrar "Firma Definitiva" si el usuario NO es el firmante definitivo
+    if (!isFinalSigner) {
+      const beforeFilter = interactiveFields.length;
+      interactiveFields = interactiveFields.filter(field => {
+        const isFinalSignatureField = field.label && field.label.toLowerCase().includes('firma definitiva');
+        return !isFinalSignatureField;
+      });
+
+      if (interactiveFields.length < beforeFilter) {
+        const filteredCount = beforeFilter - interactiveFields.length;
+        console.log(`⚖️ ${filteredCount} campo(s) de "Firma Definitiva" filtrado(s) (solo para firmante definitivo)`);
+      }
+    }
+
+    // 🔥 NUEVO: Filtrar campos según part_id del destinatario
+    if (recipientPartId) {
+      const allInteractiveFields = interactiveFields.length;
+      
+      // Filtrar: solo mostrar campos de la parte del destinatario O campos sin parte asignada
+      interactiveFields = interactiveFields.filter(field => {
+        return field.part_id === recipientPartId || field.part_id === null;
+      });
+      
+      console.log(`🎯 Destinatario asignado a part_id=${recipientPartId}`);
+      console.log(`📋 Campos totales: ${allInteractiveFields}, Campos visibles: ${interactiveFields.length}`);
+    } else {
+      console.log(`ℹ️ Destinatario sin parte asignada, mostrando todos los campos`);
+    }
+
+    // Limpiar campos actuales
+    fields.length = 0;
+
+    // Convertir campos del servidor al formato interno y renderizar
+    // ✅ IMPORTANTE: Los campos vienen en coordenadas PDF reales, necesitamos convertirlas a viewport escalado
+    const VIEWPORT_SCALE = 1.4; // Debe coincidir con baseScale
+    
+    interactiveFields.forEach((field, index) => {
+      const hasPrefilledValue = field.value && field.value.trim() !== '';
+
+      const fieldData = {
+        id: `field-${Date.now()}-${index}`,
+        field_id: field.field_id, // ✅ Guardar el field_id de la base de datos
+        type: field.type,
+        page: field.page || 1,
+        // Convertir de coordenadas PDF (reales) a coordenadas viewport (escaladas)
+        x: parseFloat(field.x) * VIEWPORT_SCALE,
+        y: parseFloat(field.y) * VIEWPORT_SCALE,
+        w: parseFloat(field.width) * VIEWPORT_SCALE,
+        h: parseFloat(field.height) * VIEWPORT_SCALE,
+        label: field.label || null,
+        required: field.required !== false,
+        // 🔥 IMPORTANTE: Marcar como signed si tiene valor pre-llenado
+        signed: hasPrefilledValue,
+        dataUrl: hasPrefilledValue ? field.value : null,
+        value: field.value || null // ✅ Agregar el valor pre-llenado si existe
+      };
+
+      fields.push(fieldData);
+      
+      if (field.value) {
+        console.log(`   ✓ Campo ${index + 1}: ${field.type} en página ${field.page} (field_id: ${field.field_id}) - Valor: "${field.value}"`);
+      } else {
+        console.log(`   ✓ Campo ${index + 1}: ${field.type} en página ${field.page} (field_id: ${field.field_id})`);
+      }
+      
+      // Renderizar el campo visualmente en el PDF
+      renderFieldOnPage(fieldData);
+    });
+
+    console.log(`✅ ${fields.length} campo(s) renderizado(s) en el PDF`);
+
+  } catch (error) {
+    console.error('❌ Error al cargar campos existentes:', error);
+  }
+}
+
+// ===== RENDERIZAR CAMPO EN EL PDF (idéntico a sign.js) =====
+function renderFieldOnPage(fieldData) {
+  try {
+    // Buscar la página donde debe renderizarse
+    const pageData = allPages.find(p => p.pageNum === fieldData.page);
+
+    if (!pageData) {
+      console.warn(`⚠️ Página ${fieldData.page} no encontrada para campo ${fieldData.id}`);
+      return;
+    }
+
+    // 🔥 FIRMANTE DEFINITIVO: Mostrar placeholders sobre TODOS los campos de texto y firmas regulares
+    if (isFinalSigner) {
+      if (fieldData.type === 'text') {
+        // Renderizar placeholder sobre TODO campo de texto (con o sin valor)
+        fieldData.signed = true;
+        renderPrivacyPlaceholder(pageData, fieldData, 'texto');
+        console.log(`   🔒 Firmante definitivo: Placeholder de texto renderizado sobre campo en página ${fieldData.page}`);
+        return;
+      } else if (fieldData.type === 'signature') {
+        // Renderizar placeholder sobre firma regular
+        fieldData.signed = true;
+        renderPrivacyPlaceholder(pageData, fieldData, 'firma');
+        console.log(`   🔒 Firmante definitivo: Placeholder de firma renderizado`);
+        return;
+      } else if (fieldData.type !== 'final_signature' && fieldData.type !== 'seal') {
+        // Ocultar cualquier otro campo que no sea final_signature o seal
+        fieldData.signed = true;
+        console.log(`   🔒 Firmante definitivo: Campo ${fieldData.type} OCULTO`);
+        return;
+      }
+      // Si es final_signature o seal, continuar y renderizar normalmente
+    }
+
+    // 🔥 IMPORTANTE: Para PAGARÉS, si el campo de texto tiene valor O el PDF está personalizado, NO crear overlay
+    if (fieldData.type === 'text' && (currentDocument.hasPersonalizedPdf || fieldData.value)) {
+      // Marcar como completado sin crear overlay (el texto ya está en el PDF)
+      fieldData.signed = true;
+      console.log(`   ✅ PDF personalizado con textos escritos - Campo de texto YA está en PDF - NO se crea overlay`);
+      return;
+    }
+
+    // SOLO para campos vacíos: crear el campo interactivo con borde
+    // Crear elemento del campo con clase 'field' y tipo
+    const fieldDiv = document.createElement('div');
+    fieldDiv.id = fieldData.id;
+    fieldDiv.className = `field ${fieldData.type}`;
+    fieldDiv.dataset.fieldType = fieldData.type;
+    
+    // Aplicar posición y tamaño
+    fieldDiv.style.position = 'absolute';
+    fieldDiv.style.left = `${fieldData.x}px`;
+    fieldDiv.style.top = `${fieldData.y}px`;
+    fieldDiv.style.width = `${fieldData.w}px`;
+    fieldDiv.style.height = `${fieldData.h}px`;
+    fieldDiv.style.zIndex = '100'; // Por encima de placeholders (z-index: 2)
+    
+    // ✅ Label del campo (arriba del campo, como en sign.html)
+    const label = document.createElement('div');
+    label.className = 'label';
+    
+    // Determinar texto del label según tipo
+    let labelText = '';
+    let labelIcon = '';
+    const _ico = (d) => `<svg style="width:14px;height:14px;vertical-align:middle;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+    if (fieldData.type === 'signature') {
+      labelText = 'Firma';
+      labelIcon = _ico('<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>');
+    } else if (fieldData.type === 'final_signature') {
+      labelText = fieldData.label || 'Firma Definitiva';
+      labelIcon = _ico('<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>');
+    } else if (fieldData.type === 'text') {
+      labelText = 'Texto';
+      labelIcon = _ico('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>');
+    } else if (fieldData.type === 'date') {
+      labelText = 'Fecha';
+      labelIcon = _ico('<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>');
+    }
+
+    label.innerHTML = `${labelIcon} ${labelText}`;
+    fieldDiv.appendChild(label);
+
+    // ✅ Agregar evento click para campos editables
+    fieldDiv.addEventListener('click', () => {
+      console.log(`🖱️ Click en campo: ${fieldData.type} (${fieldData.id})`);
+
+      if (fieldData.type === 'signature' || fieldData.type === 'final_signature') {
+        openSignatureModal(fieldData);
+      } else if (fieldData.type === 'text') {
+        openTextModal(fieldData);
+      } else if (fieldData.type === 'date') {
+        openDateModal(fieldData);
+      }
+    });
+
+    // Agregar al wrapper de la página
+    pageData.wrapper.appendChild(fieldDiv);
+
+    console.log(`   ✓ Campo renderizado: ${fieldData.id} (${fieldData.type}) en página ${fieldData.page}`);
+
+  } catch (error) {
+    console.error('❌ Error al renderizar campo:', error);
+  }
+}
+
+// ========================================
+// MANEJO DE MODALES (idéntico a sign.js)
+// ========================================
+
+// Variables para SignaturePad
+const sigPad = document.getElementById('sigPad');
+const sigModal = document.getElementById('sigModal');
+const textModal = document.getElementById('textModal');
+const dateModal = document.getElementById('dateModal');
+let signaturePad = null;
+let currentFieldToSign = null;
+
+// Variables para firma tipográfica
+let selectedFont = 'dancing';
+let typedSignatureData = null;
+let uploadedSignatureData = null;
+
+// Inicializar SignaturePad
+function initSignaturePad() {
+  if (!signaturePad) {
+    signaturePad = new SignaturePad(sigPad, {
+      backgroundColor: 'rgba(0, 0, 0, 0)', // Fondo transparente
+      penColor: 'rgb(0, 0, 0)'
+    });
+    resizeCanvas();
+  }
+}
+
+function resizeCanvas() {
+  const ratio = Math.max(window.devicePixelRatio || 1, 1);
+  sigPad.width = sigPad.offsetWidth * ratio;
+  sigPad.height = sigPad.offsetHeight * ratio;
+  sigPad.getContext("2d").scale(ratio, ratio);
+  if (signaturePad) signaturePad.clear();
+}
+
+// ===== MODAL DE FIRMA CON 3 OPCIONES =====
+function openSignatureModal(fieldData) {
+  currentFieldToSign = fieldData;
+
+  // Resetear todo
+  selectedFont = 'dancing';
+  typedSignatureData = null;
+  uploadedSignatureData = null;
+
+  // Limpiar inputs
+  document.getElementById('typedNameInput').value = '';
+  document.getElementById('uploadInput').value = '';
+  document.getElementById('uploadPreview').classList.remove('show');
+  document.getElementById('uploadZone').style.display = 'block';
+
+  // Resetear preview tipográfico
+  document.getElementById('typedPreview').innerHTML = '<span class="typed-preview-empty">Tu firma aparecerá aquí...</span>';
+
+  // Resetear selección de fuente
+  document.querySelectorAll('.font-option').forEach(opt => opt.classList.remove('selected'));
+  document.querySelector('[data-font="dancing"]').classList.add('selected');
+
+  // Activar primer tab
+  switchSignatureTab('typed');
+
+  // Inicializar canvas (para cuando se cambie al tab de dibujar)
+  initSignaturePad();
+  if (signaturePad) signaturePad.clear();
+
+  // Mostrar modal
+  sigModal.classList.add('show');
+  sigModal.setAttribute('aria-hidden', 'false');
+
+  console.log(`📝 Abriendo modal de firma con 3 opciones para campo: ${fieldData.id}`);
+}
+
+// Cambiar entre tabs
+function switchSignatureTab(tabName) {
+  // Remover active de todos los tabs
+  document.querySelectorAll('.signature-tab').forEach(tab => tab.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+
+  // Activar el tab seleccionado
+  document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+  document.getElementById(`${tabName}Tab`).classList.add('active');
+
+  // Si cambió al tab de dibujar, redimensionar canvas
+  if (tabName === 'draw') {
+    setTimeout(() => resizeCanvas(), 100);
+  }
+}
+
+// Event listeners para tabs
+document.querySelectorAll('.signature-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    const tabName = tab.dataset.tab;
+    switchSignatureTab(tabName);
+  });
+});
+
+// ===== TAB 1: FIRMA TIPOGRÁFICA =====
+
+// Actualizar preview tipográfico
+function updateTypedPreview() {
+  const name = document.getElementById('typedNameInput').value.trim();
+  const preview = document.getElementById('typedPreview');
+
+  if (!name) {
+    preview.innerHTML = '<span class="typed-preview-empty">Tu firma aparecerá aquí...</span>';
+    typedSignatureData = null;
+    return;
+  }
+
+  const fontClass = `font-${selectedFont}`;
+  preview.innerHTML = `<div class="typed-preview-text ${fontClass}">${name}</div>`;
+
+  // Generar imagen de la firma tipográfica
+  generateTypedSignature(name, selectedFont);
+}
+
+// Generar imagen de firma tipográfica usando canvas
+function generateTypedSignature(name, font) {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+
+  // Configurar texto primero para medir
+  const fontMap = {
+    'dancing': "'Dancing Script', cursive",
+    'vibes': "'Great Vibes', cursive",
+    'allura': "'Allura', cursive",
+    'pacifico': "'Pacifico', cursive"
+  };
+
+  // Configurar fuente para medir
+  ctx.font = `700 100px ${fontMap[font]}`;
+
+  // Medir el texto
+  const metrics = ctx.measureText(name);
+  const textWidth = metrics.width;
+  const textHeight = 120; // Altura aproximada para fuentes cursivas grandes
+
+  // Configurar canvas con tamaño dinámico (con padding)
+  const padding = 40;
+  canvas.width = Math.max(textWidth + (padding * 2), 400);
+  canvas.height = textHeight + (padding * 2);
+
+  // ✅ NO establecer fondo blanco - dejar transparente
+
+  // RE-configurar texto después de cambiar el tamaño del canvas
+  ctx.font = `700 100px ${fontMap[font]}`;
+  ctx.fillStyle = '#2b0e31';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // Dibujar texto centrado
+  ctx.fillText(name, canvas.width / 2, canvas.height / 2);
+
+  // Guardar como dataURL con fondo transparente
+  typedSignatureData = canvas.toDataURL('image/png');
+}
+
+// Event listener para input de nombre
+document.getElementById('typedNameInput').addEventListener('input', updateTypedPreview);
+
+// Event listeners para selección de fuente
+document.querySelectorAll('.font-option').forEach(option => {
+  option.addEventListener('click', () => {
+    document.querySelectorAll('.font-option').forEach(opt => opt.classList.remove('selected'));
+    option.classList.add('selected');
+    selectedFont = option.dataset.font;
+    updateTypedPreview();
+  });
+});
+
+// ===== TAB 2: DIBUJAR FIRMA (CANVAS) =====
+
+// Botón limpiar canvas
+document.getElementById('sigClear').addEventListener('click', (e) => {
+  e.preventDefault();
+  if (signaturePad) signaturePad.clear();
+});
+
+// ===== TAB 3: CARGAR IMAGEN =====
+
+const uploadZone = document.getElementById('uploadZone');
+const uploadInput = document.getElementById('uploadInput');
+const uploadPreview = document.getElementById('uploadPreview');
+const uploadPreviewImg = document.getElementById('uploadPreviewImg');
+const uploadRemove = document.getElementById('uploadRemove');
+
+// Click en zona de upload
+uploadZone.addEventListener('click', () => {
+  uploadInput.click();
+});
+
+// Selección de archivo
+uploadInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (file) {
+    handleUploadedFile(file);
+  }
+});
+
+// Drag & Drop
+uploadZone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  uploadZone.classList.add('dragover');
+});
+
+uploadZone.addEventListener('dragleave', () => {
+  uploadZone.classList.remove('dragover');
+});
+
+uploadZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  uploadZone.classList.remove('dragover');
+
+  const file = e.dataTransfer.files[0];
+  if (file) {
+    handleUploadedFile(file);
+  }
+});
+
+// Procesar archivo cargado
+function handleUploadedFile(file) {
+  // Validar tipo
+  if (!file.type.match('image/(png|jpeg|jpg)')) {
+    alert('Solo se permiten imágenes PNG o JPG');
+    return;
+  }
+
+  // Validar tamaño (5MB)
+  if (file.size > 5 * 1024 * 1024) {
+    alert('La imagen no debe superar 5MB');
+    return;
+  }
+
+  // Leer archivo
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    uploadedSignatureData = e.target.result;
+    uploadPreviewImg.src = uploadedSignatureData;
+    uploadPreview.classList.add('show');
+    uploadZone.style.display = 'none';
+  };
+  reader.readAsDataURL(file);
+}
+
+// Eliminar imagen cargada
+uploadRemove.addEventListener('click', () => {
+  uploadedSignatureData = null;
+  uploadInput.value = '';
+  uploadPreview.classList.remove('show');
+  uploadZone.style.display = 'block';
+});
+
+// ===== BOTONES DEL MODAL =====
+
+document.getElementById('sigClose').addEventListener('click', (e) => {
+  e.preventDefault();
+  document.activeElement.blur();
+
+  setTimeout(() => {
+    sigModal.classList.remove('show');
+    sigModal.setAttribute('aria-hidden', 'true');
+  }, 10);
+
+  currentFieldToSign = null;
+});
+
+document.getElementById('sigCancel').addEventListener('click', (e) => {
+  e.preventDefault();
+  document.activeElement.blur();
+
+  setTimeout(() => {
+    sigModal.classList.remove('show');
+    sigModal.setAttribute('aria-hidden', 'true');
+  }, 10);
+
+  currentFieldToSign = null;
+});
+
+document.getElementById('sigOk').addEventListener('click', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+
+  if (!currentFieldToSign) return;
+
+  // Determinar qué tab está activo
+  let signatureData = null;
+
+  if (document.getElementById('typedTab').classList.contains('active')) {
+    // Tab de firma tipográfica
+    if (!typedSignatureData) {
+      alert('Por favor, escribe tu nombre completo');
+      return;
+    }
+    signatureData = typedSignatureData;
+    console.log('✅ Usando firma tipográfica');
+
+  } else if (document.getElementById('drawTab').classList.contains('active')) {
+    // Tab de dibujar firma
+    if (!signaturePad || signaturePad.isEmpty()) {
+      alert('Por favor, dibuja tu firma primero');
+      return;
+    }
+    signatureData = signaturePad.toDataURL('image/png');
+    console.log('✅ Usando firma dibujada');
+
+  } else if (document.getElementById('uploadTab').classList.contains('active')) {
+    // Tab de cargar imagen
+    if (!uploadedSignatureData) {
+      alert('Por favor, carga una imagen de tu firma');
+      return;
+    }
+    signatureData = uploadedSignatureData;
+    console.log('✅ Usando firma cargada');
+  }
+
+  if (!signatureData) {
+    alert('No se pudo obtener la firma');
+    return;
+  }
+
+  console.log(`💾 Guardando firma en campo ${currentFieldToSign.id}`, {
+    field_id: currentFieldToSign.field_id,
+    type: currentFieldToSign.type,
+    dataUrl_length: signatureData.length
+  });
+
+  // Actualizar el campo en el array
+  const fieldIndex = fields.findIndex(f => f.id === currentFieldToSign.id);
+  if (fieldIndex !== -1) {
+    fields[fieldIndex].signed = true;
+    fields[fieldIndex].dataUrl = signatureData;
+
+    console.log(`✅ Campo actualizado en array:`, {
+      field_id: fields[fieldIndex].field_id,
+      signed: fields[fieldIndex].signed,
+      has_dataUrl: !!fields[fieldIndex].dataUrl
+    });
+  } else {
+    console.error(`❌ No se encontró el campo ${currentFieldToSign.id} en el array`);
+  }
+
+  // Actualizar visualmente el campo
+  const fieldDiv = document.getElementById(currentFieldToSign.id);
+  if (fieldDiv) {
+    fieldDiv.classList.add('signed');
+
+    // ✅ Preservar el label y agregar la imagen
+    const existingLabel = fieldDiv.querySelector('.label');
+    fieldDiv.innerHTML = '';
+    if (existingLabel) {
+      fieldDiv.appendChild(existingLabel);
+    }
+
+    const img = document.createElement('img');
+    img.src = signatureData;
+    img.style.width = '100%';
+    img.style.height = '100%';
+    img.style.objectFit = 'contain';
+    img.style.position = 'absolute';
+    img.style.top = '0';
+    img.style.left = '0';
+    fieldDiv.appendChild(img);
+  }
+
+  console.log(`✅ Firma aplicada al campo ${currentFieldToSign.id}`);
+
+  // ✅ Remover foco del botón ANTES de cerrar modal
+  document.activeElement.blur();
+
+  // Cerrar modal con pequeño delay para el blur
+  setTimeout(() => {
+    sigModal.classList.remove('show');
+    sigModal.setAttribute('aria-hidden', 'true');
+  }, 10);
+
+  currentFieldToSign = null;
+
+  // Verificar si todos los campos requeridos están firmados
+  checkAllFieldsSigned();
+});
+
+// ===== MODAL DE TEXTO =====
+function openTextModal(fieldData) {
+  currentFieldToSign = fieldData;
+  textModal.classList.add('show');
+  textModal.setAttribute('aria-hidden', 'false');
+  
+  // ✅ Pre-llenar con el valor guardado si existe, sino limpiar
+  document.getElementById('textInput').value = fieldData.value || '';
+  document.getElementById('fontFamily').value = 'Arial';
+  document.getElementById('fontSize').value = '12';
+  document.getElementById('fontColor').value = '#000000';
+  
+  // Resetear botones de formato
+  document.getElementById('boldBtn').classList.remove('active');
+  document.getElementById('italicBtn').classList.remove('active');
+  document.getElementById('underlineBtn').classList.remove('active');
+  
+  // Resetear alineación
+  document.querySelectorAll('[data-align]').forEach(btn => btn.classList.remove('active'));
+  document.getElementById('alignLeft').classList.add('active');
+  
+  updateTextPreview();
+  
+  if (fieldData.value) {
+    console.log(`📝 Abriendo modal de texto para campo: ${fieldData.id} con valor pre-llenado: "${fieldData.value}"`);
+  } else {
+    console.log(`📝 Abriendo modal de texto para campo: ${fieldData.id}`);
+  }
+}
+
+// Actualizar vista previa de texto
+function updateTextPreview() {
+  const text = document.getElementById('textInput').value || 'Tu texto aparecerá aquí...';
+  const fontFamily = document.getElementById('fontFamily').value;
+  const fontSize = document.getElementById('fontSize').value;
+  const fontColor = document.getElementById('fontColor').value;
+  const bold = document.getElementById('boldBtn').classList.contains('active');
+  const italic = document.getElementById('italicBtn').classList.contains('active');
+  const underline = document.getElementById('underlineBtn').classList.contains('active');
+  
+  // Obtener alineación activa
+  let textAlign = 'left';
+  if (document.getElementById('alignCenter').classList.contains('active')) textAlign = 'center';
+  if (document.getElementById('alignRight').classList.contains('active')) textAlign = 'right';
+  
+  const preview = document.getElementById('textPreview');
+  preview.textContent = text;
+  preview.style.fontFamily = fontFamily;
+  preview.style.fontSize = `${fontSize}px`;
+  preview.style.color = fontColor;
+  preview.style.fontWeight = bold ? 'bold' : 'normal';
+  preview.style.fontStyle = italic ? 'italic' : 'normal';
+  preview.style.textDecoration = underline ? 'underline' : 'none';
+  preview.style.textAlign = textAlign;
+}
+
+// Event listeners para el modal de texto
+document.getElementById('textInput').addEventListener('input', updateTextPreview);
+
+// ✅ Prevenir que Enter cierre el modal
+document.getElementById('textInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault(); // Prevenir comportamiento por defecto
+    // Shift+Enter permite saltos de línea
+  }
+});
+
+document.getElementById('fontFamily').addEventListener('change', updateTextPreview);
+document.getElementById('fontSize').addEventListener('change', updateTextPreview);
+document.getElementById('fontColor').addEventListener('input', updateTextPreview);
+
+document.getElementById('boldBtn').addEventListener('click', function() {
+  this.classList.toggle('active');
+  updateTextPreview();
+});
+
+document.getElementById('italicBtn').addEventListener('click', function() {
+  this.classList.toggle('active');
+  updateTextPreview();
+});
+
+document.getElementById('underlineBtn').addEventListener('click', function() {
+  this.classList.toggle('active');
+  updateTextPreview();
+});
+
+document.getElementById('alignLeft').addEventListener('click', function() {
+  document.querySelectorAll('[data-align]').forEach(btn => btn.classList.remove('active'));
+  this.classList.add('active');
+  updateTextPreview();
+});
+
+document.getElementById('alignCenter').addEventListener('click', function() {
+  document.querySelectorAll('[data-align]').forEach(btn => btn.classList.remove('active'));
+  this.classList.add('active');
+  updateTextPreview();
+});
+
+document.getElementById('alignRight').addEventListener('click', function() {
+  document.querySelectorAll('[data-align]').forEach(btn => btn.classList.remove('active'));
+  this.classList.add('active');
+  updateTextPreview();
+});
+
+document.getElementById('textClose').addEventListener('click', (e) => {
+  e.preventDefault();
+  document.activeElement.blur(); // ✅ Remover foco
+  
+  // Cerrar modal con pequeño delay para el blur
+  setTimeout(() => {
+    textModal.classList.remove('show');
+    textModal.setAttribute('aria-hidden', 'true');
+  }, 10);
+  
+  currentFieldToSign = null;
+});
+
+document.getElementById('textCancel').addEventListener('click', (e) => {
+  e.preventDefault();
+  document.activeElement.blur(); // ✅ Remover foco
+  
+  // Cerrar modal con pequeño delay para el blur
+  setTimeout(() => {
+    textModal.classList.remove('show');
+    textModal.setAttribute('aria-hidden', 'true');
+  }, 10);
+  
+  currentFieldToSign = null;
+});
+
+document.getElementById('textOk').addEventListener('click', (e) => {
+  e.preventDefault(); // ✅ Prevenir comportamiento de formulario
+  e.stopPropagation(); // ✅ Detener propagación
+  
+  console.log('🔘 Botón textOk clickeado');
+  
+  const text = document.getElementById('textInput').value.trim();
+  
+  console.log(`📝 Texto capturado: "${text}" (longitud: ${text.length})`);
+  
+  if (!text) {
+    console.log('⚠️ Texto vacío, mostrando alerta');
+    alert('Por favor, escribe un texto');
+    return; // ✅ NO cerrar el modal, solo mostrar alerta
+  }
+
+  if (!currentFieldToSign) {
+    console.warn('⚠️ No hay campo seleccionado');
+    return;
+  }
+
+  console.log(`💾 Guardando texto: "${text}" en campo ${currentFieldToSign.id}`);
+
+  // Obtener estilos
+  const fontFamily = document.getElementById('fontFamily').value;
+  const fontSize = document.getElementById('fontSize').value;
+  const fontColor = document.getElementById('fontColor').value;
+  const bold = document.getElementById('boldBtn').classList.contains('active');
+  const italic = document.getElementById('italicBtn').classList.contains('active');
+  const underline = document.getElementById('underlineBtn').classList.contains('active');
+  
+  let textAlign = 'left';
+  if (document.getElementById('alignCenter').classList.contains('active')) textAlign = 'center';
+  if (document.getElementById('alignRight').classList.contains('active')) textAlign = 'right';
+
+  // Actualizar el campo en el array
+  const fieldIndex = fields.findIndex(f => f.id === currentFieldToSign.id);
+  if (fieldIndex !== -1) {
+    fields[fieldIndex].signed = true;
+    fields[fieldIndex].textValue = text;
+    fields[fieldIndex].textStyle = { fontFamily, fontSize, fontColor, bold, italic, underline, textAlign };
+    
+    console.log(`✅ Campo texto actualizado en array:`, {
+      field_id: fields[fieldIndex].field_id,
+      signed: fields[fieldIndex].signed,
+      has_textValue: !!fields[fieldIndex].textValue
+    });
+  } else {
+    console.error(`❌ No se encontró el campo ${currentFieldToSign.id} en el array`);
+  }
+
+  // Actualizar visualmente el campo
+  const fieldDiv = document.getElementById(currentFieldToSign.id);
+  if (fieldDiv) {
+    fieldDiv.classList.add('signed');
+    
+    // ✅ Preservar el label
+    const existingLabel = fieldDiv.querySelector('.label');
+    
+    fieldDiv.innerHTML = `
+      <div class="field-content" style="
+        font-family: ${fontFamily};
+        font-size: ${fontSize}px;
+        color: ${fontColor};
+        font-weight: ${bold ? 'bold' : 'normal'};
+        font-style: ${italic ? 'italic' : 'normal'};
+        text-decoration: ${underline ? 'underline' : 'none'};
+        text-align: ${textAlign};
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: ${textAlign === 'center' ? 'center' : textAlign === 'right' ? 'flex-end' : 'flex-start'};
+        padding: 4px;
+        box-sizing: border-box;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+      ">${text}</div>
+    `;
+    
+    // ✅ Re-agregar el label
+    if (existingLabel) {
+      fieldDiv.insertBefore(existingLabel, fieldDiv.firstChild);
+    }
+  }
+
+  console.log(`✅ Texto aplicado al campo ${currentFieldToSign.id}`);
+  
+  // ✅ Remover foco del botón ANTES de cerrar modal
+  document.activeElement.blur();
+  
+  // Cerrar modal con pequeño delay para el blur
+  setTimeout(() => {
+    textModal.classList.remove('show');
+    textModal.setAttribute('aria-hidden', 'true');
+  }, 10);
+  
+  currentFieldToSign = null;
+
+  checkAllFieldsSigned();
+});
+
+// ===== MODAL DE FECHA =====
+function openDateModal(fieldData) {
+  currentFieldToSign = fieldData;
+  dateModal.classList.add('show');
+  dateModal.setAttribute('aria-hidden', 'false');
+  
+  // Establecer fecha actual por defecto
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('dateInput').value = today;
+  
+  console.log(`📅 Abriendo modal de fecha para campo: ${fieldData.id}`);
+}
+
+document.getElementById('dateClose').addEventListener('click', (e) => {
+  e.preventDefault();
+  document.activeElement.blur(); // ✅ Remover foco
+  
+  // Cerrar modal con pequeño delay para el blur
+  setTimeout(() => {
+    dateModal.classList.remove('show');
+    dateModal.setAttribute('aria-hidden', 'true');
+  }, 10);
+  
+  currentFieldToSign = null;
+});
+
+document.getElementById('dateCancel').addEventListener('click', (e) => {
+  e.preventDefault();
+  document.activeElement.blur(); // ✅ Remover foco
+  
+  // Cerrar modal con pequeño delay para el blur
+  setTimeout(() => {
+    dateModal.classList.remove('show');
+    dateModal.setAttribute('aria-hidden', 'true');
+  }, 10);
+  
+  currentFieldToSign = null;
+});
+
+document.getElementById('dateOk').addEventListener('click', (e) => {
+  e.preventDefault(); // ✅ Prevenir comportamiento de formulario
+  e.stopPropagation(); // ✅ Detener propagación
+  
+  const dateValue = document.getElementById('dateInput').value;
+  
+  if (!dateValue) {
+    alert('Por favor, selecciona una fecha');
+    return;
+  }
+
+  if (!currentFieldToSign) return;
+
+  console.log(`💾 Guardando fecha: ${dateValue} en campo ${currentFieldToSign.id}`);
+
+  // Formatear fecha
+  const date = new Date(dateValue + 'T00:00:00');
+  const formattedDate = date.toLocaleDateString('es-ES', { 
+    year: 'numeric', 
+    month: 'long', 
+    day: 'numeric' 
+  });
+
+  // Actualizar el campo en el array
+  const fieldIndex = fields.findIndex(f => f.id === currentFieldToSign.id);
+  if (fieldIndex !== -1) {
+    fields[fieldIndex].signed = true;
+    fields[fieldIndex].dateValue = dateValue;
+    
+    console.log(`✅ Campo fecha actualizado en array:`, {
+      field_id: fields[fieldIndex].field_id,
+      signed: fields[fieldIndex].signed,
+      has_dateValue: !!fields[fieldIndex].dateValue
+    });
+  } else {
+    console.error(`❌ No se encontró el campo ${currentFieldToSign.id} en el array`);
+  }
+
+  // Actualizar visualmente el campo
+  const fieldDiv = document.getElementById(currentFieldToSign.id);
+  if (fieldDiv) {
+    fieldDiv.classList.add('signed');
+    
+    // ✅ Preservar el label
+    const existingLabel = fieldDiv.querySelector('.label');
+    
+    fieldDiv.innerHTML = `
+      <div class="field-content" style="
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        font-weight: 600;
+        color: #333;
+      ">${formattedDate}</div>
+    `;
+    
+    // ✅ Re-agregar el label
+    if (existingLabel) {
+      fieldDiv.insertBefore(existingLabel, fieldDiv.firstChild);
+    }
+  }
+
+  console.log(`✅ Fecha aplicada al campo ${currentFieldToSign.id}`);
+  
+  // ✅ Remover foco del botón ANTES de cerrar modal
+  document.activeElement.blur();
+  
+  // Cerrar modal con pequeño delay para el blur
+  setTimeout(() => {
+    dateModal.classList.remove('show');
+    dateModal.setAttribute('aria-hidden', 'true');
+  }, 10);
+  
+  currentFieldToSign = null;
+
+  checkAllFieldsSigned();
+});
+
+// ===== VERIFICAR SI TODOS LOS CAMPOS ESTÁN FIRMADOS =====
+function checkAllFieldsSigned() {
+  const allRequiredSigned = fields
+    .filter(f => f.required)
+    .every(f => f.signed);
+
+  if (allRequiredSigned) {
+    console.log('✅ Todos los campos requeridos están completados');
+    
+    // Mostrar botón con fade-in elegante
+    const sendBtn = document.getElementById('sendBtn');
+    sendBtn.style.display = 'block';
+    
+    // Pequeño delay para que la transición se vea suave
+    setTimeout(() => {
+      sendBtn.style.opacity = '1';
+      sendBtn.style.transform = 'translateY(0)';
+    }, 50);
+    
+    sendBtn.onclick = submitDocument;
+  }
+}
+
+// ===== ENVIAR DOCUMENTO FIRMADO =====
+async function submitDocument() {
+  try {
+    const btn = document.getElementById('sendBtn');
+    btn.disabled = true;
+
+    // ✅ NUEVO: Verificar si es el último firmante
+    const isLastSigner = await isLastSignerToComplete();
+
+    if (isLastSigner) {
+      // Es el último firmante → Mostrar modal de progreso
+      console.log('🔐 Último firmante detectado - Mostrando pantalla de firma y sellado');
+      showSigningProgress();
+      simulateSigningProgress();
+    } else {
+      // No es el último → Botón normal
+      btn.innerHTML = '<svg style="width:16px;height:16px;vertical-align:middle;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/></svg> Procesando...';
+      btn.style.opacity = '0.7';
+    }
+
+    // 🔥 FILTRAR campos pre-llenados - NO enviarlos al servidor
+    // Solo enviar campos que el usuario realmente completó (no tienen 'value')
+    const fieldsToSend = fields.filter(field => {
+      // Si el campo tiene 'value', significa que vino pre-llenado del servidor
+      // NO debe enviarse de vuelta, ya está en document_field_values o en el PDF
+      if (field.value) {
+        console.log(`   ⏭️ Campo ${field.field_id} (${field.type}) es pre-llenado - NO se envía`);
+        return false;
+      }
+
+      // 🔥 NUEVO: Si el campo de texto está marcado como signed pero NO tiene textValue,
+      // significa que está en un PDF personalizado y NO debe enviarse
+      if (field.type === 'text' && field.signed && !field.textValue) {
+        console.log(`   ⏭️ Campo ${field.field_id} (text) está en PDF personalizado - NO se envía`);
+        return false;
+      }
+
+      // Solo enviar campos que el usuario completó
+      return true;
+    });
+
+    // 🔍 DEBUG: Mostrar qué se va a enviar
+    console.log(`📤 Enviando ${fieldsToSend.length} de ${fields.length} campos al servidor`);
+    fieldsToSend.forEach((field, idx) => {
+      console.log(`   Campo ${idx + 1}:`, {
+        field_id: field.field_id,
+        type: field.type,
+        signed: field.signed,
+        has_dataUrl: !!field.dataUrl,
+        has_textValue: !!field.textValue,
+        has_dateValue: !!field.dateValue
+      });
+    });
+
+    const response = await fetch(`/api/public/sign/${currentToken}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fields: fieldsToSend,
+        timestamp: new Date().toISOString()
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      // Mostrar mensaje de error específico del servidor
+      throw new Error(data.message || 'Error al procesar la firma');
+    }
+
+    console.log('✅ Documento enviado exitosamente:', data);
+
+    if (isLastSigner) {
+      // Último firmante → Actualizar modal a 100% y esperar un poco más
+      updateSigningProgress(100, '¡Documento firmado y sellado exitosamente!');
+
+      setTimeout(() => {
+        hideSigningProgress();
+        window.location.reload();
+      }, 2000); // 2 segundos para que vea el 100%
+
+    } else {
+      // No es el último → Mensaje normal
+      btn.innerHTML = '<svg style="width:16px;height:16px;vertical-align:middle;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> ¡Completado! Recargando...';
+      btn.style.background = '#28a745';
+
+      setTimeout(() => {
+        window.location.reload();
+      }, 1000);
+    }
+
+  } catch (error) {
+    console.error('❌ Error firmando documento:', error);
+
+    // Ocultar modal de progreso si estaba visible
+    hideSigningProgress();
+
+    // Mostrar alerta con mensaje específico
+    alert(`Error: ${error.message}\n\nPor favor, inténtalo nuevamente.`);
+
+    // Restaurar botón
+    const btn = document.getElementById('sendBtn');
+    btn.disabled = false;
+    btn.innerHTML = '<svg style="width:16px;height:16px;vertical-align:middle;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Enviar Documento Firmado';
+    btn.style.opacity = '1';
+  }
+}
+
+// Función para mostrar errores
+function showError(message) {
+  document.getElementById('initialLoader').innerHTML = `
+    <div style="text-align:center; max-width:500px;">
+      <div style="margin-bottom:20px;"><svg style="width:64px;height:64px;" viewBox="0 0 24 24" fill="none" stroke="#c33" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>
+      <h2 style="margin:0 0 12px; color:#c33;">Error</h2>
+      <p style="margin:0; color:#666;">${message}</p>
+    </div>
+  `;
+}
+
+// ===== MODAL DE TRAZABILIDAD / REGISTRO DE EVENTOS =====
+document.getElementById('eventsBtn')?.addEventListener('click', async () => {
+  console.log('📊 Abriendo modal de trazabilidad...');
+
+  try {
+    // Obtener trazabilidad del backend
+    const response = await fetch(`/api/public/audit/${currentToken}`);
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || 'Error al cargar trazabilidad');
+    }
+
+    const audit = data.audit;
+    console.log('✅ Trazabilidad cargada:', audit);
+
+    // Llenar información del documento
+    document.getElementById('auditDocTitle').textContent = audit.document.title;
+    document.getElementById('auditDocId').textContent = audit.document.id;
+    document.getElementById('auditDocDate').textContent = new Date(audit.document.createdAt).toLocaleString('es-ES');
+    document.getElementById('auditDocHash').textContent = audit.document.hash || 'Calculando...';
+
+    // Renderizar participantes
+    renderParticipants(audit.participants);
+
+    // Renderizar eventos
+    renderEvents(audit.events);
+
+    // Mostrar modal
+    const modal = document.getElementById('eventsModal');
+    modal.classList.add('show');
+    modal.setAttribute('aria-hidden', 'false');
+
+  } catch (error) {
+    console.error('❌ Error al cargar trazabilidad:', error);
+    alert('Error al cargar el registro de eventos: ' + error.message);
+  }
+});
+
+// Cerrar modal de trazabilidad
+document.getElementById('eventsClose')?.addEventListener('click', closeEventsModal);
+document.getElementById('eventsCloseBtn')?.addEventListener('click', closeEventsModal);
+
+function closeEventsModal() {
+  const modal = document.getElementById('eventsModal');
+  modal.classList.remove('show');
+  modal.setAttribute('aria-hidden', 'true');
+}
+
+// Cerrar modal al hacer clic fuera
+document.getElementById('eventsModal')?.addEventListener('click', (e) => {
+  if (e.target.id === 'eventsModal') {
+    closeEventsModal();
+  }
+});
+
+// Renderizar participantes con sus firmas
+function renderParticipants(participants) {
+  const container = document.getElementById('participantsSection');
+
+  let html = '<h4 style="margin: 0 0 16px; color: #2a0d31; font-size: 16px; font-weight: 700;">Información de los Participantes</h4>';
+
+  participants.forEach((participant, index) => {
+    html += `
+      <div style="border-top: ${index > 0 ? '1px solid #dee2e6' : 'none'}; padding-top: ${index > 0 ? '16px' : '0'}; margin-top: ${index > 0 ? '16px' : '0'};">
+        <h5 style="margin: 0 0 12px; color: #495057; font-size: 14px; font-weight: 700;">
+          ${participant.name || participant.email}
+        </h5>
+
+        <div style="display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; font-size: 13px; margin-bottom: 12px;">
+          <span style="color: #6c757d;">Correo:</span>
+          <span>${participant.email}</span>
+
+          <span style="color: #6c757d;">Nombre:</span>
+          <span>${participant.name || '-'}</span>
+
+          ${participant.document_id ? `
+            <span style="color: #6c757d;">CC/NIT:</span>
+            <span>${participant.document_id}</span>
+          ` : ''}
+
+          ${participant.ip ? `
+            <span style="color: #6c757d;">Dirección IP:</span>
+            <span>${participant.ip}</span>
+          ` : ''}
+
+          ${participant.location ? `
+            <span style="color: #6c757d;">Ubicación:</span>
+            <span>${participant.location}</span>
+          ` : ''}
+
+          <span style="color: #6c757d;">Fecha de Aprobación:</span>
+          <span>${participant.completedAt ? new Date(participant.completedAt).toLocaleString('es-ES') : 'Pendiente'}</span>
+
+          <span style="color: #6c757d;">Dispositivo:</span>
+          <span>${participant.device || 'Escritorio'}</span>
+
+          <span style="color: #6c757d;">Agente de Usuario:</span>
+          <span style="font-size: 11px; word-break: break-all;">${participant.userAgent || navigator.userAgent}</span>
+        </div>
+
+        ${participant.signature ? `
+          <div style="margin-top: 12px;">
+            <p style="margin: 0 0 8px; color: #6c757d; font-size: 13px; font-weight: 600;">Firma:</p>
+            <div style="border: 2px solid #dee2e6; border-radius: 4px; padding: 8px; background: #f8f9fa; display: inline-block;">
+              <img src="${participant.signature}" alt="Firma" style="max-width: 200px; max-height: 80px; display: block;">
+            </div>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  });
+
+  container.innerHTML = html;
+}
+
+// Renderizar eventos de trazabilidad
+function renderEvents(events) {
+  const container = document.getElementById('eventsSection');
+
+  let html = `
+    <h4 style="margin: 0 0 16px; color: #2a0d31; font-size: 16px; font-weight: 700;">
+      Prueba de Trazabilidad - ${events[0]?.recipientName || 'Participante'}
+    </h4>
+  `;
+
+  events.forEach((event, index) => {
+    const eventNumber = index + 1;
+    const date = new Date(event.timestamp);
+    const dateStr = date.toLocaleDateString('es-ES', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
+    const timeStr = date.toLocaleTimeString('es-ES', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+
+    html += `
+      <div style="display: flex; align-items: start; gap: 12px; margin-bottom: 12px;">
+        <div style="
+          min-width: 28px;
+          height: 28px;
+          border-radius: 50%;
+          background: #007bff;
+          color: white;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-weight: 700;
+          font-size: 13px;
+          flex-shrink: 0;
+        ">${eventNumber}</div>
+
+        <div style="flex: 1; font-size: 13px; padding-top: 4px;">
+          <strong>${dateStr}</strong> - <strong>${timeStr}</strong>:
+          ${event.description}
+          ${event.email ? ` <span style="color: #6c757d;">(${event.email})</span>` : ''}
+        </div>
+      </div>
+    `;
+  });
+
+  container.innerHTML = html;
+}
+
+// Descargar reporte de auditoría
+document.getElementById('downloadAuditBtn')?.addEventListener('click', async () => {
+  console.log('📥 Descargando reporte de auditoría...');
+
+  try {
+    const response = await fetch(`/api/public/audit/${currentToken}/pdf`);
+
+    if (!response.ok) {
+      throw new Error('Error al generar reporte');
+    }
+
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Auditoria_${currentDocument.title || 'documento'}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+
+    console.log('✅ Reporte descargado');
+  } catch (error) {
+    console.error('❌ Error al descargar reporte:', error);
+    alert('Error al descargar el reporte: ' + error.message);
+  }
+});
+
+</script>
+
+<!-- ============================================== -->
+<!-- MODAL DE PROGRESO DE FIRMA Y SELLADO -->
+<!-- ============================================== -->
+
+<!-- Modal de Progreso -->
+<div id="signingProgressModal" style="
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.85);
+  z-index: 10000;
+  align-items: center;
+  justify-content: center;
+">
+  <div style="
+    background: white;
+    border-radius: 20px;
+    padding: 40px;
+    max-width: 500px;
+    width: 90%;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    text-align: center;
+  ">
+    <!-- Icono animado -->
+    <div style="margin-bottom: 30px;">
+      <svg width="80" height="80" viewBox="0 0 100 100" style="animation: rotate 2s linear infinite;">
+        <circle cx="50" cy="50" r="45" fill="none" stroke="#e0e0e0" stroke-width="8"/>
+        <circle cx="50" cy="50" r="45" fill="none" stroke="#007bff" stroke-width="8"
+                stroke-dasharray="283" stroke-dashoffset="70"
+                stroke-linecap="round"
+                style="transform-origin: center; animation: progress 1.5s ease-in-out infinite;"/>
+      </svg>
+    </div>
+
+    <!-- Título -->
+    <h2 style="margin: 0 0 10px; color: #333; font-size: 24px; font-weight: 600;">
+      Proceso de Firma y Sellado
+    </h2>
+
+    <!-- Subtítulo con estado actual -->
+    <p id="progressStatus" style="margin: 0 0 30px; color: #666; font-size: 16px;">
+      Iniciando proceso...
+    </p>
+
+    <!-- Barra de progreso -->
+    <div style="
+      width: 100%;
+      height: 8px;
+      background: #e0e0e0;
+      border-radius: 10px;
+      overflow: hidden;
+      margin-bottom: 15px;
+    ">
+      <div id="progressBar" style="
+        width: 0%;
+        height: 100%;
+        background: linear-gradient(90deg, #007bff, #00c6ff);
+        transition: width 0.3s ease;
+        border-radius: 10px;
+      "></div>
+    </div>
+
+    <!-- Porcentaje -->
+    <p id="progressPercent" style="margin: 0; color: #007bff; font-size: 14px; font-weight: 600;">
+      0%
+    </p>
+
+    <!-- Mensaje de espera -->
+    <p style="margin: 20px 0 0; color: #999; font-size: 13px;">
+      Este proceso puede tardar unos segundos.<br>
+      Por favor no cierre esta ventana.
+    </p>
+  </div>
+</div>
+
+<style>
+  @keyframes rotate {
+    to { transform: rotate(360deg); }
+  }
+
+  @keyframes progress {
+    0% { stroke-dashoffset: 283; }
+    50% { stroke-dashoffset: 70; }
+    100% { stroke-dashoffset: 283; }
+  }
+</style>
+
+<script>
+// ===================================================
+// FUNCIONES PARA CONTROLAR EL MODAL DE PROGRESO
+// ===================================================
+
+/**
+ * Muestra el modal de progreso
+ */
+function showSigningProgress() {
+  const modal = document.getElementById('signingProgressModal');
+  if (modal) {
+    modal.style.display = 'flex';
+    updateSigningProgress(0, 'Preparando documentos para firma...');
+  }
+}
+
+/**
+ * Oculta el modal de progreso
+ */
+function hideSigningProgress() {
+  const modal = document.getElementById('signingProgressModal');
+  if (modal) {
+    modal.style.display = 'none';
+  }
+}
+
+/**
+ * Actualiza el progreso del modal
+ * @param {number} percent - Porcentaje de progreso (0-100)
+ * @param {string} status - Mensaje de estado
+ */
+function updateSigningProgress(percent, status) {
+  const bar = document.getElementById('progressBar');
+  const percentText = document.getElementById('progressPercent');
+  const statusText = document.getElementById('progressStatus');
+
+  if (bar) bar.style.width = `${percent}%`;
+  if (percentText) percentText.textContent = `${Math.round(percent)}%`;
+  if (statusText) statusText.textContent = status;
+}
+
+/**
+ * Simula el progreso mientras se procesa la firma
+ * Se llama desde submitDocument() cuando es el último firmante
+ */
+function simulateSigningProgress() {
+  let progress = 0;
+  const stages = [
+    { percent: 10, message: 'Validando campos completados...', duration: 500 },
+    { percent: 25, message: 'Preparando documento para firma digital...', duration: 1000 },
+    { percent: 40, message: 'Generando firma digital con certificado PKI...', duration: 2000 },
+    { percent: 60, message: 'Solicitando timestamp de autoridad certificadora...', duration: 1500 },
+    { percent: 75, message: 'Aplicando sellos de autenticidad...', duration: 1000 },
+    { percent: 90, message: 'Finalizando proceso de sellado...', duration: 800 },
+  ];
+
+  let currentStage = 0;
+
+  function nextStage() {
+    if (currentStage < stages.length) {
+      const stage = stages[currentStage];
+      updateSigningProgress(stage.percent, stage.message);
+      currentStage++;
+
+      setTimeout(nextStage, stage.duration);
+    }
+  }
+
+  nextStage();
+}
+
+// ==================================================
+// FUNCIÓN PARA DETECTAR SI ES EL ÚLTIMO FIRMANTE
+// ==================================================
+
+/**
+ * Verifica si el firmante actual es el último que falta por firmar
+ * También retorna true si es el firmante definitivo (pagarés)
+ * @returns {Promise<boolean>}
+ */
+async function isLastSignerToComplete() {
+  try {
+    console.log('🔍 Verificando si es el último firmante...');
+
+    // ✅ Si es firmante definitivo (pagarés), SIEMPRE mostrar el modal de progreso
+    if (window.isFinalSigner) {
+      console.log('✅ ES FIRMANTE DEFINITIVO (PAGARÉ) - Mostrar modal de progreso');
+      return true;
+    }
+
+    // Obtener el token directamente de la URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+
+    if (!token) {
+      console.log('❌ No se encontró token en la URL');
+      return false;
+    }
+
+    // Obtener información del documento y destinatarios usando el endpoint correcto
+    const response = await fetch(`/api/public/document-recipients/${token}`);
+    const data = await response.json();
+
+    console.log('📊 Datos de destinatarios:', data);
+
+    if (!data.success || !data.recipients) {
+      console.log('❌ No se pudo obtener datos de destinatarios');
+      return false;
+    }
+
+    const recipients = data.recipients || [];
+    const documentType = data.documentType || 'normal';
+
+    console.log('📄 Tipo de documento:', documentType);
+    console.log('👥 Total de destinatarios:', recipients.length);
+
+    // 🔴 Para documentos tipo PAGARÉ: los viewers NUNCA muestran el modal
+    // Solo el firmante definitivo lo muestra (ya manejado arriba con isFinalSigner)
+    if (documentType === 'pagare') {
+      console.log('📋 Documento tipo PAGARÉ - Viewer NO muestra modal (solo firmante definitivo)');
+      return false;
+    }
+
+    // 🟢 Para documentos tipo NORMAL: mostrar modal al último firmante
+    console.log('📋 Estado de destinatarios:', recipients.map(r => ({
+      email: r.email,
+      status: r.status,
+      isCurrentToken: r.token === token
+    })));
+
+    // Contar cuántos YA completaron (sin incluir el actual)
+    const completedCount = recipients.filter(r =>
+      r.status === 'completed' && r.token !== token
+    ).length;
+
+    // Total de firmantes
+    const totalSigners = recipients.length;
+
+    console.log(`📊 Ya firmaron: ${completedCount} de ${totalSigners}`);
+    console.log(`🎯 Este firmante es el número: ${completedCount + 1}`);
+
+    // Es el último si ya firmaron todos menos él
+    const isLast = (completedCount === totalSigners - 1);
+
+    console.log(isLast ?
+      `✅ ES EL ÚLTIMO FIRMANTE (${completedCount + 1}/${totalSigners})` :
+      `❌ NO es el último firmante (${completedCount + 1}/${totalSigners})`
+    );
+
+    return isLast;
+
+  } catch (error) {
+    console.error('❌ Error verificando último firmante:', error);
+    // En caso de error, NO mostrar modal (para evitar mostrarlo a todos)
+    return false;
+  }
+}
+
+console.log('✅ Modal de progreso de firma cargado');
+</script>
+
+</body>
+</html>

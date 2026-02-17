@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demo - Selector de Roles</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #F9FAFB;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 250px 1fr;
+            gap: 20px;
+        }
+
+        .panel {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .panel-title {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 20px;
+            color: #1F2937;
+        }
+
+        /* Selector de Roles */
+        .roles-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+
+        .roles-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #374151;
+        }
+
+        .add-role-btn {
+            padding: 4px 12px;
+            font-size: 11px;
+            background: #F3F4F6;
+            border: 1px solid #E5E7EB;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            color: #374151;
+            transition: all 0.2s;
+        }
+
+        .add-role-btn:hover {
+            background: #E5E7EB;
+        }
+
+        .roles-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #E5E7EB;
+        }
+
+        .role-option {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px;
+            border: 2px solid #E5E7EB;
+            border-radius: 8px;
+            background: white;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .role-option:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+
+        .role-option.selected {
+            border-color: var(--role-color);
+            background: var(--role-color-light);
+        }
+
+        .role-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex: 1;
+        }
+
+        .role-color-dot {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            border: 2px solid white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .role-name {
+            font-size: 13px;
+            font-weight: 500;
+            color: #374151;
+        }
+
+        .role-option.selected .role-name {
+            font-weight: 600;
+        }
+
+        .check-icon {
+            width: 18px;
+            height: 18px;
+            opacity: 0;
+        }
+
+        .role-option.selected .check-icon {
+            opacity: 1;
+        }
+
+        /* Herramientas */
+        .tools-section {
+            margin-top: 20px;
+        }
+
+        .tool {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px;
+            border: 2px solid #E5E7EB;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .tool:hover {
+            border-color: #3B82F6;
+            background: #EFF6FF;
+        }
+
+        .tool-icon {
+            font-size: 20px;
+        }
+
+        .tool-name {
+            font-size: 14px;
+            font-weight: 500;
+            color: #374151;
+        }
+
+        /* PDF Canvas Demo */
+        .pdf-canvas {
+            background: #E5E7EB;
+            border-radius: 8px;
+            min-height: 800px;
+            position: relative;
+            padding: 40px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .pdf-page {
+            background: white;
+            width: 600px;
+            height: 800px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            position: relative;
+            border-radius: 4px;
+        }
+
+        /* Campo de Firma Demo */
+        .field-demo {
+            position: absolute;
+            border: 2px dashed;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.9);
+            cursor: move;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .field-demo:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            transform: translateY(-2px);
+        }
+
+        .field-badge {
+            position: absolute;
+            top: -22px;
+            left: 0;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 4px 4px 0 0;
+            font-size: 10px;
+            font-weight: 700;
+            white-space: nowrap;
+            z-index: 10;
+        }
+
+        .field-menu-btn {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            width: 22px;
+            height: 22px;
+            background: white;
+            border: 1px solid;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            display: none;
+            z-index: 11;
+        }
+
+        .field-demo:hover .field-menu-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Info Box */
+        .info-box {
+            background: #EFF6FF;
+            border: 1px solid #BFDBFE;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+        }
+
+        .info-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: #1E40AF;
+            margin-bottom: 8px;
+        }
+
+        .info-list {
+            font-size: 12px;
+            color: #1E40AF;
+            line-height: 1.6;
+            list-style: none;
+        }
+
+        .info-list li:before {
+            content: "✓ ";
+            font-weight: bold;
+            margin-right: 4px;
+        }
+
+        /* Header */
+        .demo-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .demo-header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .demo-header p {
+            font-size: 16px;
+            opacity: 0.9;
+        }
+    </style>
+</head>
+<body>
+    <div class="demo-header">
+        <h1>🎯 Demo - Selector de Roles al estilo DocuSeal</h1>
+        <p>Visualización de cómo funciona el sistema de roles en FirmaLegal</p>
+    </div>
+
+    <div class="container">
+        <!-- Panel Izquierdo: Selector de Roles -->
+        <div class="panel">
+            <div class="panel-title">Configuración de Campos</div>
+
+            <!-- Selector de Roles -->
+            <div class="roles-header">
+                <span class="roles-label">Asignar a:</span>
+                <button class="add-role-btn" onclick="addNewRole()">+ Agregar Parte</button>
+            </div>
+
+            <div class="roles-list" id="rolesList">
+                <!-- Se generan dinámicamente -->
+            </div>
+
+            <!-- Herramientas -->
+            <div class="tools-section">
+                <div class="tool" onclick="selectTool('signature')">
+                    <span class="tool-icon">✍️</span>
+                    <span class="tool-name">Firma</span>
+                </div>
+                <div class="tool" onclick="selectTool('text')">
+                    <span class="tool-icon">🔤</span>
+                    <span class="tool-name">Texto</span>
+                </div>
+                <div class="tool" onclick="selectTool('date')">
+                    <span class="tool-icon">📅</span>
+                    <span class="tool-name">Fecha</span>
+                </div>
+                <div class="tool" onclick="selectTool('seal')">
+                    <span class="tool-icon">🔐</span>
+                    <span class="tool-name">Sello</span>
+                </div>
+            </div>
+
+            <!-- Info Box -->
+            <div class="info-box">
+                <div class="info-title">Cómo usar:</div>
+                <ul class="info-list">
+                    <li>Selecciona un rol (Primera Parte, Segunda Parte, etc.)</li>
+                    <li>Haz clic en una herramienta (Firma, Texto, etc.)</li>
+                    <li>Arrastra en el PDF para crear el campo</li>
+                    <li>El campo se asigna automáticamente al rol seleccionado</li>
+                    <li>Usa el menú ⋮ para cambiar el rol de un campo</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Panel Derecho: Canvas PDF -->
+        <div class="panel">
+            <div class="panel-title" id="currentRoleName">Primera Parte</div>
+
+            <div class="pdf-canvas">
+                <div class="pdf-page" id="pdfPage">
+                    <!-- Campos demo se agregan aquí -->
+
+                    <!-- Campo 1: Primera Parte - Firma -->
+                    <div class="field-demo" style="
+                        top: 100px;
+                        left: 80px;
+                        width: 250px;
+                        height: 80px;
+                        border-color: #3B82F6;
+                    ">
+                        <div class="field-badge" style="background: #3B82F6;">Primera Parte</div>
+                        <span>✍️ Firma</span>
+                        <button class="field-menu-btn" style="border-color: #3B82F6;">⋮</button>
+                    </div>
+
+                    <!-- Campo 2: Primera Parte - Texto -->
+                    <div class="field-demo" style="
+                        top: 200px;
+                        left: 80px;
+                        width: 250px;
+                        height: 40px;
+                        border-color: #3B82F6;
+                    ">
+                        <div class="field-badge" style="background: #3B82F6;">Primera Parte</div>
+                        <span>🔤 Nombre completo</span>
+                        <button class="field-menu-btn" style="border-color: #3B82F6;">⋮</button>
+                    </div>
+
+                    <!-- Campo 3: Segunda Parte - Firma -->
+                    <div class="field-demo" style="
+                        top: 350px;
+                        left: 280px;
+                        width: 250px;
+                        height: 80px;
+                        border-color: #10B981;
+                    ">
+                        <div class="field-badge" style="background: #10B981;">Segunda Parte</div>
+                        <span>✍️ Firma</span>
+                        <button class="field-menu-btn" style="border-color: #10B981;">⋮</button>
+                    </div>
+
+                    <!-- Campo 4: Testigo - Sello -->
+                    <div class="field-demo" style="
+                        top: 550px;
+                        left: 150px;
+                        width: 300px;
+                        height: 100px;
+                        border-color: #F59E0B;
+                    ">
+                        <div class="field-badge" style="background: #F59E0B;">Testigo</div>
+                        <span>🔐 Sello Notarial</span>
+                        <button class="field-menu-btn" style="border-color: #F59E0B;">⋮</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Datos de roles
+        const roles = [
+            { id: 1, name: 'Primera Parte', color: '#3B82F6' },
+            { id: 2, name: 'Segunda Parte', color: '#10B981' },
+            { id: 3, name: 'Testigo', color: '#F59E0B' }
+        ];
+
+        let currentRoleId = 1;
+
+        const roleNames = [
+            'Primera Parte', 'Segunda Parte', 'Tercera Parte', 'Cuarta Parte',
+            'Quinta Parte', 'Sexta Parte', 'Séptima Parte', 'Octava Parte'
+        ];
+
+        const roleColors = [
+            '#3B82F6', '#10B981', '#F59E0B', '#EF4444',
+            '#8B5CF6', '#EC4899', '#14B8A6', '#F97316'
+        ];
+
+        // Renderizar lista de roles
+        function renderRoles() {
+            const rolesList = document.getElementById('rolesList');
+            rolesList.innerHTML = '';
+
+            roles.forEach(role => {
+                const isSelected = role.id === currentRoleId;
+
+                const div = document.createElement('div');
+                div.className = 'role-option' + (isSelected ? ' selected' : '');
+                div.style.setProperty('--role-color', role.color);
+                div.style.setProperty('--role-color-light', role.color + '20');
+
+                if (isSelected) {
+                    div.style.borderColor = role.color;
+                    div.style.background = role.color + '20';
+                }
+
+                div.innerHTML = `
+                    <div class="role-info">
+                        <div class="role-color-dot" style="background: ${role.color};"></div>
+                        <span class="role-name" ${isSelected ? `style="color: ${role.color}"` : ''}>${role.name}</span>
+                    </div>
+                    <svg class="check-icon" viewBox="0 0 16 16" fill="${role.color}">
+                        <circle cx="8" cy="8" r="8"/>
+                        <path d="M6 8l2 2 4-4" stroke="white" stroke-width="2" fill="none"/>
+                    </svg>
+                `;
+
+                div.onclick = () => selectRole(role.id);
+
+                rolesList.appendChild(div);
+            });
+
+            // Actualizar título
+            const currentRole = roles.find(r => r.id === currentRoleId);
+            if (currentRole) {
+                const title = document.getElementById('currentRoleName');
+                title.textContent = currentRole.name;
+                title.style.color = currentRole.color;
+            }
+        }
+
+        // Seleccionar rol
+        function selectRole(roleId) {
+            currentRoleId = roleId;
+            renderRoles();
+            console.log('✅ Rol seleccionado:', roles.find(r => r.id === roleId).name);
+        }
+
+        // Agregar nueva parte
+        function addNewRole() {
+            if (roles.length >= 8) {
+                alert('Máximo 8 partes permitidas');
+                return;
+            }
+
+            const nextIndex = roles.length;
+            const newRole = {
+                id: roles.length + 1,
+                name: roleNames[nextIndex],
+                color: roleColors[nextIndex]
+            };
+
+            roles.push(newRole);
+            currentRoleId = newRole.id;
+            renderRoles();
+
+            console.log('✅ Nueva parte agregada:', newRole.name);
+        }
+
+        // Seleccionar herramienta
+        function selectTool(toolType) {
+            const currentRole = roles.find(r => r.id === currentRoleId);
+            console.log(`🔧 Herramienta seleccionada: ${toolType} para ${currentRole.name}`);
+
+            alert(`Herramienta "${toolType}" seleccionada para ${currentRole.name}\n\nEn la versión real, arrastrarías en el PDF para crear el campo.`);
+        }
+
+        // Inicializar
+        renderRoles();
+
+        console.log('✅ Demo de Selector de Roles cargada');
+        console.log('💡 Haz clic en los roles para cambiar la selección');
+        console.log('💡 Haz clic en "+ Agregar Parte" para crear nuevas partes');
+    </script>
+</body>
+</html>

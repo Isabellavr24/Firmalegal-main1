@@ -1,0 +1,130 @@
+/* ===================================
+   MENÚ DE PERFIL SIMPLE
+   =================================== */
+
+/* ===== USER MENU CONTAINER ===== */
+.user-menu {
+  position: relative;
+}
+
+.user-menu summary {
+  list-style: none;
+}
+
+.user-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.user-btn {
+  cursor: pointer;
+  padding: 4px;
+  background: transparent;
+  border: none;
+  transition: all 0.2s ease;
+}
+
+/* ===== AVATAR ===== */
+.avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #2b0e31 0%, #4a1e5c 100%);
+  color: white;
+  font-weight: 600;
+  font-size: 16px;
+  border: 2px solid white;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+}
+
+.user-menu[open] .avatar {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(43, 14, 49, 0.3);
+}
+
+.avatar .initials {
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ===== DROPDOWN MENU ===== */
+.user-dropdown {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  min-width: 180px;
+  background: #ffffff !important;
+  border-radius: 12px;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.05),
+    0 8px 24px rgba(0, 0, 0, 0.12);
+  padding: 8px;
+  z-index: 1000;
+  opacity: 0;
+  transform: translateY(-10px) scale(0.95);
+  pointer-events: none;
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transform-origin: top right;
+}
+
+.user-menu[open] .user-dropdown {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+/* ===== FLECHA DEL DROPDOWN ===== */
+.user-dropdown::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  right: 14px;
+  width: 12px;
+  height: 12px;
+  background: #ffffff !important;
+  transform: rotate(45deg);
+  border-radius: 2px;
+  box-shadow: -2px -2px 4px rgba(0, 0, 0, 0.03);
+}
+
+/* ===== MENU ITEMS ===== */
+.menu-item {
+  display: block;
+  width: 100%;
+  padding: 12px 16px;
+  border: none;
+  background: transparent !important;
+  color: #1a1a1a !important;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  text-decoration: none;
+  font-family: inherit;
+}
+
+.menu-item:hover {
+  background: #f5f5f5 !important;
+  color: #2b0e31 !important;
+}
+
+.menu-item:active {
+  transform: scale(0.98);
+}
+
+/* ===== RESPONSIVE ===== */
+@media (max-width: 768px) {
+  .user-dropdown {
+    min-width: 160px;
+  }
+
+  .menu-item {
+    padding: 10px 14px;
+    font-size: 13px;
+  }
+}

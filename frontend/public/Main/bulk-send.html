@@ -1,0 +1,1463 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agregar Destinatarios - FirmaLegal</title>
+    <link rel="stylesheet" href="M-styles/index.css">
+    <style>
+        /* Iconos SVG inline */
+        .icon-svg { display:inline-block; width:18px; height:18px; vertical-align:middle; flex-shrink:0; }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            min-height: 100vh;
+        }
+
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal {
+            background: white;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 700px;
+            max-height: 90vh;
+            overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .modal-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid #e5e5e5;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 24px;
+            color: #666;
+            cursor: pointer;
+            padding: 0;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+
+        .close-btn:hover {
+            background: #f0f0f0;
+        }
+
+        .tabs {
+            display: flex;
+            background: #f8f8f8;
+            border-bottom: 1px solid #e5e5e5;
+            padding: 0 24px;
+        }
+
+        .tab {
+            padding: 16px 24px;
+            background: none;
+            border: none;
+            font-size: 14px;
+            font-weight: 500;
+            color: #666;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .tab:hover {
+            color: #333;
+            background: rgba(0,0,0,0.03);
+        }
+
+        .tab.active {
+            color: #0066cc;
+            border-bottom-color: #0066cc;
+            background: white;
+        }
+
+        .modal-body {
+            padding: 32px 24px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .upload-area {
+            border: 2px dashed #d0d0d0;
+            border-radius: 8px;
+            padding: 48px 32px;
+            text-align: center;
+            background: #fafafa;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 24px;
+        }
+
+        .upload-area:hover {
+            border-color: #0066cc;
+            background: #f0f7ff;
+        }
+
+        .upload-area.dragover {
+            border-color: #0066cc;
+            background: #e6f2ff;
+            transform: scale(1.02);
+        }
+
+        .upload-icon {
+            width: 64px;
+            height: 64px;
+            margin: 0 auto 16px;
+            color: #0066cc;
+        }
+
+        .upload-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        .upload-subtitle {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 16px;
+        }
+
+        .upload-link {
+            color: #0066cc;
+            font-size: 14px;
+            font-weight: 500;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .upload-link:hover {
+            text-decoration: underline;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .preview-section {
+            display: none;
+        }
+
+        .preview-section.active {
+            display: block;
+        }
+
+        .stats-row {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            flex: 1;
+            background: #f8f9fa;
+            padding: 16px;
+            border-radius: 8px;
+            border: 1px solid #e5e5e5;
+        }
+
+        .stat-label {
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 4px;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #333;
+        }
+
+        .stat-value.success {
+            color: #28a745;
+        }
+
+        .stat-value.error {
+            color: #dc3545;
+        }
+
+        .recipients-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 24px;
+            background: white;
+            border: 1px solid #e5e5e5;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .recipients-table thead {
+            background: #f8f9fa;
+        }
+
+        .recipients-table th {
+            padding: 12px 16px;
+            text-align: left;
+            font-size: 13px;
+            font-weight: 600;
+            color: #666;
+            border-bottom: 1px solid #e5e5e5;
+        }
+
+        .recipients-table td {
+            padding: 12px 16px;
+            font-size: 14px;
+            color: #333;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .recipients-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .recipients-table tbody tr:hover {
+            background: #f8f9fa;
+        }
+
+        .error-list {
+            background: #fff5f5;
+            border: 1px solid #feb2b2;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 24px;
+        }
+
+        .error-list-title {
+            color: #c53030;
+            font-weight: 600;
+            font-size: 14px;
+            margin-bottom: 12px;
+        }
+
+        .error-item {
+            padding: 8px 12px;
+            background: white;
+            border-left: 3px solid #f56565;
+            margin-bottom: 8px;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #c53030;
+        }
+
+        .error-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .modal-footer {
+            padding: 16px 24px;
+            border-top: 1px solid #e5e5e5;
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            background: #f8f8f8;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-secondary {
+            background: white;
+            color: #666;
+            border: 1px solid #d0d0d0;
+        }
+
+        .btn-secondary:hover {
+            background: #f5f5f5;
+            border-color: #b0b0b0;
+        }
+
+        .btn-primary {
+            background: #0066cc;
+            color: white;
+            border: 1px solid #0066cc;
+        }
+
+        .btn-primary:hover {
+            background: #0052a3;
+        }
+
+        .btn-primary:disabled {
+            background: #ccc;
+            border-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .success-message {
+            display: none;
+            text-align: center;
+            padding: 48px 24px;
+        }
+
+        .success-message.active {
+            display: block;
+        }
+
+        .success-icon {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 24px;
+            background: #d4edda;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 48px;
+            color: #28a745;
+        }
+
+        .success-title {
+            font-size: 24px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 12px;
+        }
+
+        .success-text {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 24px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #d0d0d0;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #0066cc;
+            box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.1);
+        }
+
+        .more-recipients {
+            text-align: center;
+            padding: 12px;
+            background: #f8f9fa;
+            color: #666;
+            font-size: 13px;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="modal-overlay">
+        <div class="modal">
+            <!-- Header -->
+            <div class="modal-header">
+                <h2 class="modal-title">Agregar nuevos destinatarios</h2>
+                <button class="close-btn" onclick="window.close()" title="Cerrar">×</button>
+            </div>
+
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab active" data-tab="upload">Subir lista</button>
+                <button class="tab" data-tab="email">por Email</button>
+                <button class="tab" data-tab="phone">por Teléfono</button>
+                <button class="tab" data-tab="detailed">Detallado</button>
+                <button class="tab" data-tab="personalization">Personalización</button>
+            </div>
+
+            <!-- Body -->
+            <div class="modal-body">
+                <!-- Tab: Subir lista -->
+                <div class="tab-content active" id="tab-upload">
+                    <!-- Upload Area -->
+                    <div id="uploadSection">
+                        <div class="upload-area" id="dropzone">
+                            <svg class="upload-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                            </svg>
+                            <div class="upload-title">Subir hoja de cálculo CSV o XLSX</div>
+                            <div class="upload-subtitle">Haz clic para subir o arrastra y suelta los archivos.</div>
+                            <a href="#" class="upload-link" onclick="downloadTemplate(); return false;">
+                                <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                                    <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
+                                    <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/>
+                                </svg>
+                                descarga una hoja de cálculo de ejemplo para completar e importar.
+                            </a>
+                        </div>
+                        <input type="file" id="fileInput" accept=".csv,.xlsx,.xls">
+                    </div>
+
+                    <!-- Preview Section -->
+                    <div id="previewSection" class="preview-section">
+                        <div class="stats-row">
+                            <div class="stat-card">
+                                <div class="stat-label">Total</div>
+                                <div class="stat-value" id="totalCount">0</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Válidos</div>
+                                <div class="stat-value success" id="validCount">0</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Errores</div>
+                                <div class="stat-value error" id="errorCount">0</div>
+                            </div>
+                        </div>
+
+                        <!-- Error List -->
+                        <div id="errorListContainer" style="display: none;" class="error-list">
+                            <div class="error-list-title"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="#854d0e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Errores encontrados:</div>
+                            <div id="errorList"></div>
+                        </div>
+
+                        <!-- Recipients Table -->
+                        <table class="recipients-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 50px;">#</th>
+                                    <th>Email</th>
+                                    <th>Nombre</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recipientsTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Tab: por Email -->
+                <div class="tab-content" id="tab-email">
+                    <div class="form-group">
+                        <label class="form-label">Email</label>
+                        <input type="email" class="form-input" placeholder="ejemplo@correo.com">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Nombre completo</label>
+                        <input type="text" class="form-input" placeholder="Juan Pérez">
+                    </div>
+                    <p style="color: #666; font-size: 13px;">Esta funcionalidad estará disponible próximamente.</p>
+                </div>
+
+                <!-- Tab: por Teléfono -->
+                <div class="tab-content" id="tab-phone">
+                    <div class="form-group">
+                        <label class="form-label">Número de teléfono</label>
+                        <input type="tel" class="form-input" placeholder="+57 300 123 4567">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Nombre completo</label>
+                        <input type="text" class="form-input" placeholder="María López">
+                    </div>
+                    <p style="color: #666; font-size: 13px;">Esta funcionalidad estará disponible próximamente.</p>
+                </div>
+
+                <!-- Tab: Detallado -->
+                <div class="tab-content" id="tab-detailed">
+                    <div class="form-group">
+                        <label class="form-label">Email</label>
+                        <input type="email" class="form-input" placeholder="ejemplo@correo.com">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Nombre completo</label>
+                        <input type="text" class="form-input" placeholder="Carlos Gómez">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Teléfono (opcional)</label>
+                        <input type="tel" class="form-input" placeholder="+57 300 123 4567">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Empresa (opcional)</label>
+                        <input type="text" class="form-input" placeholder="Acme Corp">
+                    </div>
+                    <p style="color: #666; font-size: 13px;">Esta funcionalidad estará disponible próximamente.</p>
+                </div>
+
+                <!-- Tab: Personalización -->
+                <div class="tab-content" id="tab-personalization">
+                    <!-- Step 1: Seleccionar Plantilla -->
+                    <div id="personalization-step1" class="personalization-step">
+                        <h3 style="margin-bottom: 16px; font-size: 16px;">Paso 1: Seleccionar o crear plantilla PDF</h3>
+
+                        <div style="background: #e7f3ff; border: 1px solid #0066cc; border-radius: 6px; padding: 12px; margin-bottom: 16px;">
+                            <div style="font-size: 13px; color: #0066cc; font-weight: 500; margin-bottom: 4px;">💡 Dos formas de crear plantillas:</div>
+                            <div style="font-size: 12px; color: #0052a3;">
+                                <strong>Opción A:</strong> Sube un PDF con campos AcroForm (creados en Adobe Acrobat)<br>
+                                <strong>Opción B:</strong> Sube un PDF normal y coloca campos visualmente con el editor
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Plantilla PDF</label>
+                            <select id="templateSelect" class="form-input">
+                                <option value="">Cargando plantillas...</option>
+                            </select>
+                        </div>
+
+                        <div id="templateActions" style="display: none; margin-top: 12px;">
+                            <button class="btn btn-secondary" id="editTemplateFieldsBtn" onclick="openVisualEditor()" style="width: 100%; margin-bottom: 8px;">
+                                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg> Editar campos de la plantilla visualmente
+                            </button>
+                            <div style="font-size: 12px; color: #666; text-align: center;">
+                                Arrastra campos sobre el PDF sin necesidad de AcroForm
+                            </div>
+                        </div>
+
+                        <div id="templateFields" style="display: none; margin-top: 16px;">
+                            <div style="font-size: 13px; color: #666; margin-bottom: 8px;">
+                                <span id="fieldsTypeLabel">Campos detectados en el PDF:</span>
+                            </div>
+                            <div id="fieldsList" style="background: #f8f9fa; border: 1px solid #e5e5e5; border-radius: 6px; padding: 12px; max-height: 200px; overflow-y: auto;">
+                            </div>
+                        </div>
+                        <div style="margin-top: 20px; text-align: right;">
+                            <button class="btn btn-primary" id="nextToExcel" onclick="goToStep2()" disabled>
+                                Siguiente: Subir Excel
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Step 2: Subir Excel -->
+                    <div id="personalization-step2" class="personalization-step" style="display: none;">
+                        <h3 style="margin-bottom: 16px; font-size: 16px;">Paso 2: Subir archivo Excel</h3>
+                        <div class="upload-area" id="personalizationDropzone">
+                            <svg class="upload-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                            </svg>
+                            <div class="upload-title">Subir archivo Excel (XLSX)</div>
+                            <div class="upload-subtitle">Con los datos para personalizar los PDFs</div>
+                        </div>
+                        <input type="file" id="personalizationFileInput" accept=".xlsx,.xls" style="display: none;">
+
+                        <div id="excelColumns" style="display: none; margin-top: 16px;">
+                            <div style="font-size: 13px; color: #666; margin-bottom: 8px;">
+                                Columnas detectadas en el Excel:
+                            </div>
+                            <div id="columnsList" style="background: #f8f9fa; border: 1px solid #e5e5e5; border-radius: 6px; padding: 12px; max-height: 150px; overflow-y: auto;">
+                            </div>
+                            <div style="margin-top: 8px; font-size: 13px; color: #666;">
+                                Total de filas: <strong id="excelRowCount">0</strong>
+                            </div>
+                        </div>
+
+                        <div style="margin-top: 20px; display: flex; gap: 12px; justify-content: space-between;">
+                            <button class="btn btn-secondary" onclick="goToStep1()">
+                                Atrás
+                            </button>
+                            <button class="btn btn-primary" id="nextToMapping" onclick="goToStep3()" disabled>
+                                Siguiente: Mapear campos
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Step 3: Mapear Campos -->
+                    <div id="personalization-step3" class="personalization-step" style="display: none;">
+                        <h3 style="margin-bottom: 16px; font-size: 16px;">Paso 3: Mapear campos PDF → Excel</h3>
+                        <div id="mappingTable" style="max-height: 300px; overflow-y: auto;">
+                            <table class="recipients-table">
+                                <thead>
+                                    <tr>
+                                        <th>Campo PDF</th>
+                                        <th>Columna Excel</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="mappingTableBody">
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div style="margin-top: 20px; display: flex; gap: 12px; justify-content: space-between;">
+                            <button class="btn btn-secondary" onclick="goToStep2()">
+                                Atrás
+                            </button>
+                            <button class="btn btn-primary" id="startBulkJob" onclick="startPersonalizationJob()">
+                                Iniciar Generación
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Step 4: Progreso -->
+                    <div id="personalization-step4" class="personalization-step" style="display: none;">
+                        <h3 style="margin-bottom: 16px; font-size: 16px;">Generando documentos personalizados...</h3>
+
+                        <div class="stats-row" style="margin-bottom: 20px;">
+                            <div class="stat-card">
+                                <div class="stat-label">Total</div>
+                                <div class="stat-value" id="bulkTotalRows">0</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Procesados</div>
+                                <div class="stat-value" id="bulkProcessedRows">0</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Exitosos</div>
+                                <div class="stat-value success" id="bulkSuccessfulRows">0</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Fallidos</div>
+                                <div class="stat-value error" id="bulkFailedRows">0</div>
+                            </div>
+                        </div>
+
+                        <div style="background: #f8f9fa; border: 1px solid #e5e5e5; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
+                            <div style="font-size: 13px; color: #666; margin-bottom: 8px;">
+                                Progreso:
+                            </div>
+                            <div style="background: #e5e5e5; height: 24px; border-radius: 12px; overflow: hidden;">
+                                <div id="bulkProgressBar" style="background: linear-gradient(90deg, #0066cc, #0052a3); height: 100%; width: 0%; transition: width 0.3s; display: flex; align-items: center; justify-content: center; color: white; font-size: 12px; font-weight: 600;">
+                                </div>
+                            </div>
+                            <div id="bulkStatus" style="margin-top: 8px; font-size: 13px; color: #666;">
+                                Iniciando...
+                            </div>
+                        </div>
+
+                        <div style="text-align: center;">
+                            <button class="btn btn-secondary" id="closeAfterBulk" onclick="window.close()" style="display: none;">
+                                Cerrar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Success Message -->
+                <div id="successSection" class="success-message">
+                    <div class="success-icon">✓</div>
+                    <div class="success-title">¡Envío Completado!</div>
+                    <div class="success-text" id="successText">
+                        Los destinatarios recibirán el documento en los próximos minutos.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="window.close()">Cancelar</button>
+                <button class="btn btn-primary" id="sendBtn" onclick="sendBulkEmails()" disabled>
+                    <span id="btnText">Enviar a 0 destinatarios</span>
+                    <span id="btnSpinner" style="display: none;" class="loading-spinner"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script>
+        // Variables globales
+        let parsedRecipients = [];
+        let signatureDocumentId = null;
+
+        // Obtener signature_document_id del URL
+        const urlParams = new URLSearchParams(window.location.search);
+        signatureDocumentId = urlParams.get('signature_document_id');
+
+        if (!signatureDocumentId) {
+            alert('Error: No se proporcionó el ID del documento');
+            window.close();
+        }
+
+        // =============================================
+        // MANEJO DE PESTAÑAS
+        // =============================================
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                // Remover active de todos
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+                // Activar seleccionado
+                tab.classList.add('active');
+                const tabId = 'tab-' + tab.dataset.tab;
+                document.getElementById(tabId).classList.add('active');
+            });
+        });
+
+        // =============================================
+        // DRAG & DROP
+        // =============================================
+        const dropzone = document.getElementById('dropzone');
+        const fileInput = document.getElementById('fileInput');
+
+        dropzone.addEventListener('click', () => fileInput.click());
+
+        dropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropzone.classList.add('dragover');
+        });
+
+        dropzone.addEventListener('dragleave', () => {
+            dropzone.classList.remove('dragover');
+        });
+
+        dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropzone.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            if (file) handleFile(file);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) handleFile(file);
+        });
+
+        // =============================================
+        // PROCESAR ARCHIVO
+        // =============================================
+        function handleFile(file) {
+            console.log('Archivo seleccionado:', file.name);
+
+            // Validar tamaño
+            if (file.size > 5 * 1024 * 1024) {
+                alert('El archivo es demasiado grande. Máximo: 5MB');
+                return;
+            }
+
+            // Validar extensión
+            const ext = file.name.split('.').pop().toLowerCase();
+            if (!['csv', 'xlsx', 'xls'].includes(ext)) {
+                alert('Formato no soportado. Por favor sube un archivo CSV o XLSX');
+                return;
+            }
+
+            // Parsear según extensión
+            if (ext === 'csv') {
+                parseCSV(file);
+            } else if (ext === 'xlsx' || ext === 'xls') {
+                parseXLSX(file);
+            }
+        }
+
+        // Parsear CSV
+        function parseCSV(file) {
+            Papa.parse(file, {
+                header: true,
+                skipEmptyLines: true,
+                complete: (results) => {
+                    processData(results.data);
+                },
+                error: (error) => {
+                    alert('Error al leer CSV: ' + error.message);
+                }
+            });
+        }
+
+        // Parsear XLSX
+        function parseXLSX(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const sheetName = workbook.SheetNames[0];
+                const sheet = workbook.Sheets[sheetName];
+                const jsonData = XLSX.utils.sheet_to_json(sheet);
+                processData(jsonData);
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        // =============================================
+        // VALIDAR Y PROCESAR DATOS
+        // =============================================
+        function processData(data) {
+            console.log('Datos parseados:', data);
+
+            const recipients = [];
+            const errors = [];
+            const seenEmails = new Set();
+
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+            data.forEach((row, index) => {
+                const rowNum = index + 2;
+                const email = (row.email || row.Email || '').trim();
+                const name = (row.name || row.Name || row.nombre || row.Nombre || '').trim();
+
+                // Validaciones
+                if (!email) {
+                    errors.push({ row: rowNum, field: 'email', message: 'Email vacío' });
+                    return;
+                }
+
+                if (!emailRegex.test(email)) {
+                    errors.push({ row: rowNum, field: 'email', message: `Email inválido: ${email}` });
+                    return;
+                }
+
+                if (seenEmails.has(email.toLowerCase())) {
+                    errors.push({ row: rowNum, field: 'email', message: `Email duplicado: ${email}` });
+                    return;
+                }
+
+                if (!name) {
+                    errors.push({ row: rowNum, field: 'name', message: 'Nombre vacío' });
+                    return;
+                }
+
+                seenEmails.add(email.toLowerCase());
+                recipients.push({ email, name });
+            });
+
+            // Actualizar stats
+            document.getElementById('totalCount').textContent = data.length;
+            document.getElementById('validCount').textContent = recipients.length;
+            document.getElementById('errorCount').textContent = errors.length;
+
+            if (errors.length > 0) {
+                showErrors(errors);
+                parsedRecipients = [];
+                updateSendButton(0);
+            } else if (recipients.length > 1000) {
+                alert(`El límite es 1000 destinatarios. Tu archivo tiene ${recipients.length}.`);
+                parsedRecipients = [];
+                updateSendButton(0);
+            } else {
+                parsedRecipients = recipients;
+                showPreview(recipients);
+                updateSendButton(recipients.length);
+            }
+        }
+
+        // =============================================
+        // MOSTRAR ERRORES
+        // =============================================
+        function showErrors(errors) {
+            document.getElementById('uploadSection').style.display = 'none';
+            document.getElementById('previewSection').classList.add('active');
+            document.getElementById('errorListContainer').style.display = 'block';
+
+            const errorList = document.getElementById('errorList');
+            errorList.innerHTML = errors.slice(0, 10).map(e => `
+                <div class="error-item">
+                    <strong>Fila ${e.row}:</strong> ${e.message} <span style="color: #999;">[${e.field}]</span>
+                </div>
+            `).join('');
+
+            if (errors.length > 10) {
+                errorList.innerHTML += `<div class="error-item">... y ${errors.length - 10} errores más</div>`;
+            }
+
+            document.getElementById('recipientsTableBody').innerHTML = '<tr><td colspan="3" style="text-align: center; color: #999;">No hay destinatarios válidos</td></tr>';
+        }
+
+        // =============================================
+        // MOSTRAR PREVIEW
+        // =============================================
+        function showPreview(recipients) {
+            document.getElementById('uploadSection').style.display = 'none';
+            document.getElementById('previewSection').classList.add('active');
+            document.getElementById('errorListContainer').style.display = 'none';
+
+            const tbody = document.getElementById('recipientsTableBody');
+            const preview = recipients.slice(0, 10);
+
+            tbody.innerHTML = preview.map((r, i) => `
+                <tr>
+                    <td>${i + 1}</td>
+                    <td>${r.email}</td>
+                    <td>${r.name}</td>
+                </tr>
+            `).join('');
+
+            if (recipients.length > 10) {
+                tbody.innerHTML += `
+                    <tr>
+                        <td colspan="3" class="more-recipients">
+                            ... y ${recipients.length - 10} destinatarios más
+                        </td>
+                    </tr>
+                `;
+            }
+        }
+
+        // =============================================
+        // ACTUALIZAR BOTÓN DE ENVÍO
+        // =============================================
+        function updateSendButton(count) {
+            const sendBtn = document.getElementById('sendBtn');
+            const btnText = document.getElementById('btnText');
+
+            if (count > 0) {
+                sendBtn.disabled = false;
+                btnText.textContent = `Enviar a ${count} destinatario${count > 1 ? 's' : ''}`;
+            } else {
+                sendBtn.disabled = true;
+                btnText.textContent = 'Enviar a 0 destinatarios';
+            }
+        }
+
+        // =============================================
+        // ENVIAR EMAILS
+        // =============================================
+        async function sendBulkEmails() {
+            if (parsedRecipients.length === 0) {
+                alert('No hay destinatarios para enviar');
+                return;
+            }
+
+            if (!confirm(`¿Estás seguro de enviar el documento a ${parsedRecipients.length} destinatarios?`)) {
+                return;
+            }
+
+            // Deshabilitar botón y mostrar spinner
+            const sendBtn = document.getElementById('sendBtn');
+            const btnText = document.getElementById('btnText');
+            const btnSpinner = document.getElementById('btnSpinner');
+
+            sendBtn.disabled = true;
+            btnText.textContent = 'Procesando...';
+            btnSpinner.style.display = 'inline-block';
+
+            // Crear CSV del frontend
+            const csvContent = Papa.unparse(parsedRecipients);
+            const blob = new Blob([csvContent], { type: 'text/csv' });
+            const formData = new FormData();
+            formData.append('file', blob, 'recipients.csv');
+            formData.append('signature_document_id', signatureDocumentId);
+
+            try {
+                const response = await fetch('/api/signatures/bulk-send', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`
+                    },
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    // Mostrar éxito
+                    document.getElementById('tab-upload').style.display = 'none';
+                    document.getElementById('successSection').classList.add('active');
+
+                    document.getElementById('successText').innerHTML = `
+                        Se han encolado <strong>${result.data.queued_emails} emails</strong> para envío.<br>
+                        Documento: <strong>${result.data.document_title}</strong>
+                    `;
+
+                    // Cambiar botón
+                    btnText.textContent = 'Cerrar';
+                    btnSpinner.style.display = 'none';
+                    sendBtn.disabled = false;
+                    sendBtn.onclick = () => window.close();
+                } else {
+                    throw new Error(result.error || 'Error desconocido');
+                }
+
+            } catch (error) {
+                alert('Error al enviar: ' + error.message);
+                btnText.textContent = `Enviar a ${parsedRecipients.length} destinatarios`;
+                btnSpinner.style.display = 'none';
+                sendBtn.disabled = false;
+            }
+        }
+
+        // =============================================
+        // DESCARGAR PLANTILLA
+        // =============================================
+        function downloadTemplate() {
+            const csv = 'email,name\njuan.perez@example.com,Juan Pérez\nmaria.lopez@example.com,María López\ncarlos.gomez@example.com,Carlos Gómez';
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'plantilla-destinatarios.csv';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // =============================================
+        // PERSONALIZACIÓN - VARIABLES GLOBALES
+        // =============================================
+        let selectedTemplateId = null;
+        let templateFields = [];
+        let excelColumns = [];
+        let excelFile = null;
+        let currentBulkJobId = null;
+
+        // =============================================
+        // PERSONALIZACIÓN - CARGAR PLANTILLAS
+        // =============================================
+        async function loadTemplates() {
+            try {
+                const response = await fetch('/api/templates', {
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`
+                    }
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    const select = document.getElementById('templateSelect');
+                    select.innerHTML = '<option value="">-- Selecciona una plantilla --</option>';
+
+                    result.data.templates.forEach(tpl => {
+                        const option = document.createElement('option');
+                        option.value = tpl.id;
+                        option.textContent = `${tpl.name} (${tpl.field_count} campos)`;
+                        select.appendChild(option);
+                    });
+                } else {
+                    document.getElementById('templateSelect').innerHTML = '<option value="">Error al cargar plantillas</option>';
+                }
+            } catch (error) {
+                console.error('Error loading templates:', error);
+                document.getElementById('templateSelect').innerHTML = '<option value="">Error de conexión</option>';
+            }
+        }
+
+        // Cargar plantillas cuando se active la pestaña de personalización
+        document.querySelectorAll('.tab').forEach(tab => {
+            if (tab.dataset.tab === 'personalization') {
+                tab.addEventListener('click', () => {
+                    loadTemplates();
+                });
+            }
+        });
+
+        // =============================================
+        // PERSONALIZACIÓN - SELECCIONAR PLANTILLA
+        // =============================================
+        document.addEventListener('DOMContentLoaded', () => {
+            const templateSelect = document.getElementById('templateSelect');
+            if (templateSelect) {
+                templateSelect.addEventListener('change', async (e) => {
+                    const templateId = e.target.value;
+
+                    if (!templateId) {
+                        document.getElementById('templateFields').style.display = 'none';
+                        document.getElementById('templateActions').style.display = 'none';
+                        document.getElementById('nextToExcel').disabled = true;
+                        selectedTemplateId = null;
+                        templateFields = [];
+                        return;
+                    }
+
+                    selectedTemplateId = templateId;
+
+                    // Mostrar botón de editar campos
+                    document.getElementById('templateActions').style.display = 'block';
+
+                    try {
+                        const response = await fetch(`/api/templates/${templateId}/fields`, {
+                            headers: {
+                                'Authorization': `Bearer ${localStorage.getItem('token')}`
+                            }
+                        });
+
+                        const result = await response.json();
+
+                        if (result.success) {
+                            templateFields = result.data;
+
+                            // Detectar si tiene coordenadas
+                            const hasCoordinates = templateFields.some(f => f.position_x !== null && f.position_y !== null);
+
+                            if (hasCoordinates) {
+                                document.getElementById('fieldsTypeLabel').innerHTML = '<svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 7 8 11.7z"/></svg> Campos visuales (con coordenadas):';
+                            } else if (templateFields.length > 0) {
+                                document.getElementById('fieldsTypeLabel').innerHTML = '<svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Campos AcroForm detectados:';
+                            } else {
+                                document.getElementById('fieldsTypeLabel').innerHTML = '<svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Sin campos - Usa el editor visual para agregar campos';
+                            }
+
+                            displayTemplateFields(templateFields);
+                            document.getElementById('nextToExcel').disabled = templateFields.length === 0;
+                        } else {
+                            alert('Error al cargar campos de la plantilla');
+                        }
+                    } catch (error) {
+                        console.error('Error:', error);
+                        alert('Error de conexión al cargar campos');
+                    }
+                });
+            }
+        });
+
+        function displayTemplateFields(fields) {
+            const fieldsList = document.getElementById('fieldsList');
+            if (fields.length === 0) {
+                fieldsList.innerHTML = '<div style="color: #999; font-size: 13px; text-align: center; padding: 20px;">Sin campos. Haz clic en "Editar campos" para agregar.</div>';
+            } else {
+                fieldsList.innerHTML = fields.map(f => `
+                    <div style="display: inline-block; margin: 4px 8px 4px 0; padding: 6px 12px; background: white; border: 1px solid #d0d0d0; border-radius: 4px; font-size: 13px;">
+                        <strong>${f.field_label}</strong> <span style="color: #999;">(${f.field_type})</span>
+                    </div>
+                `).join('');
+            }
+            document.getElementById('templateFields').style.display = 'block';
+        }
+
+        // =============================================
+        // EDITOR VISUAL DE PLANTILLAS
+        // =============================================
+        function openVisualEditor() {
+            if (!selectedTemplateId) {
+                alert('Por favor selecciona una plantilla primero');
+                return;
+            }
+
+            // Abrir editor visual en nueva ventana
+            const editorUrl = `/Main/template-editor.html?templateId=${selectedTemplateId}`;
+            const editorWindow = window.open(
+                editorUrl,
+                'templateEditor',
+                'width=1400,height=900,resizable=yes,scrollbars=yes'
+            );
+
+            // Cuando se cierre el editor, recargar campos
+            const checkClosed = setInterval(() => {
+                if (editorWindow.closed) {
+                    clearInterval(checkClosed);
+                    // Recargar campos de la plantilla
+                    document.getElementById('templateSelect').dispatchEvent(new Event('change'));
+                }
+            }, 500);
+        }
+
+        // =============================================
+        // PERSONALIZACIÓN - NAVEGACIÓN ENTRE PASOS
+        // =============================================
+        function goToStep1() {
+            document.getElementById('personalization-step1').style.display = 'block';
+            document.getElementById('personalization-step2').style.display = 'none';
+            document.getElementById('personalization-step3').style.display = 'none';
+            document.getElementById('personalization-step4').style.display = 'none';
+        }
+
+        function goToStep2() {
+            document.getElementById('personalization-step1').style.display = 'none';
+            document.getElementById('personalization-step2').style.display = 'block';
+            document.getElementById('personalization-step3').style.display = 'none';
+            document.getElementById('personalization-step4').style.display = 'none';
+
+            // Setup drag & drop
+            const dropzone = document.getElementById('personalizationDropzone');
+            const fileInput = document.getElementById('personalizationFileInput');
+
+            dropzone.onclick = () => fileInput.click();
+
+            dropzone.ondragover = (e) => {
+                e.preventDefault();
+                dropzone.classList.add('dragover');
+            };
+
+            dropzone.ondragleave = () => {
+                dropzone.classList.remove('dragover');
+            };
+
+            dropzone.ondrop = (e) => {
+                e.preventDefault();
+                dropzone.classList.remove('dragover');
+                const file = e.dataTransfer.files[0];
+                if (file) handlePersonalizationFile(file);
+            };
+
+            fileInput.onchange = (e) => {
+                const file = e.target.files[0];
+                if (file) handlePersonalizationFile(file);
+            };
+        }
+
+        function goToStep3() {
+            document.getElementById('personalization-step1').style.display = 'none';
+            document.getElementById('personalization-step2').style.display = 'none';
+            document.getElementById('personalization-step3').style.display = 'block';
+            document.getElementById('personalization-step4').style.display = 'none';
+
+            buildMappingTable();
+        }
+
+        // =============================================
+        // PERSONALIZACIÓN - SUBIR EXCEL
+        // =============================================
+        async function handlePersonalizationFile(file) {
+            if (!file.name.match(/\.(xlsx|xls)$/)) {
+                alert('Por favor sube un archivo Excel (.xlsx o .xls)');
+                return;
+            }
+
+            excelFile = file;
+
+            const formData = new FormData();
+            formData.append('excel', file);
+            formData.append('template_id', selectedTemplateId);
+
+            try {
+                const response = await fetch('/api/bulk/upload-excel', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`
+                    },
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    currentBulkJobId = result.data.bulkJobId;
+                    excelColumns = result.data.columns;
+
+                    displayExcelColumns(result.data.columns, result.data.rowCount);
+                    document.getElementById('nextToMapping').disabled = false;
+                } else {
+                    alert('Error al procesar Excel: ' + result.error);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error de conexión al subir Excel');
+            }
+        }
+
+        function displayExcelColumns(columns, rowCount) {
+            const columnsList = document.getElementById('columnsList');
+            columnsList.innerHTML = columns.map(col => `
+                <div style="display: inline-block; margin: 4px 8px 4px 0; padding: 6px 12px; background: white; border: 1px solid #d0d0d0; border-radius: 4px; font-size: 13px;">
+                    ${col}
+                </div>
+            `).join('');
+
+            document.getElementById('excelRowCount').textContent = rowCount;
+            document.getElementById('excelColumns').style.display = 'block';
+        }
+
+        // =============================================
+        // PERSONALIZACIÓN - MAPEAR CAMPOS
+        // =============================================
+        function buildMappingTable() {
+            const tbody = document.getElementById('mappingTableBody');
+            tbody.innerHTML = templateFields.map(field => `
+                <tr>
+                    <td style="font-weight: 500;">${field.field_label}</td>
+                    <td>
+                        <select class="form-input" style="padding: 6px 10px; font-size: 13px;" data-field-id="${field.id}">
+                            <option value="">-- No mapear --</option>
+                            ${excelColumns.map(col => {
+                                const selected = col.toLowerCase() === field.field_key.toLowerCase() ? 'selected' : '';
+                                return `<option value="${col}" ${selected}>${col}</option>`;
+                            }).join('')}
+                        </select>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        // =============================================
+        // PERSONALIZACIÓN - INICIAR JOB
+        // =============================================
+        async function startPersonalizationJob() {
+            const mappings = [];
+            const selects = document.querySelectorAll('#mappingTableBody select');
+
+            selects.forEach(select => {
+                if (select.value) {
+                    mappings.push({
+                        template_field_id: parseInt(select.dataset.fieldId),
+                        excel_column_name: select.value
+                    });
+                }
+            });
+
+            if (mappings.length === 0) {
+                alert('Debes mapear al menos un campo');
+                return;
+            }
+
+            try {
+                // Guardar mappings
+                const mappingResponse = await fetch(`/api/bulk/${currentBulkJobId}/mappings`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ mappings })
+                });
+
+                const mappingResult = await mappingResponse.json();
+
+                if (!mappingResult.success) {
+                    alert('Error al guardar mappings: ' + mappingResult.error);
+                    return;
+                }
+
+                // Iniciar job
+                const startResponse = await fetch(`/api/bulk/${currentBulkJobId}/start`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`
+                    }
+                });
+
+                const startResult = await startResponse.json();
+
+                if (startResult.success) {
+                    goToStep4();
+                    monitorBulkJob(currentBulkJobId);
+                } else {
+                    alert('Error al iniciar job: ' + startResult.error);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error de conexión');
+            }
+        }
+
+        function goToStep4() {
+            document.getElementById('personalization-step1').style.display = 'none';
+            document.getElementById('personalization-step2').style.display = 'none';
+            document.getElementById('personalization-step3').style.display = 'none';
+            document.getElementById('personalization-step4').style.display = 'block';
+        }
+
+        // =============================================
+        // PERSONALIZACIÓN - MONITOREAR PROGRESO
+        // =============================================
+        async function monitorBulkJob(jobId) {
+            const pollInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`/api/bulk/${jobId}/status`, {
+                        headers: {
+                            'Authorization': `Bearer ${localStorage.getItem('token')}`
+                        }
+                    });
+
+                    const result = await response.json();
+
+                    if (result.success) {
+                        const job = result.data;
+
+                        document.getElementById('bulkTotalRows').textContent = job.total_rows;
+                        document.getElementById('bulkProcessedRows').textContent = job.processed_rows;
+                        document.getElementById('bulkSuccessfulRows').textContent = job.successful_rows;
+                        document.getElementById('bulkFailedRows').textContent = job.failed_rows;
+
+                        const progress = job.total_rows > 0 ? Math.round((job.processed_rows / job.total_rows) * 100) : 0;
+                        const progressBar = document.getElementById('bulkProgressBar');
+                        progressBar.style.width = progress + '%';
+                        progressBar.textContent = progress + '%';
+
+                        document.getElementById('bulkStatus').textContent = `Estado: ${translateStatus(job.status)}`;
+
+                        if (job.status === 'completed' || job.status === 'failed') {
+                            clearInterval(pollInterval);
+                            document.getElementById('closeAfterBulk').style.display = 'inline-flex';
+
+                            if (job.status === 'completed') {
+                                document.getElementById('bulkStatus').innerHTML = `
+                                    <strong style="color: #28a745;">✓ Completado exitosamente</strong><br>
+                                    ${job.successful_rows} documentos generados, ${job.failed_rows} errores
+                                `;
+                            } else {
+                                document.getElementById('bulkStatus').innerHTML = `
+                                    <strong style="color: #dc3545;">✗ Job falló</strong><br>
+                                    ${job.error_message || 'Error desconocido'}
+                                `;
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error monitoring job:', error);
+                }
+            }, 2000);
+        }
+
+        function translateStatus(status) {
+            const translations = {
+                'pending_mapping': 'Esperando mapeo',
+                'ready': 'Listo',
+                'processing': 'Procesando...',
+                'completed': 'Completado',
+                'failed': 'Fallido',
+                'cancelled': 'Cancelado'
+            };
+            return translations[status] || status;
+        }
+    </script>
+</body>
+</html>

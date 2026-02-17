@@ -1,0 +1,1925 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Seguimiento de Documento - FirmaLegalOnline</title>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="/public/Main/M-styles/Styles.css?v=8">
+  <link rel="stylesheet" href="/public/Main/M-styles/tracking.css?v=8">
+  <link rel="stylesheet" href="/public/Main/M-styles/profile-menu.css?v=2">
+
+  <!-- Fuente -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- Estilos para formulario de roles/partes -->
+  <style>
+    /* Iconos SVG inline */
+    .icon-svg { display:inline-block; width:18px; height:18px; vertical-align:middle; flex-shrink:0; }
+    .icon-svg-lg { display:inline-block; width:32px; height:32px; vertical-align:middle; flex-shrink:0; }
+    .icon-svg-xl { display:block; width:48px; height:48px; margin:0 auto; }
+
+    /* Animación para modales */
+    @keyframes slideDown {
+      from {
+        opacity: 0;
+        transform: translateY(-20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .role-recipient-group {
+      margin-bottom: 20px;
+    }
+
+    .role-label {
+      display: flex;
+      align-items: center;
+      font-size: 14px;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 10px;
+    }
+
+    .role-color-indicator {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      margin-right: 10px;
+      border: 2px solid white;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .role-inputs-container {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .form-input {
+      padding: 12px 16px;
+      border-radius: 10px;
+      font-size: 14px;
+      transition: all 0.2s;
+      box-sizing: border-box;
+    }
+
+    .form-input:focus {
+      outline: none;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+
+    .recipient-name-preview {
+      font-size: 13px;
+      color: #666;
+      font-weight: normal;
+      margin-left: 8px;
+    }
+
+    /* Estilos para selector de modo de envío */
+    .mode-selector-btn {
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .mode-selector-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(22, 163, 74, 0.3);
+    }
+
+    .mode-selector-btn:active {
+      transform: translateY(0);
+    }
+
+    .mode-selector-btn.active {
+      box-shadow: 0 4px 12px rgba(22, 163, 74, 0.4);
+    }
+
+    /* ===== Badge de tipo de documento ===== */
+    .document-type-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      color: white;
+      box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
+      animation: slideDown 0.3s ease-out;
+    }
+
+    .document-type-badge .badge-icon {
+      font-size: 14px;
+      line-height: 1;
+    }
+
+    .document-type-badge .badge-text {
+      letter-spacing: 0.5px;
+    }
+  </style>
+</head>
+
+<body>
+  <!-- Header -->
+  <header class="main-header">
+    <div class="brand-wrap">
+      <img class="brand-logo-full" src="/img/Nuevologo.jpg" alt="PKI Services" />
+    </div>
+    <nav class="top-actions">
+      <a class="link-config" href="./config.html" id="configLink" style="display: none;">Configuración</a>
+      <details class="user-menu" id="userMenu" style="opacity: 0;">
+        <summary class="user-btn" aria-label="Menú de usuario">
+          <div class="avatar" id="userAvatar">
+            <span id="userInitials" class="initials"></span>
+          </div>
+        </summary>
+        <div class="user-dropdown">
+          <a href="./config.html" class="menu-item" id="profileMenuItem">Perfil</a>
+          <button id="logoutBtn" class="menu-item">Cerrar sesión</button>
+        </div>
+      </details>
+    </nav>
+  </header>
+
+  <!-- Main Content -->
+  <main class="tracking-main">
+    <!-- Empty State: No Document Loaded -->
+    <div class="no-document-state" id="noDocumentState" style="display: none;">
+      <div class="empty-state-content">
+        <svg class="empty-state-icon" width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="#c4b5d0" stroke-width="1.5">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <circle cx="12" cy="14" r="3"/>
+          <line x1="12" y1="11" x2="12" y2="14"/>
+        </svg>
+        <h2 class="empty-state-title">Sin documento para rastrear</h2>
+        <p class="empty-state-description">
+          No hay un documento seleccionado para mostrar información de seguimiento.<br/>
+          Selecciona un documento desde el índice o una carpeta.
+        </p>
+        <button class="empty-state-btn" onclick="window.location.href='/index.html'">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+            <polyline points="9 22 9 12 15 12 15 22"/>
+          </svg>
+          Ir al inicio
+        </button>
+      </div>
+    </div>
+
+    <!-- Document Header -->
+    <div class="document-header" id="documentHeader">
+      <div class="document-info">
+        <button class="back-btn" onclick="window.location.href='/index.html?refresh=' + Date.now()" aria-label="Volver">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 12H5M12 19l-7-7 7-7"/>
+          </svg>
+        </button>
+        <div>
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <h1 class="document-title" id="documentTitle">Documento</h1>
+            <!-- ✅ Badge de tipo de documento (oculto por defecto) -->
+            <span id="documentTypeBadge" class="document-type-badge" style="display: none;">
+              <span class="badge-icon"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg></span>
+              <span class="badge-text">Pagaré</span>
+            </span>
+          </div>
+          <p class="document-subtitle">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.8a2 2 0 0 1-1.7-.9l-.8-1.1A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/>
+            </svg>
+            <span id="folderName">Carpeta</span>
+          </p>
+        </div>
+      </div>
+
+      <div class="document-actions">
+        <button class="action-btn secondary" id="linkBtn" title="Copiar enlace">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+          </svg>
+          ENLACE
+        </button>
+        <button class="action-btn secondary" id="archiveBtn" title="Archivar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="21 8 21 21 3 21 3 8"/>
+            <rect x="1" y="3" width="22" height="5"/>
+            <line x1="10" y1="12" x2="14" y2="12"/>
+          </svg>
+          ARCHIVAR
+        </button>
+        <button class="action-btn secondary" id="cloneBtn" title="Clonar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+          </svg>
+          CLONAR
+        </button>
+        <button class="action-btn secondary" id="editBtn" title="Editar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          </svg>
+          EDITAR
+        </button>
+      </div>
+    </div>
+
+    <!-- Banner: No Asignado (oculto por defecto) -->
+    <div id="unassignedBanner" class="unassigned-banner" style="display: none;">
+      <div class="banner-icon"><svg class="icon-svg-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg></div>
+      <div class="banner-content">
+        <h3>Documento sin campos asignados</h3>
+        <p>Este documento aún no tiene campos de firma o texto configurados. Debes asignar campos antes de enviarlo.</p>
+      </div>
+      <div class="banner-actions">
+        <button class="action-btn primary" id="editFieldsBtn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          </svg>
+          EDITAR Y ASIGNAR CAMPOS
+        </button>
+      </div>
+    </div>
+
+    <!-- Tracking Section -->
+    <section class="tracking-section" id="trackingSection">
+      <div class="section-header">
+        <h2 class="section-title">Envíos</h2>
+        <div class="section-actions">
+          <button class="action-btn secondary" id="auditBtn" onclick="openAuditModalFromTracking()" style="display: none;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
+            </svg>
+            TRAZABILIDAD
+          </button>
+          <button class="action-btn primary" id="addRecipientBtn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="16"/>
+              <line x1="8" y1="12" x2="16" y2="12"/>
+            </svg>
+            AGREGAR
+          </button>
+        </div>
+      </div>
+
+      <!-- Recipients List -->
+      <div class="recipients-container" id="recipientsContainer">
+        <!-- Se llenará dinámicamente con JavaScript -->
+      </div>
+    </section>
+
+    <!-- Empty State (oculto por defecto) -->
+    <div class="empty-state" id="emptyState" style="display: none;">
+      <div class="empty-state-content">
+        <svg class="empty-state-icon" width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+          <polyline points="22 4 12 14.01 9 11.01"/>
+        </svg>
+        <h2 class="empty-state-title">No hay envíos registrados</h2>
+        <p class="empty-state-description">
+          Este documento aún no ha sido enviado a ningún destinatario.
+        </p>
+        <button class="empty-state-btn" onclick="document.getElementById('addRecipientBtn').click()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="16"/>
+            <line x1="8" y1="12" x2="16" y2="12"/>
+          </svg>
+          Agregar Destinatarios
+        </button>
+      </div>
+    </div>
+  </main>
+
+  <!-- MODAL de destinatarios -->
+  <div id="recipientsModal" class="modal-back" aria-hidden="true">
+    <div class="modal modal-recipients" role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <h3>Agregar nuevos destinatarios</h3>
+        <button class="close-modal" id="recipientsClose">×</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Pestañas -->
+        <div class="recipients-tabs">
+          <button class="recipients-tab active" data-tab="email">por Email</button>
+          <button class="recipients-tab" data-tab="phone">por Teléfono</button>
+          <button class="recipients-tab" data-tab="upload">Subir lista</button>
+          <!-- ✅ Nueva pestaña para pagarés (oculta por defecto) -->
+          <button class="recipients-tab" id="pagareTab" data-tab="pagare" style="display: none; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); color: white; font-weight: 600;">
+            <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg> Firma Masiva de Pagarés
+          </button>
+        </div>
+
+        <!-- Contenido de pestañas -->
+        <div class="recipients-content">
+          <!-- Pestaña Email -->
+          <div id="tab-email" class="tab-content active">
+            <div id="emailTabContent">
+              <!-- Contenido dinámico: textarea o formulario de roles -->
+              <textarea
+                id="emailInput"
+                class="recipients-textarea"
+                placeholder="Escribe correos electrónicos aquí..."
+                rows="6"
+              ></textarea>
+            </div>
+          </div>
+
+          <!-- Pestaña Teléfono -->
+          <div id="tab-phone" class="tab-content">
+            <!-- Selector de parte/rol -->
+            <div id="phone-part-selector" style="margin-bottom: 16px; display: block;">
+              <label for="phonePartSelect" style="display: block; font-size: 14px; font-weight: 500; color: #374151; margin-bottom: 8px;">
+                Asignar a parte:
+              </label>
+              <select id="phonePartSelect" style="width: 100%; padding: 10px; border: 1px solid #D1D5DB; border-radius: 6px; font-size: 14px;">
+                <option value="">Selecciona una parte...</option>
+              </select>
+            </div>
+            <textarea
+              id="phoneInput"
+              class="recipients-textarea"
+              placeholder="Escribe números de teléfono aquí..."
+              rows="6"
+            ></textarea>
+          </div>
+
+          <!-- Pestaña Subir lista -->
+          <div id="tab-upload" class="tab-content">
+            <!-- Información de Plantilla -->
+            <div style="padding: 0 0 20px 0;">
+              <h4 style="margin-bottom: 16px; font-size: 16px; font-weight: 600; color: #1f2937;">Plantilla PDF</h4>
+
+              <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px; margin-bottom: 20px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <svg style="width:24px;height:24px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  <div>
+                    <div style="font-size: 14px; font-weight: 600; color: #15803d;" id="templateNameDisplay">Cargando plantilla...</div>
+                    <div style="font-size: 12px; color: #16a34a; margin-top: 2px;" id="templateIdDisplay"></div>
+                  </div>
+                </div>
+              </div>
+
+              <div id="templateFieldsInfo" style="display: none; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px; margin-bottom: 12px;">
+                <div style="font-size: 13px; color: #6b7280;">
+                  <strong>Campos detectados:</strong> <span id="fieldsCount">0</span> campos
+                  <div id="fieldsList" style="margin-top: 8px;"></div>
+                </div>
+              </div>
+
+              <!-- Selector de modo de envío -->
+              <div id="sendModeSelector" style="display: none; margin-bottom: 20px;">
+                <h4 style="margin-bottom: 12px; font-size: 14px; font-weight: 600; color: #1e3a8a;">
+                  <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg> Campos de texto detectados - Seleccione cómo enviar a remitentes
+                </h4>
+
+                <!-- Botones de selector -->
+                <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+                  <button id="modeManualBtn" class="mode-selector-btn active" data-mode="manual" style="flex: 1; padding: 12px 16px; border: 2px solid #16a34a; background: #16a34a; color: white; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                    <svg style="width:16px;height:16px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    <span>Rellenar manualmente</span>
+                  </button>
+                  <button id="modeCsvBtn" class="mode-selector-btn" data-mode="csv" style="flex: 1; padding: 12px 16px; border: 2px solid #16a34a; background: white; color: #16a34a; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                    <svg style="width:16px;height:16px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                    <span>Rellenar por CSV</span>
+                  </button>
+                </div>
+
+                <!-- Contenido para modo MANUAL -->
+                <div id="manualModeContent" style="display: block;">
+                  <div style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 14px; margin-bottom: 14px;">
+                    <p style="font-size: 12px; color: #15803d; margin: 0; line-height: 1.5;">
+                      <strong><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg> Modo manual:</strong> Asigna valores fijos a los campos de texto del PDF. Luego sube un CSV con los emails de los firmantes usando el enlace "Descargar plantilla de ejemplo (CSV)" que está más abajo.
+                    </p>
+                  </div>
+
+                  <button id="fillFieldsManualBtn" class="btn btn-primary" style="width: 100%; background: #16a34a; border-color: #16a34a; padding: 12px; font-size: 14px; font-weight: 600;">
+                    <span id="fillFieldsBtnIcon"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></span>
+                    <span id="fillFieldsBtnText">Asignar valores a campos de texto</span>
+                  </button>
+
+                  <!-- Indicador de valores asignados (oculto por defecto) -->
+                  <div id="assignedFieldsIndicator" style="display: none; margin-top: 12px; background: #d1fae5; border: 1px solid #10b981; border-radius: 8px; padding: 12px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="#065f46" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                        <strong style="color: #065f46; font-size: 13px;">Valores asignados</strong>
+                      </div>
+                      <span id="assignedFieldsCount" style="background: #10b981; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">0 campos</span>
+                    </div>
+                    <div id="assignedFieldsList" style="font-size: 12px; color: #047857; max-height: 120px; overflow-y: auto;"></div>
+                  </div>
+                </div>
+
+                <!-- Contenido para modo CSV -->
+                <div id="csvModeContent" style="display: none;">
+                  <div style="background: #fef3c7; border: 1px solid #fbbf24; border-radius: 8px; padding: 14px;">
+                    <p style="font-size: 12px; color: #92400e; margin: 0; line-height: 1.5;">
+                      <strong>📊 Modo CSV completo:</strong> Descarga una plantilla con todas las columnas (roles + campos de texto) usando el enlace <strong>"Descargar plantilla de ejemplo (CSV)"</strong> que está más abajo. Cada fila generará un documento personalizado con diferentes valores en los campos.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="upload-zone">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+              <p>Arrastra un archivo CSV o haz clic para seleccionar</p>
+              <input type="file" id="csvFileInput" accept=".csv" style="display:none">
+              <button class="upload-btn" onclick="document.getElementById('csvFileInput').click()">Seleccionar archivo</button>
+            </div>
+          </div>
+
+          <!-- ✅ Nueva pestaña: Firma Masiva de Pagarés -->
+          <div id="tab-pagare" class="tab-content" style="display: none;">
+            <div style="padding: 20px;">
+              <!-- Header con instrucciones -->
+              <div style="background: linear-gradient(135deg, #ede9fe 0%, #f3e8ff 100%); border: 2px solid #c4b5fd; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+                <div style="display: flex; align-items: flex-start; gap: 12px;">
+                  <svg class="icon-svg-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+                  <div>
+                    <h4 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 700; color: #5b21b6;">Firma Masiva de Pagarés</h4>
+                    <p style="margin: 0; font-size: 13px; color: #6d28d9; line-height: 1.6;">
+                      Esta funcionalidad permite enviar pagarés personalizados a múltiples viewers, cada uno con sus propios firmantes y datos únicos.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Paso 1: Información del documento -->
+              <div style="margin-bottom: 24px;">
+                <h5 style="margin: 0 0 12px 0; font-size: 14px; font-weight: 600; color: #374151; display: flex; align-items: center; gap: 8px;">
+                  <span style="display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: #8b5cf6; color: white; border-radius: 50%; font-size: 12px; font-weight: 700;">1</span>
+                  Campos mapeados en el documento
+                </h5>
+                <div id="pagareFieldsInfo" style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px;">
+                  <div style="font-size: 13px; color: #6b7280;">
+                    <div style="margin-bottom: 8px;"><strong>Firmantes detectados:</strong> <span id="pagareViewersCount">0</span></div>
+                    <div style="margin-bottom: 8px;"><strong>Campos de texto:</strong> <span id="pagareTextFieldsCount">0</span></div>
+                    <div id="pagareFieldsList" style="margin-top: 12px; font-size: 12px; color: #9ca3af;"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Paso 2: Descargar plantilla -->
+              <div style="margin-bottom: 24px;">
+                <h5 style="margin: 0 0 12px 0; font-size: 14px; font-weight: 600; color: #374151; display: flex; align-items: center; gap: 8px;">
+                  <span style="display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: #8b5cf6; color: white; border-radius: 50%; font-size: 12px; font-weight: 700;">2</span>
+                  Descargar plantilla CSV
+                </h5>
+                <div style="background: #fefce8; border: 1px solid #fde047; border-radius: 8px; padding: 14px; margin-bottom: 12px;">
+                  <p style="margin: 0 0 8px 0; font-size: 12px; color: #854d0e; line-height: 1.5;">
+                    <strong><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="#854d0e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Importante:</strong> La plantilla CSV contendrá columnas para cada firmante y sus campos de texto. Cada fila representa un pagaré único.
+                  </p>
+                  <p style="margin: 0; font-size: 12px; color: #854d0e; line-height: 1.5;">
+                    Ejemplo: <code style="background: white; padding: 2px 6px; border-radius: 4px;">pagare-id, email-firmante-1, email-firmante-2, nombre_deudor, cedula_deudor, ...</code>
+                  </p>
+                </div>
+                <button id="downloadPagareTemplateBtn" class="btn btn-secondary" style="width: 100%; padding: 12px; font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                  Descargar Plantilla CSV
+                </button>
+              </div>
+
+              <!-- Paso 3: Subir CSV -->
+              <div style="margin-bottom: 24px;">
+                <h5 style="margin: 0 0 12px 0; font-size: 14px; font-weight: 600; color: #374151; display: flex; align-items: center; gap: 8px;">
+                  <span style="display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: #8b5cf6; color: white; border-radius: 50%; font-size: 12px; font-weight: 700;">3</span>
+                  Subir CSV con datos de viewers
+                </h5>
+                <!-- Zona de carga inicial -->
+                <div id="pagareCsvUploadZone" class="upload-zone" style="margin-bottom: 12px;">
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                  </svg>
+                  <p>Arrastra el CSV con los datos de los firmantes</p>
+                  <input type="file" id="pagareCsvFileInput" accept=".csv" style="display:none">
+                  <button class="upload-btn" onclick="document.getElementById('pagareCsvFileInput').click()">Seleccionar archivo CSV</button>
+                </div>
+
+                <!-- Preview cuando hay archivo cargado -->
+                <div id="pagareCsvPreview" style="display: none; background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 14px; margin-bottom: 12px;">
+                  <div style="font-size: 13px; color: #15803d;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                          <polyline points="22 4 12 14.01 9 11.01"/>
+                        </svg>
+                        <strong>CSV cargado:</strong> <span id="pagareCsvFileName"></span>
+                      </div>
+                      <button id="pagareCsvChangeBtn" style="
+                        background: transparent;
+                        border: 1px solid #059669;
+                        color: #059669;
+                        padding: 4px 12px;
+                        border-radius: 6px;
+                        font-size: 11px;
+                        cursor: pointer;
+                        font-weight: 600;
+                        transition: all 0.2s;
+                      " onmouseover="this.style.background='#059669'; this.style.color='white';" onmouseout="this.style.background='transparent'; this.style.color='#059669';">
+                        <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg> Cambiar archivo
+                      </button>
+                    </div>
+                    <div style="background: white; border-radius: 6px; padding: 12px; margin-bottom: 10px;">
+                      <div style="font-size: 12px; color: #059669; margin-bottom: 8px;">
+                        <strong><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg> Resumen de pagarés:</strong>
+                      </div>
+                      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; color: #047857;">
+                        <div>
+                          <strong>Pagarés a crear:</strong> <span id="pagareCsvRowsCount" style="font-weight: 700; font-size: 14px;">0</span>
+                        </div>
+                        <div>
+                          <strong>Firmantes por pagaré:</strong> <span id="pagareFirmantesCount" style="font-weight: 700; font-size: 14px;">0</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div id="pagareCsvValidation" style="font-size: 11px; color: #16a34a;"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Paso 4: Configurar firmante final -->
+              <div style="margin-bottom: 24px;">
+                <h5 style="margin: 0 0 12px 0; font-size: 14px; font-weight: 600; color: #374151; display: flex; align-items: center; gap: 8px;">
+                  <span style="display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: #8b5cf6; color: white; border-radius: 50%; font-size: 12px; font-weight: 700;">4</span>
+                  Firmante definitivo (sella todos los pagarés)
+                </h5>
+                <div style="background: #fef3c7; border: 1px solid #fbbf24; border-radius: 8px; padding: 14px; margin-bottom: 12px;">
+                  <p style="margin: 0; font-size: 12px; color: #92400e; line-height: 1.5;">
+                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="#92400e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Este firmante recibirá notificación cuando TODOS los viewers completen sus firmas. Su firma sellará definitivamente todos los documentos.
+                  </p>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 12px;">
+                  <div>
+                    <label style="display: block; font-size: 13px; font-weight: 500; color: #374151; margin-bottom: 6px;">Email del firmante definitivo</label>
+                    <input type="email" id="finalSignerEmail" placeholder="rector@universidad.edu" style="width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px;">
+                  </div>
+                  <div>
+                    <label style="display: block; font-size: 13px; font-weight: 500; color: #374151; margin-bottom: 6px;">Nombre del firmante definitivo</label>
+                    <input type="text" id="finalSignerName" placeholder="Dr. Juan Pérez - Rector" style="width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px;">
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button id="recipientsCancel" class="btn btn-secondary">Cancelar</button>
+        <button id="recipientsAdd" class="btn btn-primary">ENVIAR</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container"></div>
+
+  <!-- Modal de Confirmación -->
+  <div id="confirmModal" class="modal" style="display:none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); z-index: 10002; align-items: center; justify-content: center;" aria-hidden="true">
+    <div class="modal-content" style="max-width: 450px; width: 90%; margin: 0; z-index: 10003; position: relative; animation: slideDown 0.3s ease;">
+      <div class="modal-header" style="border-bottom: 1px solid #e5e7eb; padding-bottom: 16px;">
+        <h3 style="font-size: 1.25rem; font-weight: 600; color: #111827; margin: 0;">Confirmar envío</h3>
+        <button class="modal-close" onclick="closeConfirmModal()" aria-label="Cerrar" style="background: transparent; border: none; cursor: pointer; color: #6b7280; padding: 4px;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body" style="padding: 24px 20px;">
+        <p id="confirmMessage" style="font-size: 1rem; color: #374151; line-height: 1.5; margin: 0;"></p>
+      </div>
+      <div class="modal-footer" style="display: flex; gap: 12px; justify-content: flex-end; padding-top: 16px; border-top: 1px solid #e5e7eb;">
+        <button class="btn btn-secondary" onclick="closeConfirmModal()" style="padding: 10px 20px; border-radius: 8px; font-weight: 500;">Cancelar</button>
+        <button id="confirmButton" class="btn btn-primary" style="padding: 10px 20px; border-radius: 8px; font-weight: 500;">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de Llenado Dinámico -->
+  <div id="dynamicFillModal" class="modal" style="display:none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); z-index: 10000; align-items: center; justify-content: center;" aria-hidden="true">
+    <div class="modal-content" style="max-width: 600px; width: 90%; max-height: 80vh; margin: 0; z-index: 10001; position: relative;">
+      <div class="modal-header">
+        <h2>Rellenar campos del documento</h2>
+        <button class="modal-close" onclick="closeDynamicFillModal()" aria-label="Cerrar">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body" style="max-height: 50vh; overflow-y: auto;">
+        <div id="dynamicFieldsContainer">
+          <!-- Los campos se generarán dinámicamente aquí -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeDynamicFillModal()">Cancelar</button>
+        <button id="saveDynamicFieldsBtn" class="btn btn-primary">💾 Guardar Valores en Plantilla</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <!-- Toast Notifications -->
+  <link rel="stylesheet" href="/public/Main/M-styles/toast-notifications.css?v=1">
+  <script src="/public/Main/toast-notifications.js?v=1"></script>
+  <script src="/public/Main/tracking.js?v=18"></script>
+
+  <script>
+    // =============================================
+    // MODAL DE CONFIRMACIÓN
+    // =============================================
+
+    function showConfirmModal(message) {
+      return new Promise((resolve) => {
+        const modal = document.getElementById('confirmModal');
+        const messageEl = document.getElementById('confirmMessage');
+        const confirmBtn = document.getElementById('confirmButton');
+
+        messageEl.textContent = message;
+        modal.style.display = 'flex';
+        modal.setAttribute('aria-hidden', 'false');
+
+        // Cleanup previous listeners by cloning
+        const newConfirmBtn = confirmBtn.cloneNode(true);
+        confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+
+        // Ensure ID is set
+        newConfirmBtn.id = 'confirmButton';
+
+        // Add confirm listener
+        newConfirmBtn.addEventListener('click', () => {
+          modal.style.display = 'none';
+          modal.setAttribute('aria-hidden', 'true');
+          resolve(true);
+        });
+
+        // Close function
+        window.closeConfirmModal = () => {
+          modal.style.display = 'none';
+          modal.setAttribute('aria-hidden', 'true');
+          resolve(false);
+        };
+      });
+    }
+
+    // =============================================
+    // ENVÍO MASIVO - INTEGRACIÓN
+    // =============================================
+    window.bulkRecipients = []; // ✅ Variable global para tracking.js
+    let currentDocumentId = null;
+
+    // Obtener document ID del URL o tracking.js
+    function getBulkDocumentId() {
+      // Primero intentar obtener del window (tracking.js puede definirlo)
+      if (window.currentSignatureDocumentId) {
+        return window.currentSignatureDocumentId;
+      }
+
+      // Si no, obtener del parámetro URL ?id=...
+      const params = new URLSearchParams(window.location.search);
+      const id = params.get('id');
+
+      console.log('📋 [BULK-SEND] Document ID:', id);
+      return id;
+    }
+
+    // Manejar archivo CSV/XLSX
+    const csvFileInput = document.getElementById('csvFileInput');
+    const uploadZone = document.querySelector('.upload-zone');
+
+    if (uploadZone && csvFileInput) {
+      // Click en zona de subida
+      uploadZone.addEventListener('click', (e) => {
+        if (e.target !== csvFileInput && !e.target.classList.contains('upload-btn')) {
+          csvFileInput.click();
+        }
+      });
+
+      // Drag & Drop
+      uploadZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadZone.style.borderColor = '#0066cc';
+        uploadZone.style.background = '#f0f7ff';
+      });
+
+      uploadZone.addEventListener('dragleave', () => {
+        uploadZone.style.borderColor = '#d0d0d0';
+        uploadZone.style.background = '#fafafa';
+      });
+
+      uploadZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadZone.style.borderColor = '#d0d0d0';
+        uploadZone.style.background = '#fafafa';
+
+        const file = e.dataTransfer.files[0];
+        if (file) handleBulkFile(file);
+      });
+
+      // Seleccionar archivo
+      csvFileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) handleBulkFile(file);
+      });
+    }
+
+    // Procesar archivo
+    function handleBulkFile(file) {
+      console.log('📂 Archivo seleccionado:', file.name);
+
+      // Validar tamaño
+      if (file.size > 5 * 1024 * 1024) {
+        ToastManager.error('Archivo demasiado grande', 'El tamaño máximo permitido es 5MB', 6000);
+        return;
+      }
+
+      // Validar extensión
+      const ext = file.name.split('.').pop().toLowerCase();
+      if (!['csv', 'xlsx', 'xls'].includes(ext)) {
+        ToastManager.error('Formato no válido', 'Por favor sube un archivo CSV o XLSX', 6000);
+        return;
+      }
+
+      // Parsear según extensión
+      if (ext === 'csv') {
+        Papa.parse(file, {
+          header: true,
+          skipEmptyLines: true,
+          complete: (results) => {
+            processBulkData(results.data);
+          },
+          error: (error) => {
+            ToastManager.error('Error al leer CSV', error.message, 6000);
+          }
+        });
+      } else if (ext === 'xlsx' || ext === 'xls') {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const sheetName = workbook.SheetNames[0];
+          const sheet = workbook.Sheets[sheetName];
+          const jsonData = XLSX.utils.sheet_to_json(sheet);
+          processBulkData(jsonData);
+        };
+        reader.readAsArrayBuffer(file);
+      }
+    }
+
+    // Validar y procesar datos
+    function processBulkData(data) {
+      console.log('📊 Datos parseados:', data);
+
+      const recipients = [];
+      const errors = [];
+      const seenEmails = new Set();
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+      data.forEach((row, index) => {
+        const rowNum = index + 2; // Fila 1 es encabezado
+        const email = (row.email || row.Email || '').trim();
+        const name = (row.name || row.Name || row.nombre || row.Nombre || '').trim();
+        const parte = (row.parte || row.Parte || '').trim();
+
+        // 🔥 NUEVO: Ignorar filas completamente vacías
+        if (!email && !name && !parte) {
+          console.log(`⚠️ Fila ${rowNum} vacía, ignorando...`);
+          return;
+        }
+
+        // Validaciones
+        if (!email) {
+          errors.push(`Fila ${rowNum}: Email vacío`);
+          return;
+        }
+
+        if (!emailRegex.test(email)) {
+          errors.push(`Fila ${rowNum}: Email inválido: ${email}`);
+          return;
+        }
+
+        if (seenEmails.has(email.toLowerCase())) {
+          errors.push(`Fila ${rowNum}: Email duplicado: ${email}`);
+          return;
+        }
+
+        if (!name) {
+          errors.push(`Fila ${rowNum}: Nombre vacío`);
+          return;
+        }
+
+        // 🔥 NUEVO: Guardar parte si existe
+        const recipient = { email, name };
+        if (parte) {
+          recipient.parte = parte;
+          console.log(`📋 Destinatario con parte: ${parte} - ${email}`);
+        }
+
+        // 🔥 NUEVO: Extraer campos de texto adicionales del CSV
+        // Todos los campos que NO son Parte, Email, Nombre son campos de texto personalizados
+        const textFieldValues = {};
+        Object.keys(row).forEach(key => {
+          const lowerKey = key.toLowerCase();
+          // Ignorar las columnas estándar
+          if (lowerKey !== 'parte' && lowerKey !== 'email' && lowerKey !== 'nombre' && lowerKey !== 'name') {
+            const value = (row[key] || '').toString().trim();
+            if (value) {
+              textFieldValues[key] = value;
+              console.log(`   📝 Campo "${key}": "${value}"`);
+            }
+          }
+        });
+
+        // Agregar campos de texto al destinatario
+        if (Object.keys(textFieldValues).length > 0) {
+          recipient.fieldValues = textFieldValues;
+          console.log(`   ✅ ${Object.keys(textFieldValues).length} campos de texto para ${email}`);
+        }
+
+        seenEmails.add(email.toLowerCase());
+        recipients.push(recipient);
+      });
+
+      // Mostrar resultados
+      if (errors.length > 0) {
+        const errorMessage = errors.slice(0, 3).join('<br>') +
+              (errors.length > 3 ? `<br>...y ${errors.length - 3} errores más` : '');
+        ToastManager.error('Errores en el archivo', errorMessage, 8000);
+        window.bulkRecipients = [];
+        return;
+      }
+
+      if (recipients.length > 1000) {
+        ToastManager.error('Límite excedido', `El límite es 1000 destinatarios. Tu archivo tiene ${recipients.length}`, 6000);
+        window.bulkRecipients = [];
+        return;
+      }
+
+      // Guardar destinatarios válidos
+      window.bulkRecipients = recipients;
+
+      // Actualizar UI
+      uploadZone.innerHTML = `
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#28a745" stroke-width="2">
+          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+          <polyline points="22 4 12 14.01 9 11.01"/>
+        </svg>
+        <p style="color: #28a745; font-weight: 600;"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="#28a745" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Archivo procesado correctamente</p>
+        <p style="color: #666; font-size: 14px; margin-top: 8px;">
+          ${recipients.length} destinatario${recipients.length > 1 ? 's' : ''} válido${recipients.length > 1 ? 's' : ''}
+        </p>
+        <button class="upload-btn" onclick="const input = document.getElementById('csvFileInput'); input.value = ''; input.click(); window.bulkRecipients = [];" style="margin-top: 12px;">
+          Cambiar archivo
+        </button>
+      `;
+
+      console.log(`✅ ${recipients.length} destinatarios válidos listos para enviar`);
+    }
+
+    // ⚠️ NOTA: El botón "AGREGAR DESTINATARIOS" es manejado por tracking.js
+    // No agregar listeners duplicados aquí para evitar conflictos
+
+    // Enviar emails masivos - Función global disponible para tracking.js
+    window.sendBulkEmails = async function() {
+      if (window.bulkRecipients.length === 0) {
+        ToastManager.error('No hay destinatarios', 'Por favor, sube un archivo CSV o XLSX válido', 6000);
+        return;
+      }
+
+      const documentId = getBulkDocumentId();
+      if (!documentId) {
+        ToastManager.error('Error', 'No se pudo obtener el ID del documento', 6000);
+        return;
+      }
+
+      // Mostrar modal de confirmación
+      const confirmed = await showConfirmModal(`¿Estás seguro de enviar el documento a ${window.bulkRecipients.length} destinatarios?`);
+      if (!confirmed) {
+        return;
+      }
+
+      // Deshabilitar botón
+      const addButton = document.getElementById('recipientsAdd');
+      const originalText = addButton.textContent;
+      addButton.disabled = true;
+      addButton.textContent = 'PROCESANDO...';
+
+      try {
+        // Obtener usuario actual
+        const userStr = localStorage.getItem('currentUser');
+        if (!userStr) {
+          ToastManager.error('No autenticado', 'Por favor, inicia sesión nuevamente', 6000);
+          addButton.disabled = false;
+          addButton.textContent = originalText;
+          return;
+        }
+
+        const user = JSON.parse(userStr);
+        if (!user.user_id) {
+          ToastManager.error('Usuario inválido', 'Por favor, inicia sesión nuevamente', 6000);
+          addButton.disabled = false;
+          addButton.textContent = originalText;
+          return;
+        }
+
+        console.log('📤 [BULK-SEND] Enviando CSV al backend...');
+        console.log('📤 [BULK-SEND] Document ID:', documentId);
+        console.log('📤 [BULK-SEND] User ID:', user.user_id);
+        console.log('📤 [BULK-SEND] Recipients:', window.bulkRecipients.length);
+
+        // Aplanar los recipients: mover fieldValues al nivel superior
+        const flattenedRecipients = window.bulkRecipients.map(recipient => {
+          const flat = {
+            parte: recipient.parte,
+            email: recipient.email,
+            name: recipient.name
+          };
+
+          // Si tiene fieldValues, agregarlos al nivel superior
+          if (recipient.fieldValues) {
+            Object.assign(flat, recipient.fieldValues);
+          }
+
+          return flat;
+        });
+
+        console.log('📤 [BULK-SEND] Datos aplanados:', flattenedRecipients);
+
+        // Crear CSV
+        const csvContent = Papa.unparse(flattenedRecipients);
+        const blob = new Blob([csvContent], { type: 'text/csv' });
+        const formData = new FormData();
+        formData.append('file', blob, 'recipients.csv');
+        formData.append('signature_document_id', documentId);
+
+        // Enviar al backend con user_id en query parameter (mismo estilo que tracking.js)
+        const response = await fetch(`/api/signatures/bulk-send?user_id=${user.user_id}`, {
+          method: 'POST',
+          body: formData
+        });
+
+        console.log('📥 [BULK-SEND] Respuesta del servidor:', response.status);
+
+        const result = await response.json();
+
+        if (result.success) {
+          ToastManager.success('¡Envío Completado!', `Se han encolado ${result.data.queued_emails} emails para envío`, 8000);
+
+          // Cerrar modal
+          document.getElementById('recipientsClose').click();
+
+          // Recargar página para ver los nuevos destinatarios
+          setTimeout(() => {
+            window.location.reload();
+          }, 3000);
+        } else {
+          throw new Error(result.error || 'Error desconocido');
+        }
+
+      } catch (error) {
+        console.error('❌ Error al enviar:', error);
+        ToastManager.error('Error al enviar', error.message, 6000);
+      } finally {
+        // Rehabilitar botón
+        addButton.disabled = false;
+        addButton.textContent = originalText;
+      }
+    } // Fin de window.sendBulkEmails
+
+    // =============================================
+    // NOTA: La función downloadBulkTemplate() ahora está en tracking.js
+    // Esta versión vieja ha sido eliminada para evitar conflictos
+    // La nueva función soporta dos modos:
+    // 1. Modo Manual: Solo partes (Primera Parte - Nombre, Email, etc.)
+    // 2. Modo CSV Completo: Partes + Campos de texto (Cliente, Cédula, Email, etc.)
+    // =============================================
+
+    // =============================================
+    // VARIABLES GLOBALES DE PERSONALIZACIÓN
+    // =============================================
+    let selectedTemplateId = null;
+    let selectedTemplateData = null;
+    let excelRowsData = [];
+
+    // Agregar enlace de descarga de plantilla
+    document.addEventListener('DOMContentLoaded', function() {
+      const uploadTabContent = document.getElementById('tab-upload');
+      if (uploadTabContent) {
+        const downloadLink = document.createElement('p');
+        downloadLink.style.cssText = 'text-align: center; margin-top: 16px; font-size: 14px;';
+        downloadLink.innerHTML = `
+          <a href="#" onclick="downloadBulkTemplate(); return false;" style="color: #0066cc; text-decoration: none; font-weight: 500;">
+            📥 Descargar plantilla de ejemplo (CSV)
+          </a>
+        `;
+        uploadTabContent.querySelector('.upload-zone').after(downloadLink);
+      }
+
+      // 🔥 NUEVO: Detectar parámetros URL para auto-abrir modal de personalización
+      const urlParams = new URLSearchParams(window.location.search);
+      const openPersonalize = urlParams.get('openPersonalize');
+      let templateId = urlParams.get('templateId');
+      const documentId = urlParams.get('id'); // ID del documento actual
+      const templateName = urlParams.get('name'); // Obtener nombre del documento
+
+      console.log('🔍 [TRACKING] Parámetros URL detectados:', {
+        openPersonalize,
+        templateId,
+        documentId,
+        templateName,
+        fullUrl: window.location.href
+      });
+
+      // Si no hay templateId pero hay documentId, usar documentId como templateId
+      if (!templateId && documentId) {
+        console.log('💡 [TRACKING] No hay templateId, verificando si documentId es plantilla...');
+        
+        // Verificar si el documento es una plantilla
+        fetch(`/api/templates/${documentId}`)
+          .then(res => {
+            console.log('🌐 [TRACKING] Respuesta de /api/templates:', res.status);
+            if (!res.ok) {
+              throw new Error(`HTTP ${res.status}`);
+            }
+            return res.json();
+          })
+          .then(result => {
+            console.log('📦 [TRACKING] Datos recibidos:', result);
+            
+            if (result.success && result.data) {
+              console.log('✅ [TRACKING] Documento es plantilla válida, auto-cargando...');
+              templateId = documentId;
+              selectedTemplateId = documentId;
+              
+              // Auto-cargar plantilla en el display (sin abrir modal)
+              setTimeout(() => {
+                const nameDisplay = document.getElementById('templateNameDisplay');
+                const idDisplay = document.getElementById('templateIdDisplay');
+                
+                if (nameDisplay && result.data.title) {
+                  nameDisplay.textContent = result.data.title;
+                  nameDisplay.style.color = '#15803d';
+                }
+                if (idDisplay) {
+                  idDisplay.textContent = `ID: ${documentId}`;
+                }
+                
+                console.log('📝 [TRACKING] Plantilla pre-cargada en modal (oculto)');
+              }, 200);
+            } else {
+              console.log('⚠️ [TRACKING] Respuesta exitosa pero sin datos de plantilla');
+            }
+          })
+          .catch(err => {
+            console.error('❌ [TRACKING] Error verificando plantilla:', err.message);
+            console.error('🔴 [TRACKING] Stack:', err.stack);
+            console.log('ℹ️ [TRACKING] Documento no es plantilla o error en servidor');
+          });
+      }
+
+      if (openPersonalize === 'true' && templateId) {
+        console.log('🎯 [TRACKING] Auto-abriendo modal de personalización con plantilla:', templateId);
+        
+        // CRÍTICO: Establecer template ID global INMEDIATAMENTE
+        selectedTemplateId = templateId;
+        console.log('✅ [TRACKING] selectedTemplateId asignado:', selectedTemplateId);
+        
+        // Pre-cargar nombre de plantilla si está disponible
+        if (templateName) {
+          setTimeout(() => {
+            const nameDisplay = document.getElementById('templateNameDisplay');
+            if (nameDisplay) {
+              nameDisplay.textContent = decodeURIComponent(templateName);
+              console.log('📝 [TRACKING] Nombre pre-cargado:', decodeURIComponent(templateName));
+            }
+            const idDisplay = document.getElementById('templateIdDisplay');
+            if (idDisplay) idDisplay.textContent = `ID: ${templateId}`;
+          }, 100);
+        }
+        
+        // Esperar a que todo se cargue
+        setTimeout(() => {
+          console.log('⏰ [TRACKING] Timeout ejecutado, abriendo modal...');
+
+          // Abrir modal (recipientsModal es el modal correcto)
+          const modal = document.getElementById('recipientsModal');
+          if (modal) {
+            modal.setAttribute('aria-hidden', 'false');
+            console.log('✅ [TRACKING] Modal abierto');
+            
+            // Cambiar a tab de Subir Lista
+            const uploadTab = document.querySelector('[data-tab="upload"]');
+            if (uploadTab) {
+              uploadTab.click();
+              console.log('✅ [TRACKING] Tab Subir Lista activado');
+              
+              // Cargar datos de la plantilla automáticamente
+              setTimeout(() => {
+                console.log('🔄 [TRACKING] Iniciando carga de plantilla...');
+                loadTemplateDataDirectly(templateId);
+              }, 300);
+            } else {
+              console.error('❌ [TRACKING] No se encontró el tab de subir lista');
+            }
+          } else {
+            console.error('❌ [TRACKING] No se encontró el modal recipientsModal');
+          }
+        }, 800);
+      } else {
+        console.log('ℹ️ [TRACKING] No se detectaron parámetros de auto-apertura');
+      }
+    });
+
+    console.log('✅ [BULK-SEND] Sistema de envío masivo cargado');
+
+    // =============================================
+    // TAB DE PERSONALIZACIÓN
+    // =============================================
+    
+    // Cargar datos de plantilla directamente (cuando viene de URL)
+    async function loadTemplateDataDirectly(templateId) {
+      console.log('📥 [TRACKING] Cargando datos de plantilla:', templateId);
+      
+      // CRÍTICO: Asignar selectedTemplateId ANTES de hacer el fetch
+      selectedTemplateId = templateId;
+      
+      const nameDisplay = document.getElementById('templateNameDisplay');
+      const idDisplay = document.getElementById('templateIdDisplay');
+      
+      // Mostrar "Cargando..."
+      if (nameDisplay) nameDisplay.textContent = 'Cargando plantilla...';
+      
+      try {
+        const response = await fetch(`/api/templates/${templateId}`);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const result = await response.json();
+        
+        console.log('📦 [TRACKING] Respuesta del servidor:', result);
+
+        if (result.success && result.data) {
+          selectedTemplateData = result.data;
+          const fields = result.data.fields || [];
+          const templateName = result.data.title || 'Plantilla sin nombre';
+
+          // Mostrar nombre de plantilla
+          if (nameDisplay) nameDisplay.textContent = templateName;
+          if (idDisplay) idDisplay.textContent = `ID: ${templateId}`;
+
+          // Mostrar campos
+          const fieldsInfo = document.getElementById('templateFieldsInfo');
+          const fieldsCount = document.getElementById('fieldsCount');
+          const fieldsList = document.getElementById('fieldsList');
+
+          if (fields.length > 0) {
+            // Filtrar solo campos de texto
+            const textFields = fields.filter(f => {
+              const fieldType = f.type || f.field_type || '';
+              return fieldType === 'text';
+            });
+            
+            fieldsCount.textContent = textFields.length;
+            fieldsList.innerHTML = textFields.map(f => {
+              const fieldName = f.field_label || f.field_key || f.name || `${f.type || f.field_type}_${f.id}`;
+              return `<span style="display: inline-block; background: #e0e7ff; color: #4338ca; padding: 4px 8px; border-radius: 4px; margin: 4px 4px 0 0; font-size: 12px;">${fieldName}</span>`;
+            }).join('');
+            fieldsInfo.style.display = textFields.length > 0 ? 'block' : 'none';
+            
+            // Mostrar botón de llenado dinámico si hay campos de texto
+            const fillFieldsBtn = document.getElementById('fillFieldsBtn');
+            if (fillFieldsBtn && textFields.length > 0) {
+              fillFieldsBtn.style.display = 'block';
+            }
+            
+            console.log(`✅ [TRACKING] ${textFields.length} campos de texto de ${fields.length} totales`);
+          } else {
+            fieldsInfo.style.display = 'none';
+          }
+
+          console.log(`✅ [TRACKING] Plantilla cargada: "${templateName}" con ${fields.length} campos`);
+        } else {
+          throw new Error(result.message || 'Respuesta inválida del servidor');
+        }
+      } catch (error) {
+        console.error('❌ [TRACKING] Error cargando plantilla:', error);
+        if (nameDisplay) {
+          nameDisplay.textContent = 'Error al cargar plantilla';
+          nameDisplay.style.color = '#dc2626';
+        }
+        
+        // Mostrar error detallado en consola
+        console.error('🔴 [TRACKING] Detalles del error:', {
+          templateId,
+          selectedTemplateId,
+          error: error.message,
+          stack: error.stack
+        });
+      }
+    }
+
+    // 🔥 Listener para tab de Subir Lista: cargar plantilla si ya hay selectedTemplateId
+    document.querySelectorAll('.recipients-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const tabName = tab.dataset.tab;
+        
+        if (tabName === 'upload') {
+          console.log('📌 [TRACKING] Tab Subir Lista activado');
+          console.log('🔍 [TRACKING] selectedTemplateId actual:', selectedTemplateId);
+          
+          // Si hay un templateId pero los datos no están cargados, cargarlos
+          if (selectedTemplateId && !selectedTemplateData) {
+            console.log('🔄 [TRACKING] Cargando datos de plantilla automáticamente...');
+            setTimeout(() => {
+              loadTemplateDataDirectly(selectedTemplateId);
+            }, 200);
+          } else if (selectedTemplateId && selectedTemplateData) {
+            console.log('✅ [TRACKING] Plantilla ya cargada en memoria');
+          } else {
+            console.log('ℹ️ [TRACKING] No hay plantilla seleccionada aún');
+          }
+        }
+      });
+    });
+
+    // =============================================
+    // LLENADO DINÁMICO DE CAMPOS
+    // =============================================
+    
+    function openDynamicFillModal() {
+      // Usar currentTemplateData del tracking.js si está disponible, sino usar selectedTemplateData
+      const templateData = window.currentTemplateData || selectedTemplateData;
+      const templateId = window.currentTemplateData?.id || selectedTemplateId;
+      
+      if (!templateData || !templateData.fields) {
+        ToastManager.error('Sin plantilla', 'No hay plantilla cargada', 5000);
+        return;
+      }
+
+      // Filtrar solo campos de texto
+      const textFields = templateData.fields.filter(f => {
+        const fieldType = f.type || f.field_type || '';
+        return fieldType === 'text';
+      });
+
+      if (textFields.length === 0) {
+        ToastManager.warning('Sin campos', 'La plantilla no tiene campos de texto', 5000);
+        return;
+      }
+
+      // ✅ Extraer etiquetas del PDF (sin force=true para respetar labels guardados desde sign.html)
+      fetch(`/api/templates/${templateId}/extract-labels`)
+        .then(res => res.json())
+        .then(labelResult => {
+          const labels = labelResult.success ? labelResult.data.labels : {};
+          console.log('🏷️ [EDITOR] Etiquetas extraídas:', labels);
+          console.log('🏷️ [EDITOR] Fuente de etiquetas:', labelResult.data?.source || 'PDF');
+          
+          // Generar formulario dinámico con etiquetas extraídas automáticamente
+          const container = document.getElementById('dynamicFieldsContainer');
+          container.innerHTML = textFields.map(field => {
+            // Usar la etiqueta extraída del PDF (ahora con coordenadas reales)
+            const fieldLabel = labels[field.id] || field.field_label || field.field_key || field.name || `Campo ${field.id}`;
+
+            // Limpiar guiones bajos y puntos al final solo para el placeholder
+            const cleanPlaceholder = fieldLabel
+              .replace(/_+/g, '')           // Quitar guiones bajos
+              .replace(/[:\s]+$/g, '')      // Quitar : y espacios al final
+              .replace(/\.+$/g, '')         // Quitar puntos al final
+              .trim();
+
+            return `
+              <div style="margin-bottom: 16px;">
+                <label style="display: block; font-size: 14px; font-weight: 500; color: #374151; margin-bottom: 6px;">
+                  ${fieldLabel}
+                </label>
+                <input
+                  type="text"
+                  id="field_${field.id}"
+                  data-field-id="${field.id}"
+                  class="dynamic-field-input"
+                  style="width: 100%; padding: 10px; border: 1px solid #D1D5DB; border-radius: 6px; font-size: 14px;"
+                  placeholder="Ingresa ${cleanPlaceholder}"
+                />
+              </div>
+            `;
+          }).join('');
+
+          // ✅ NUEVO: Pre-llenar valores si ya existen
+          if (window.assignedFieldData && Object.keys(window.assignedFieldData).length > 0) {
+            // Esperar un momento para que los inputs se rendericen
+            setTimeout(() => {
+              for (const [fieldId, value] of Object.entries(window.assignedFieldData)) {
+                const input = document.getElementById(`field_${fieldId}`);
+                if (input) {
+                  input.value = value;
+                }
+              }
+            }, 50);
+          }
+
+          // Mostrar modal
+          const modal = document.getElementById('dynamicFillModal');
+          modal.style.display = 'flex';
+          modal.classList.add('show');
+          modal.setAttribute('aria-hidden', 'false');
+        })
+        .catch(error => {
+          console.error('Error extrayendo etiquetas:', error);
+          // Si falla, usar etiquetas por defecto
+          const container = document.getElementById('dynamicFieldsContainer');
+          container.innerHTML = textFields.map(field => {
+            const fieldName = field.field_label || field.field_key || field.name || `Campo ${field.id}`;
+            const cleanName = fieldName.replace(/text_\d+/g, '').trim() || fieldName;
+            
+            return `
+              <div style="margin-bottom: 16px;">
+                <label style="display: block; font-size: 14px; font-weight: 500; color: #374151; margin-bottom: 6px;">
+                  ${cleanName}:
+                </label>
+                <input 
+                  type="text" 
+                  id="field_${field.id}" 
+                  data-field-id="${field.id}"
+                  class="dynamic-field-input"
+                  style="width: 100%; padding: 10px; border: 1px solid #D1D5DB; border-radius: 6px; font-size: 14px;"
+                  placeholder="Ingresa ${cleanName}"
+                />
+              </div>
+            `;
+          }).join('');
+
+          // ✅ NUEVO: Pre-llenar valores si ya existen (también en el catch)
+          if (window.assignedFieldData && Object.keys(window.assignedFieldData).length > 0) {
+            setTimeout(() => {
+              for (const [fieldId, value] of Object.entries(window.assignedFieldData)) {
+                const input = document.getElementById(`field_${fieldId}`);
+                if (input) {
+                  input.value = value;
+                }
+              }
+            }, 50);
+          }
+
+          const modal = document.getElementById('dynamicFillModal');
+          modal.style.display = 'flex';
+          modal.classList.add('show');
+          modal.setAttribute('aria-hidden', 'false');
+        });
+    }
+    
+    // Exponer función globalmente
+    window.openDynamicFillModal = openDynamicFillModal;
+
+    function closeDynamicFillModal() {
+      const modal = document.getElementById('dynamicFillModal');
+      modal.style.display = 'none';
+      modal.classList.remove('show');
+      modal.setAttribute('aria-hidden', 'true');
+    }
+
+    // ✅ NUEVA FUNCIÓN: Actualizar indicador de campos asignados
+    window.updateAssignedFieldsIndicator = function(fieldData) {
+      // Guardar fieldData en una variable global para poder editarlos después
+      window.assignedFieldData = fieldData;
+
+      const button = document.getElementById('fillFieldsManualBtn');
+      const buttonIcon = document.getElementById('fillFieldsBtnIcon');
+      const buttonText = document.getElementById('fillFieldsBtnText');
+      const indicator = document.getElementById('assignedFieldsIndicator');
+      const countBadge = document.getElementById('assignedFieldsCount');
+      const fieldsList = document.getElementById('assignedFieldsList');
+
+      if (!fieldData || Object.keys(fieldData).length === 0) {
+        // Sin valores asignados
+        buttonIcon.innerHTML = '<svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+        buttonText.textContent = 'Asignar valores a campos de texto';
+        button.style.background = '#16a34a';
+        button.style.borderColor = '#16a34a';
+        indicator.style.display = 'none';
+        return;
+      }
+
+      // Con valores asignados
+      const fieldCount = Object.keys(fieldData).length;
+      buttonIcon.innerHTML = '<svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>';
+      buttonText.textContent = 'Ver/Editar valores asignados';
+      button.style.background = '#0891b2'; // Color cyan para indicar edición
+      button.style.borderColor = '#0891b2';
+
+      // Mostrar indicador
+      indicator.style.display = 'block';
+      countBadge.textContent = `${fieldCount} campo${fieldCount !== 1 ? 's' : ''}`;
+
+      // Generar lista de valores asignados
+      let html = '<div style="display: flex; flex-direction: column; gap: 6px;">';
+
+      // Obtener las etiquetas de los campos desde currentTemplateData
+      const templateData = window.currentTemplateData || {};
+      const fields = templateData.fields || [];
+
+      for (const [fieldId, value] of Object.entries(fieldData)) {
+        // Buscar el campo en templateData para obtener su etiqueta
+        const field = fields.find(f => f.field_id == fieldId || f.id == fieldId);
+        const label = field?.field_label || field?.label || `Campo ${fieldId}`;
+        const displayValue = value.length > 30 ? value.substring(0, 30) + '...' : value;
+
+        html += `
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid #a7f3d0;">
+            <span style="font-weight: 600;">${label}:</span>
+            <span style="color: #059669;">${displayValue}</span>
+          </div>
+        `;
+      }
+
+      html += '</div>';
+      fieldsList.innerHTML = html;
+    }
+
+    // Listener para botón de llenado dinámico
+    document.getElementById('fillFieldsBtn')?.addEventListener('click', openDynamicFillModal);
+
+    // Listener para guardar campos dinámicos
+    document.getElementById('saveDynamicFieldsBtn')?.addEventListener('click', async () => {
+      const inputs = document.querySelectorAll('.dynamic-field-input');
+      const fieldData = {};
+      
+      inputs.forEach(input => {
+        const fieldId = input.dataset.fieldId;
+        const value = input.value.trim();
+        if (value) {
+          fieldData[fieldId] = value;
+        }
+      });
+
+      if (Object.keys(fieldData).length === 0) {
+        ToastManager.warning('Campos vacíos', 'Por favor llena al menos un campo', 5000);
+        return;
+      }
+
+      console.log('📝 Datos de campos:', fieldData);
+      console.log('📄 Plantilla:', selectedTemplateId);
+
+      try {
+        // Obtener user_id del usuario actual
+        const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
+        const userId = user.user_id;
+
+        if (!userId) {
+          throw new Error('No se pudo obtener el ID de usuario');
+        }
+
+        // Enviar datos al backend para guardar en la plantilla
+        const response = await fetch(`/api/documents/fill-template?user_id=${userId}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            templateId: selectedTemplateId,
+            fieldData: fieldData
+          })
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Error en el servidor');
+        }
+
+        const result = await response.json();
+
+        if (result.success) {
+          ToastManager.success('Guardado exitoso', 'Valores guardados en la plantilla correctamente', 5000);
+          closeDynamicFillModal();
+
+          // ✅ NUEVO: Actualizar botón y mostrar indicador de valores asignados
+          updateAssignedFieldsIndicator(fieldData);
+
+          // NO recargar plantilla para mantener window.bulkRecipients intacto
+        } else {
+          throw new Error(result.error || 'Error desconocido');
+        }
+      } catch (error) {
+        console.error('❌ Error guardando valores:', error);
+        ToastManager.error('Error al guardar', error.message, 6000);
+      }
+    });
+
+  </script>
+
+  <!-- Modal de Confirmación -->
+  <div id="confirmModal" class="modal" style="display:none;" aria-hidden="true">
+    <div class="modal-content" style="max-width: 480px;">
+      <div class="modal-header">
+        <h2 id="confirm-title">Confirmar acción</h2>
+        <button class="modal-close" id="confirm-close" aria-label="Cerrar">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p id="confirm-message" style="margin: 0; color: var(--ink-base); line-height: 1.6;"></p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" id="confirm-cancel">Cancelar</button>
+        <button type="button" class="btn-primary" id="confirm-ok">Aceptar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de Editar Nombre -->
+  <div id="editModal" class="modal" style="display:none;" aria-hidden="true">
+    <div class="modal-content" style="max-width: 500px;">
+      <div class="modal-header">
+        <h2>Editar nombre del documento</h2>
+        <button class="modal-close" id="edit-close" aria-label="Cerrar">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <label for="edit-name-input">Nuevo nombre:</label>
+        <input type="text" id="edit-name-input" class="modal-input" placeholder="Nombre del documento" />
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" id="edit-cancel">Cancelar</button>
+        <button type="button" class="btn-primary" id="edit-save">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL DE TRAZABILIDAD ==================== -->
+  <div id="auditModal" class="audit-modal" style="display: none;">
+    <div class="audit-modal-overlay" onclick="closeAuditModal()"></div>
+    <div class="audit-modal-content">
+      <div class="audit-modal-header">
+        <h2>📊 Trazabilidad del Documento</h2>
+        <div class="audit-modal-actions">
+          <!-- Botón de descarga PDF -->
+          <button onclick="downloadAuditPDF()" class="btn-download-pdf">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            DESCARGAR PDF
+          </button>
+          <!-- Botón cerrar -->
+          <button class="audit-modal-close" onclick="closeAuditModal()">×</button>
+        </div>
+      </div>
+
+      <div class="audit-modal-body">
+        <!-- Aquí se renderiza el timeline -->
+        <div id="auditTimelineContainer"></div>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    /* ==================== ESTILOS DEL MODAL DE TRAZABILIDAD ==================== */
+    .audit-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 10000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .audit-modal-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(4px);
+      cursor: pointer;
+    }
+
+    .audit-modal-content {
+      position: relative;
+      background: white;
+      border-radius: 16px;
+      width: 90%;
+      max-width: 800px;
+      max-height: 90vh;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      display: flex;
+      flex-direction: column;
+      animation: slideIn 0.3s ease-out;
+    }
+
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(-50px) scale(0.95);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    .audit-modal-header {
+      padding: 24px 30px;
+      border-bottom: 1px solid #e5e7eb;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .audit-modal-header h2 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 700;
+      color: #1f2937;
+    }
+
+    .audit-modal-actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .btn-download-pdf {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 18px;
+      background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .btn-download-pdf:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+    }
+
+    .btn-download-pdf:active {
+      transform: translateY(0);
+    }
+
+    .audit-modal-close {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: none;
+      background: #f3f4f6;
+      color: #6b7280;
+      font-size: 24px;
+      font-weight: 300;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+    }
+
+    .audit-modal-close:hover {
+      background: #ef4444;
+      color: white;
+      transform: rotate(90deg);
+    }
+
+    .audit-modal-body {
+      padding: 30px;
+      overflow-y: auto;
+      max-height: calc(90vh - 120px);
+    }
+
+    /* ==================== TIMELINE DE EVENTOS ==================== */
+    .audit-timeline {
+      position: relative;
+      padding-left: 40px;
+    }
+
+    .audit-timeline::before {
+      content: '';
+      position: absolute;
+      left: 15px;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: linear-gradient(180deg, #10b981 0%, #3b82f6 50%, #8b5cf6 100%);
+    }
+
+    .audit-event {
+      position: relative;
+      margin-bottom: 30px;
+      padding-bottom: 20px;
+    }
+
+    .audit-event:last-child {
+      margin-bottom: 0;
+    }
+
+    .audit-event-marker {
+      position: absolute;
+      left: -40px;
+      top: 0;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      z-index: 1;
+    }
+
+    .audit-event-marker.success {
+      background: linear-gradient(135deg, #10b981, #059669);
+      border: 3px solid white;
+    }
+
+    .audit-event-marker.info {
+      background: linear-gradient(135deg, #3b82f6, #2563eb);
+      border: 3px solid white;
+    }
+
+    .audit-event-marker.warning {
+      background: linear-gradient(135deg, #f59e0b, #d97706);
+      border: 3px solid white;
+    }
+
+    .audit-event-marker.error {
+      background: linear-gradient(135deg, #ef4444, #dc2626);
+      border: 3px solid white;
+    }
+
+    .audit-event-content {
+      background: #f9fafb;
+      border-radius: 12px;
+      padding: 16px 20px;
+      transition: all 0.2s ease;
+    }
+
+    .audit-event-content:hover {
+      background: #f3f4f6;
+      transform: translateX(4px);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    }
+
+    .audit-event-title {
+      font-weight: 600;
+      font-size: 15px;
+      color: #1f2937;
+      margin-bottom: 8px;
+    }
+
+    .audit-event-details {
+      font-size: 13px;
+      color: #6b7280;
+      line-height: 1.6;
+    }
+
+    .audit-event-details div {
+      margin-bottom: 4px;
+    }
+
+    .audit-event-details strong {
+      color: #374151;
+      font-weight: 600;
+    }
+
+    .audit-event-time {
+      font-size: 12px;
+      color: #9ca3af;
+      margin-top: 8px;
+      display: block;
+    }
+
+    /* Estados de carga */
+    .audit-loading {
+      text-align: center;
+      padding: 60px 20px;
+      color: #6b7280;
+    }
+
+    .audit-loading::before {
+      content: '';
+      display: block;
+      width: 48px;
+      height: 48px;
+      margin: 0 auto 16px auto;
+      border: 4px solid #e5e7eb;
+      border-top: 4px solid #6b7280;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .audit-empty {
+      text-align: center;
+      padding: 60px 20px;
+      color: #9ca3af;
+    }
+
+    .audit-empty::before {
+      content: '📭';
+      display: block;
+      font-size: 48px;
+      margin-bottom: 16px;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .audit-modal-content {
+        width: 95%;
+        max-height: 95vh;
+      }
+
+      .audit-modal-header {
+        flex-direction: column;
+        gap: 16px;
+        align-items: flex-start;
+      }
+
+      .audit-modal-actions {
+        width: 100%;
+        justify-content: space-between;
+      }
+
+      .btn-download-pdf {
+        font-size: 12px;
+        padding: 8px 14px;
+      }
+
+      .audit-timeline {
+        padding-left: 35px;
+      }
+
+      .audit-event-marker {
+        left: -35px;
+        width: 28px;
+        height: 28px;
+        font-size: 14px;
+      }
+    }
+  </style>
+
+  <!-- Cargar helper de autenticación PRIMERO -->
+  <script src="/public/Main/auth-helper.js"></script>
+  <!-- Luego el script de tracking -->
+  <script src="/public/Main/tracking.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pyhanko==0.31.0
+pyhanko-certvalidator>=0.29.0
+cryptography>=41.0.0
+python-multipart==0.0.6
+pydantic>=2.5.0
+requests>=2.31.0
+pypdf>=4.0.0
+reportlab>=4.0.0
+qrcode>=7.4.2
+Pillow>=10.0.0

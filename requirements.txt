@@ -1,0 +1,63 @@
+# Dependencias para el sistema de firma digital de PDFs
+# Instalación: pip install -r requirements.txt
+
+# ============================================================================
+# FIRMA DIGITAL Y CERTIFICADOS
+# ============================================================================
+
+# pyHanko: Librería principal para firma digital de PDFs
+pyhanko>=0.21.0
+
+# pyHanko-certvalidator: Validación de certificados X.509
+pyhanko-certvalidator>=0.26.0
+
+# Cryptography: Manejo de certificados, claves y operaciones criptográficas
+cryptography>=41.0.0
+
+
+# ============================================================================
+# GENERACIÓN Y MANIPULACIÓN DE PDFs
+# ============================================================================
+
+# requests: Para comunicación con el servicio Node.js de generación de sellos
+requests>=2.31.0
+
+# pypdf: Manipulación de PDFs
+pypdf>=4.0.0
+
+
+# ============================================================================
+# DEPENDENCIAS ADICIONALES
+# ============================================================================
+
+# Click: Para crear CLI (opcional, si quieres agregar interfaz de línea de comandos)
+click>=8.1.0
+
+# PyYAML: Para archivos de configuración (opcional)
+PyYAML>=6.0
+
+# python-dateutil: Manejo avanzado de fechas
+python-dateutil>=2.8.0
+
+# qrcode: Generación de códigos QR (opcional, para agregar QR al sello)
+qrcode[pil]>=7.4.0
+
+
+# ============================================================================
+# NOTAS DE INSTALACIÓN
+# ============================================================================
+
+# Para Windows:
+# 1. Instala Python 3.9 o superior
+# 2. pip install -r requirements.txt
+# 3. Instala OpenSSL para generar certificados de prueba:
+#    Descarga desde: https://slproweb.com/products/Win32OpenSSL.html
+
+# Para Linux/macOS:
+# 1. pip install -r requirements.txt
+# 2. OpenSSL generalmente ya está instalado
+
+# ============================================================================
+# VERSIONES MÍNIMAS REQUERIDAS
+# ============================================================================
+# Python >= 3.9

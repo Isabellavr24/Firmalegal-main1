@@ -1,0 +1,15 @@
+{
+  "name": "pdf-generator",
+  "version": "1.0.0",
+  "description": "PDF seal generator service using pdf-lib",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "pdf-lib": "^1.17.1"
+  }
+}

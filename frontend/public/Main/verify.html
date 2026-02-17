@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Verificación de Documento - PKI Services</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    /* Iconos SVG inline */
+    .icon-svg { display:inline-block; width:18px; height:18px; vertical-align:middle; flex-shrink:0; }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --primary: #8B4789;
+      --primary-light: #D4A5D4;
+      --bg: #F6F1EE;
+      --white: #ffffff;
+      --text: #333333;
+      --text-light: #666666;
+      --border: #e0e0e0;
+      --success: #28a745;
+      --error: #dc3545;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: var(--white);
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(139, 71, 137, 0.15);
+      overflow: hidden;
+    }
+
+    .header {
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+      color: var(--white);
+      padding: 40px 30px;
+      text-align: center;
+    }
+
+    .header h1 {
+      font-size: 32px;
+      margin-bottom: 10px;
+      font-weight: 700;
+    }
+
+    .header p {
+      font-size: 16px;
+      opacity: 0.95;
+    }
+
+    .loader {
+      padding: 60px 20px;
+      text-align: center;
+    }
+
+    .spinner {
+      width: 60px;
+      height: 60px;
+      border: 4px solid var(--border);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 20px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .content {
+      padding: 40px 30px;
+    }
+
+    .status-badge {
+      display: inline-block;
+      padding: 8px 20px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 30px;
+    }
+
+    .status-badge.success {
+      background: rgba(40, 167, 69, 0.1);
+      color: var(--success);
+      border: 1px solid var(--success);
+    }
+
+    .status-badge.error {
+      background: rgba(220, 53, 69, 0.1);
+      color: var(--error);
+      border: 1px solid var(--error);
+    }
+
+    .info-grid {
+      display: grid;
+      gap: 20px;
+      margin-bottom: 30px;
+    }
+
+    .info-card {
+      background: #f9f9f9;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      transition: all 0.3s ease;
+    }
+
+    .info-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(139, 71, 137, 0.1);
+    }
+
+    .info-card-label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-light);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    .info-card-value {
+      font-size: 16px;
+      color: var(--text);
+      font-weight: 500;
+      word-break: break-word;
+    }
+
+    .info-card-value.mono {
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+      background: white;
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+    }
+
+    .info-card.highlight {
+      background: linear-gradient(135deg, rgba(139, 71, 137, 0.05) 0%, rgba(212, 165, 212, 0.05) 100%);
+      border: 2px solid var(--primary-light);
+    }
+
+    .info-card.highlight .info-card-label {
+      color: var(--primary);
+    }
+
+    .info-card.highlight .info-card-value {
+      color: var(--primary);
+      font-weight: 600;
+    }
+
+    .pqr-section {
+      margin-top: 40px;
+      padding: 30px;
+      background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+      border-radius: 12px;
+      border: 2px solid var(--border);
+      text-align: center;
+    }
+
+    .pqr-section h3 {
+      color: var(--primary);
+      margin-bottom: 15px;
+      font-size: 20px;
+    }
+
+    .pqr-section p {
+      color: var(--text-light);
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+
+    .pqr-button {
+      display: inline-block;
+      padding: 14px 32px;
+      background: var(--primary);
+      color: var(--white);
+      text-decoration: none;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 16px;
+      transition: all 0.3s ease;
+      box-shadow: 0 4px 12px rgba(139, 71, 137, 0.3);
+    }
+
+    .pqr-button:hover {
+      background: #7a3f78;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(139, 71, 137, 0.4);
+    }
+
+    .footer {
+      padding: 20px 30px;
+      background: #f9f9f9;
+      border-top: 1px solid var(--border);
+      text-align: center;
+      color: var(--text-light);
+      font-size: 13px;
+    }
+
+    .error-message {
+      padding: 40px 30px;
+      text-align: center;
+    }
+
+    .error-message h2 {
+      color: var(--error);
+      margin-bottom: 15px;
+      font-size: 24px;
+    }
+
+    .error-message p {
+      color: var(--text-light);
+      margin-bottom: 10px;
+    }
+
+    @media (max-width: 768px) {
+      body {
+        padding: 10px;
+      }
+
+      .header {
+        padding: 30px 20px;
+      }
+
+      .header h1 {
+        font-size: 24px;
+      }
+
+      .content {
+        padding: 30px 20px;
+      }
+
+      .pqr-section {
+        padding: 20px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <!-- Header -->
+  <div class="header">
+    <h1>🔐 Verificación de Documento</h1>
+    <p>Sistema de Firma Electrónica PKI Services</p>
+  </div>
+
+  <!-- Loader (se oculta cuando carga) -->
+  <div id="loader" class="loader">
+    <div class="spinner"></div>
+    <p style="color: var(--text-light);">Verificando documento...</p>
+  </div>
+
+  <!-- Contenido (se muestra cuando carga) -->
+  <div id="content" class="content" style="display: none;">
+    <!-- Badge de estado -->
+    <div style="text-align: center;">
+      <span id="statusBadge" class="status-badge success">
+        <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Documento Verificado
+      </span>
+    </div>
+
+    <!-- Grid de información -->
+    <div class="info-grid">
+      <!-- Token de verificación -->
+      <div class="info-card highlight">
+        <span class="info-card-label"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Token de Verificación</span>
+        <div id="tokenVerificacion" class="info-card-value mono">-</div>
+      </div>
+
+      <!-- Token del documento -->
+      <div class="info-card">
+        <span class="info-card-label"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg> Token del Documento</span>
+        <div id="tokenDocumento" class="info-card-value mono">-</div>
+      </div>
+
+      <!-- Título del documento -->
+      <div class="info-card">
+        <span class="info-card-label"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Título del Documento</span>
+        <div id="tituloDocumento" class="info-card-value">-</div>
+      </div>
+
+      <!-- Fecha de creación -->
+      <div class="info-card">
+        <span class="info-card-label"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Fecha de Creación</span>
+        <div id="fechaCreacion" class="info-card-value">-</div>
+      </div>
+
+      <!-- Fecha de firma -->
+      <div class="info-card">
+        <span class="info-card-label"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Fecha de Firma</span>
+        <div id="fechaFirma" class="info-card-value">-</div>
+      </div>
+
+      <!-- Firmantes -->
+      <div class="info-card">
+        <span class="info-card-label">👥 Firmantes</span>
+        <div id="firmantes" class="info-card-value">-</div>
+      </div>
+
+    </div>
+
+    <!-- Sección de PQR -->
+    <div class="pqr-section">
+      <h3>📬 ¿Necesitas Soporte?</h3>
+      <p>Si tienes alguna pregunta, queja o reclamo sobre este documento, contáctanos:</p>
+      <a href="https://pkiservices.co/soporte/?wpsc-section=ticket-list"
+         target="_blank"
+         rel="noopener noreferrer"
+         class="pqr-button">
+        Ir a Soporte PKI Services
+      </a>
+    </div>
+  </div>
+
+  <!-- Error (se muestra si falla) -->
+  <div id="error" class="error-message" style="display: none;">
+    <h2><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg> Error de Verificación</h2>
+    <p id="errorMessage">No se pudo verificar el documento.</p>
+    <p style="margin-top: 20px;">
+      <a href="https://pkiservices.co/soporte/?wpsc-section=ticket-list"
+         target="_blank"
+         rel="noopener noreferrer"
+         style="color: var(--primary); text-decoration: underline;">
+        Contactar soporte
+      </a>
+    </p>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <p>Powered by <strong>PKI Services S.A.S.</strong> | Sistema de Firma Electrónica Certificada</p>
+    <p style="font-size: 11px; margin-top: 5px; opacity: 0.7;">
+      Este documento ha sido verificado mediante tecnología blockchain y certificados digitales
+    </p>
+  </div>
+</div>
+
+<script>
+  // Obtener token de verificación de la URL
+  const urlParams = new URLSearchParams(window.location.search);
+  const verificationToken = urlParams.get('id');
+
+  if (!verificationToken) {
+    showError('No se proporcionó un token de verificación válido');
+  } else {
+    loadVerification(verificationToken);
+  }
+
+  async function loadVerification(token) {
+    try {
+      const response = await fetch(`/api/public/verify/${token}`);
+      const data = await response.json();
+
+      if (data.success) {
+        displayVerification(data.verification);
+      } else {
+        showError(data.message || 'Documento no encontrado');
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      showError('Error de conexión. Por favor, intente nuevamente.');
+    }
+  }
+
+  function displayVerification(verification) {
+    // Ocultar loader, mostrar contenido
+    document.getElementById('loader').style.display = 'none';
+    document.getElementById('content').style.display = 'block';
+
+    // Rellenar campos (sin exponer IDs internos)
+    document.getElementById('tokenVerificacion').textContent = verification.token_verificacion;
+    document.getElementById('tokenDocumento').textContent = verification.token_documento;
+    document.getElementById('tituloDocumento').textContent = verification.titulo_documento || 'Sin título';
+    document.getElementById('fechaCreacion').textContent = verification.fecha_creacion;
+    document.getElementById('fechaFirma').textContent = verification.fecha_firma;
+    document.getElementById('firmantes').textContent = verification.firmantes;
+  }
+
+  function showError(message) {
+    document.getElementById('loader').style.display = 'none';
+    document.getElementById('error').style.display = 'block';
+    document.getElementById('errorMessage').textContent = message;
+  }
+</script>
+
+</body>
+</html>

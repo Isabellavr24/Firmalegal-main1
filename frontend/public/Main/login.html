@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Iniciar sesión — FirmaLegalOnline</title>
+
+  <!-- Fuente -->
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+
+  <!-- Estilos -->
+  <link rel="stylesheet" href="/public/Main/M-styles/login.css?v=1">
+</head>
+<body>
+
+  <header class="login-header">
+    <img class="brand-logo" src="/img/Nuevologo.jpg" alt="PKI Services / ONAC" />
+  </header>
+
+  <main class="login-shell">
+    <section class="login-card" role="dialog" aria-labelledby="login-title" aria-describedby="login-desc">
+      <h1 class="login-title" id="login-title">Iniciar sesión</h1>
+      <p id="login-desc" class="sr-only">Ingresa con tu correo electrónico y contraseña</p>
+
+      <form id="loginForm" novalidate>
+        <!-- Correo -->
+        <div class="field">
+          <label for="email">Correo electrónico</label>
+          <input id="email" name="email" type="email" class="input-pill" placeholder="tu@correo.com" autocomplete="username" required>
+          <small class="error" id="emailError" aria-live="polite"></small>
+        </div>
+
+        <!-- Contraseña -->
+        <div class="field">
+          <label for="password">Contraseña</label>
+          <div class="password-wrap">
+            <input id="password" name="password" type="password" class="input-pill" placeholder="••••••••" autocomplete="current-password" minlength="6" required>
+            <button class="pass-toggle" type="button" aria-label="Mostrar u ocultar contraseña" title="Mostrar/Ocultar">
+              👁
+            </button>
+          </div>
+          <small class="error" id="passError" aria-live="polite"></small>
+        </div>
+
+        <!-- Botón -->
+        <button class="btn-primary-xl" type="submit">INICIAR SESIÓN</button>
+
+        <!-- Secundario -->
+        <div class="login-actions">
+          <a href="#" class="link">¿Olvidaste tu contraseña?</a>
+        </div>
+
+        <!-- Idioma -->
+        <div class="lang-row">
+          <div class="select-wrap">
+            <select id="lang" class="select-pill" aria-label="Idioma">
+              <option value="es" selected>Español</option>
+              <option value="en">English</option>
+              <option value="pt">Português</option>
+            </select>
+            <span class="select-arrow">▾</span>
+          </div>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <!-- Cargar helper de autenticación PRIMERO -->
+  <script src="/public/Main/auth-helper.js"></script>
+  <!-- Luego el script de login -->
+  <script src="/public/Main/M-styles/login.js"></script>
+</body>
+</html>

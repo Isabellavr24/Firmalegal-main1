@@ -4,17 +4,23 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Environment variables
-.env
-.env.local
-.env.production
-.env.test
+# Environment variables - NEVER COMMIT
+.env*
 
 # Certificates (SECURITY - NEVER COMMIT)
-backend/certificates/*.p12
-backend/certificates/*.pfx
-backend/certificates/*.pem
-backend/certificates/*.key
+backend/certificates/
+*.pfx
+*.p12
+*.pem
+*.key
+*.der
+*.tsq
+*.tsr
+*.bin
+
+# Database dumps (contain secrets)
+database-dump.sql
+*.sql.gz
 
 # Uploads
 uploads/
@@ -29,6 +35,7 @@ uploads/
 # OS
 .DS_Store
 Thumbs.db
+nul
 
 # Logs
 logs/
@@ -38,11 +45,20 @@ logs/
 docker-compose.dev.yml
 Dockerfile.dev
 
-# All env files (wildcard)
-.env*
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
 
-# PFX certificates (root level)
-*.pfx
+# Temp / Claude agent files
+tmpclaude-*
 
-# Uploads wildcard
-uploads/*
+# Claude internal settings
+.claude/
+
+# Backup files
+*.backup-*
+*.server
+
+# Avatar temp files
+frontend/avatar-pht/avatar_temp_*

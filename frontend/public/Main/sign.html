@@ -1,0 +1,2528 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Editor de Firma</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="/public/Main/M-styles/sign.css">
+  <link rel="stylesheet" href="/public/Main/M-styles/toast-notifications.css">
+  <style>
+    /* Iconos SVG inline */
+    .icon-svg { display:inline-block; width:18px; height:18px; vertical-align:middle; flex-shrink:0; }
+
+    /* Loader inicial - visible por defecto */
+    #initialLoader {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(255, 255, 255, 0.95);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 99999;
+      backdrop-filter: blur(4px);
+    }
+    #initialLoader.hidden {
+      display: none;
+    }
+    .spinner {
+      width: 60px;
+      height: 60px;
+      border: 4px solid #f3f0ff;
+      border-top: 4px solid #2a0d31;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .loader-text {
+      margin-top: 20px;
+      color: #2a0d31;
+      font-weight: 600;
+      font-size: 14px;
+      font-family: Inter, system-ui, sans-serif;
+    }
+
+    /* ========================================
+       ESTILOS DEL SELECTOR DE ROLES
+       ======================================== */
+    .role-option {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      border: 2px solid #E5E7EB;
+      border-radius: 8px;
+      background: white;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .role-option:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+
+    .role-option.selected {
+      border-color: var(--role-color);
+      background-color: var(--role-color-light);
+    }
+
+    .role-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: 1;
+    }
+
+    .role-color-dot {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      border: 2px solid white;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      flex-shrink: 0;
+    }
+
+    .role-name {
+      font-size: 13px;
+      font-weight: 500;
+      color: #374151;
+    }
+
+    .role-option.selected .role-name {
+      font-weight: 600;
+      color: var(--role-color);
+    }
+
+    .check-icon {
+      width: 18px;
+      height: 18px;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .role-option.selected .check-icon {
+      opacity: 1;
+    }
+
+    /* Botón de eliminar parte */
+    .delete-role-btn {
+      opacity: 0.7;
+      transition: all 0.2s;
+    }
+
+    .role-option:hover .delete-role-btn {
+      opacity: 1;
+    }
+
+    /* Badge de rol en los campos */
+    .field-role-badge {
+      position: absolute;
+      top: -20px;
+      left: 0;
+      color: white;
+      padding: 2px 8px;
+      border-radius: 4px 4px 0 0;
+      font-size: 10px;
+      font-weight: 600;
+      white-space: nowrap;
+      z-index: 10;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ✅ Loader inicial - Se muestra INMEDIATAMENTE -->
+  <div id="initialLoader">
+    <div class="spinner"></div>
+    <p class="loader-text">Cargando documento...</p>
+  </div>
+
+  <!-- Barra superior -->
+  <div class="bar">
+    <strong>Prueba</strong>
+    <div class="actions">
+      <button id="saveBtn" class="chip primary"> GUARDAR</button>
+    </div>
+  </div>
+
+  <div class="layout">
+    <!-- IZQUIERDA -->
+    <aside class="panel left">
+      <div class="thumb"></div>
+      <div id="docInfo" class="doc-info">
+        <div class="doc-name">Sin documento</div>
+        <div class="doc-meta">Sube un PDF para comenzar</div>
+      </div>
+
+      <div class="upload">
+        <label class="chip" for="pdfFile"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> SUBIR PDF</label>
+        <input id="pdfFile" type="file" accept="application/pdf,.pdf" />
+      </div>
+    </aside>
+
+    <!-- CENTRO -->
+    <main class="panel" style="overflow:auto" id="pdfViewer">
+      <!-- ✅ Contenedor para TODAS las páginas del PDF -->
+      <div id="pagesContainer">
+        <!-- Las páginas se generarán dinámicamente aquí -->
+      </div>
+    </main>
+
+    <!-- DERECHA -->
+    <aside class="panel" id="toolsPanel">
+      <!-- Toggle para mobile -->
+      <button class="mobile-tools-toggle" id="mobileToolsToggle" onclick="this.classList.toggle('expanded'); document.getElementById('mobileToolsBody').classList.toggle('expanded')">
+        <span>Herramientas</span>
+        <svg class="chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+
+      <div id="mobileToolsBody" class="mobile-tools-body">
+        <!-- Selector de Roles -->
+        <div id="rolesSelector" style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 2px solid #E5E7EB;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <label style="font-size: 13px; font-weight: 600; color: #374151;">Asignar a:</label>
+            <button id="addRoleBtn" class="chip" style="padding: 4px 10px; font-size: 11px; background: #F3F4F6;">+ Agregar Parte</button>
+          </div>
+          <div id="rolesList" style="display: flex; flex-direction: column; gap: 8px;">
+            <!-- Roles se cargan dinámicamente -->
+          </div>
+        </div>
+
+        <h4 id="currentRoleTitle" style="margin:6px 0 10px; color: #3B82F6;">Primera Parte</h4>
+        <div id="toolSign" class="tool"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> <div>Firma</div></div>
+        <div id="toolText" class="tool"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg> <div>Texto</div></div>
+        <div id="toolDate" class="tool"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> <div>Fecha</div></div>
+        <div id="toolSeal" class="tool"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> <div>Sello</div></div>
+
+        <!-- Firma Definitiva (solo visible en modo pagaré) -->
+        <div id="toolFinalSignature" class="tool" style="display: none; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; margin-top: 12px;">
+          <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M5 12h14"/><circle cx="12" cy="12" r="10"/></svg> <div>Firma Definitiva</div>
+        </div>
+
+        <ul class="tips">
+          <li>Selecciona una herramienta y <b>arrastra</b> en el PDF para dibujar el campo del tamaño deseado.</li>
+          <li>Puedes mover y redimensionar los campos después de colocarlos.</li>
+          <li>Pulsa <b>GUARDAR</b> para almacenar los campos.</li>
+          <li>El campo <b><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Sello</b> se renderiza automáticamente al firmar con el certificado PKI.</li>
+        </ul>
+      </div>
+    </aside>
+  </div>
+
+  <!-- MODAL de firma (simple para modo preparación) -->
+  <div id="sigModal" class="modal-back" aria-hidden="true">
+    <div class="modal modal-signature" role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <h3><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Firma Digital</h3>
+        <button class="close-modal" id="sigClose">×</button>
+      </div>
+      <div class="modal-body">
+        <label class="input-label">Dibuja tu firma con el mouse o pantalla táctil</label>
+        <div class="sig-wrap"><canvas id="sigPad"></canvas></div>
+      </div>
+      <div class="modal-footer">
+        <button id="sigClear" class="btn btn-secondary"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Limpiar</button>
+        <button id="sigCancel" class="btn btn-secondary">Cancelar</button>
+        <button id="sigOk" class="btn btn-primary">✓ Usar firma</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL de texto -->
+  <div id="textModal" class="modal-back" aria-hidden="true">
+    <div class="modal modal-text" role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <h3><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Personalizar Texto</h3>
+        <button class="close-modal" id="textClose">×</button>
+      </div>
+      
+      <div class="modal-body">
+        <div class="text-input-section">
+          <label class="input-label">Contenido</label>
+          <textarea id="textInput" class="text-area" placeholder="Escribe tu texto aquí..." rows="3"></textarea>
+        </div>
+        
+        <div class="format-toolbar">
+          <!-- Fila 1: Fuente y Tamaño -->
+          <div class="toolbar-row">
+            <div class="toolbar-group">
+              <label class="toolbar-label">Fuente</label>
+              <select id="fontFamily" class="toolbar-select font-select">
+                <option value="Arial">Arial</option>
+                <option value="Helvetica">Helvetica</option>
+                <option value="Times New Roman">Times New Roman</option>
+                <option value="Courier New">Courier New</option>
+                <option value="Georgia">Georgia</option>
+                <option value="Verdana">Verdana</option>
+                <option value="Calibri">Calibri</option>
+                <option value="Cambria">Cambria</option>
+              </select>
+            </div>
+            
+            <div class="toolbar-group">
+              <label class="toolbar-label">Tamaño</label>
+              <select id="fontSize" class="toolbar-select size-select">
+                <option value="8">8</option>
+                <option value="9">9</option>
+                <option value="10">10</option>
+                <option value="11">11</option>
+                <option value="12" selected>12</option>
+                <option value="14">14</option>
+                <option value="16">16</option>
+                <option value="18">18</option>
+                <option value="20">20</option>
+                <option value="22">22</option>
+                <option value="24">24</option>
+                <option value="28">28</option>
+                <option value="32">32</option>
+              </select>
+            </div>
+            
+            <div class="toolbar-group">
+              <label class="toolbar-label">Color</label>
+              <div class="color-picker-wrapper">
+                <input type="color" id="fontColor" class="color-input" value="#000000">
+                <span class="color-preview" id="colorPreview"></span>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Fila 2: Estilos y Alineación -->
+          <div class="toolbar-row">
+            <div class="toolbar-group">
+              <label class="toolbar-label">Formato</label>
+              <div class="format-buttons">
+                <button type="button" id="boldBtn" class="format-btn" title="Negrita (Ctrl+B)">
+                  <strong>B</strong>
+                </button>
+                <button type="button" id="italicBtn" class="format-btn" title="Cursiva (Ctrl+I)">
+                  <em>I</em>
+                </button>
+                <button type="button" id="underlineBtn" class="format-btn" title="Subrayado (Ctrl+U)">
+                  <u>U</u>
+                </button>
+              </div>
+            </div>
+            
+            <div class="toolbar-group">
+              <label class="toolbar-label">Alineación</label>
+              <div class="format-buttons">
+                <button type="button" id="alignLeft" class="format-btn active" data-align="left" title="Alinear izquierda">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M2 3h12v2H2V3zm0 4h8v2H2V7zm0 4h12v2H2v-2z"/>
+                  </svg>
+                </button>
+                <button type="button" id="alignCenter" class="format-btn" data-align="center" title="Centrar">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M4 3h8v2H4V3zm2 4h4v2H6V7zm-2 4h8v2H4v-2z"/>
+                  </svg>
+                </button>
+                <button type="button" id="alignRight" class="format-btn" data-align="right" title="Alinear derecha">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M2 3h12v2H2V3zm4 4h8v2H6V7zm-4 4h12v2H2v-2z"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="preview-section">
+          <label class="input-label">Vista previa</label>
+          <div id="textPreview" class="text-preview">Tu texto aparecerá aquí...</div>
+        </div>
+      </div>
+      
+      <div class="modal-footer">
+        <button id="textCancel" class="btn btn-secondary">Cancelar</button>
+        <button id="textOk" class="btn btn-primary">✓ Aplicar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL de fecha -->
+  <div id="dateModal" class="modal-back" aria-hidden="true">
+    <div class="modal modal-date" role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <h3><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Seleccionar Fecha</h3>
+        <button class="close-modal" id="dateClose">×</button>
+      </div>
+      <div class="modal-body">
+        <label class="input-label">Fecha del documento</label>
+        <input type="date" id="dateInput" class="date-input">
+      </div>
+      <div class="modal-footer">
+        <button id="dateCancel" class="btn btn-secondary">Cancelar</button>
+        <button id="dateOk" class="btn btn-primary">✓ Agregar fecha</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL de confirmación -->
+  <div id="confirmModalSign" style="display:none;" aria-hidden="true">
+    <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 100000; display: flex; align-items: center; justify-content: center; background: transparent; pointer-events: none;">
+      <div style="background: white; border-radius: 12px; padding: 0; max-width: 450px; width: 90%; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15); position: relative; pointer-events: auto;">
+        <div style="padding: 20px 24px; border-bottom: 1px solid #e5e7eb; position: relative;">
+          <h3 style="margin: 0; font-size: 18px; font-weight: 600; color: #1f2937;">Confirmar envío</h3>
+          <button onclick="closeConfirmModalSign()" style="position: absolute; top: 20px; right: 20px; background: none; border: none; font-size: 24px; cursor: pointer; color: #6b7280; line-height: 1;">×</button>
+        </div>
+        <div style="padding: 24px;">
+          <p id="confirmMessageSign" style="margin: 0; color: #4b5563; font-size: 15px; line-height: 1.6; text-align: center;"></p>
+        </div>
+        <div style="padding: 16px 24px; border-top: 1px solid #e5e7eb; display: flex; gap: 12px; justify-content: flex-end;">
+          <button onclick="closeConfirmModalSign()" style="padding: 10px 20px; background: #f3f4f6; color: #374151; border: none; border-radius: 6px; font-weight: 600; cursor: pointer;">Cancelar</button>
+          <button id="confirmButtonSign" style="padding: 10px 20px; background: #2a0d31; color: white; border: none; border-radius: 6px; font-weight: 600; cursor: pointer;">Confirmar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL de destinatarios -->
+  <div id="recipientsModal" class="modal-back" aria-hidden="true">
+    <div class="modal modal-recipients" role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <h3>Agregar nuevos destinatarios</h3>
+        <button class="close-modal" id="recipientsClose">×</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Pestañas -->
+        <div class="recipients-tabs">
+          <button class="recipients-tab active" data-tab="email">por Email</button>
+          <button class="recipients-tab" data-tab="phone">por Teléfono</button>
+          <button class="recipients-tab" data-tab="upload">Subir lista</button>
+        </div>
+
+        <!-- Contenido de pestañas -->
+        <div class="recipients-content">
+          <!-- Pestaña Email -->
+          <div id="tab-email" class="tab-content active">
+            <div id="emailTabContent">
+              <!-- Contenido dinámico: textarea o formulario de roles -->
+              <textarea
+                id="emailInput"
+                class="recipients-textarea"
+                placeholder="Escribe correos electrónicos aquí..."
+                rows="6"
+              ></textarea>
+            </div>
+          </div>
+
+          <!-- Pestaña Teléfono -->
+          <div id="tab-phone" class="tab-content">
+            <textarea
+              id="phoneInput"
+              class="recipients-textarea"
+              placeholder="Escribe números de teléfono aquí..."
+              rows="6"
+            ></textarea>
+          </div>
+
+          <!-- Pestaña Subir lista -->
+          <div id="tab-upload" class="tab-content">
+            <!-- Información de Plantilla -->
+            <div style="padding: 0 0 20px 0;">
+              <h4 style="margin-bottom: 16px; font-size: 16px; font-weight: 600; color: #1f2937;">Plantilla PDF</h4>
+
+              <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px; margin-bottom: 20px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <svg style="width:24px;height:24px;" viewBox="0 0 24 24" fill="none" stroke="#15803d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  <div>
+                    <div style="font-size: 14px; font-weight: 600; color: #15803d;" id="templateNameDisplaySign">Cargando...</div>
+                    <div style="font-size: 12px; color: #16a34a; margin-top: 2px;" id="templateIdDisplaySign"></div>
+                  </div>
+                </div>
+              </div>
+
+              <div id="templateFieldsInfoSign" style="display: none; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px; margin-bottom: 12px;">
+                <div style="font-size: 13px; color: #6b7280;">
+                  <strong>Campos detectados:</strong> <span id="fieldsCountSign">0</span> campos
+                  <div id="fieldsListSign" style="margin-top: 8px;"></div>
+                </div>
+              </div>
+
+              <!-- Selector de modo de envío -->
+              <div id="sendModeSelectorSign" style="display: none; margin-bottom: 20px;">
+                <h4 style="margin-bottom: 12px; font-size: 14px; font-weight: 600; color: #1e3a8a;">
+                  <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg> Campos de texto detectados - Seleccione cómo enviar a remitentes
+                </h4>
+
+                <!-- Botones de selector -->
+                <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+                  <button id="modeManualBtnSign" class="mode-selector-btn active" data-mode="manual" style="flex: 1; padding: 12px 16px; border: 2px solid #16a34a; background: #16a34a; color: white; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                    <svg style="width:16px;height:16px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    <span>Rellenar manualmente</span>
+                  </button>
+                  <button id="modeCsvBtnSign" class="mode-selector-btn" data-mode="csv" style="flex: 1; padding: 12px 16px; border: 2px solid #16a34a; background: white; color: #16a34a; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                    <svg style="width:16px;height:16px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                    <span>Rellenar por CSV</span>
+                  </button>
+                </div>
+
+                <!-- Contenido para modo MANUAL -->
+                <div id="manualModeContentSign" style="display: block;">
+                  <div style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 14px; margin-bottom: 14px;">
+                    <p style="font-size: 12px; color: #15803d; margin: 0; line-height: 1.5;">
+                      <strong><svg style="width:14px;height:14px;vertical-align:middle;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg> Modo manual:</strong> Asigna valores fijos a los campos de texto del PDF. Luego sube un CSV con los emails de los firmantes usando el enlace "Descargar plantilla de ejemplo (CSV)" que está más abajo.
+                    </p>
+                  </div>
+
+                  <button id="fillFieldsManualBtnSign" class="btn btn-primary" style="width: 100%; background: #16a34a; border-color: #16a34a; padding: 12px; font-size: 14px; font-weight: 600;">
+                    <svg style="width:16px;height:16px;vertical-align:middle;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Asignar valores a campos de texto
+                  </button>
+                </div>
+
+                <!-- Contenido para modo CSV -->
+                <div id="csvModeContentSign" style="display: none;">
+                  <div style="background: #fef3c7; border: 1px solid #fbbf24; border-radius: 8px; padding: 14px;">
+                    <p style="font-size: 12px; color: #92400e; margin: 0; line-height: 1.5;">
+                      <strong><svg style="width:14px;height:14px;vertical-align:middle;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> Modo CSV completo:</strong> Descarga una plantilla con todas las columnas (roles + campos de texto) usando el enlace <strong>"Descargar plantilla de ejemplo (CSV)"</strong> que está más abajo. Cada fila generará un documento personalizado con diferentes valores en los campos.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="upload-zone" id="uploadZone">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+              <p>Arrastra un archivo CSV o haz clic para seleccionar</p>
+              <input type="file" id="csvFileInputSign" accept=".csv" style="display:none">
+              <button class="upload-btn" onclick="document.getElementById('csvFileInputSign').click()">Seleccionar archivo</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Checkbox y opciones -->
+        <div class="recipients-options">
+          <label class="checkbox-label">
+            <input type="checkbox" id="sendEmailCheckbox" checked>
+            <span>Enviar correo electrónico</span>
+          </label>
+          <a href="#" class="edit-message-link" id="editMessageLink">Editar mensaje</a>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button id="recipientsCancel" class="btn btn-secondary">Cancelar</button>
+        <button id="recipientsAdd" class="btn btn-primary">AGREGAR DESTINATARIOS</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de Llenado Dinámico -->
+  <div id="dynamicFillModalSign" style="display:none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.6); z-index: 10050; justify-content: center; align-items: center;" aria-hidden="true">
+    <div style="background: #fff; border-radius: 16px; max-width: 600px; width: 90%; max-height: 85vh; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); position: relative; display: flex; flex-direction: column;">
+      <!-- Header -->
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 24px 28px; border-bottom: 2px solid #f0f0f0;">
+        <h2 style="margin: 0; font-size: 20px; color: #2b0e31; font-weight: 700;">Rellenar campos del documento</h2>
+        <button onclick="closeDynamicFillModalSign()" aria-label="Cerrar" style="background: transparent; border: none; cursor: pointer; color: #999; padding: 4px; transition: color 0.2s;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Body -->
+      <div style="padding: 28px; max-height: 55vh; overflow-y: auto; flex: 1;">
+        <div id="dynamicFieldsContainerSign">
+          <!-- Los campos se generarán dinámicamente aquí -->
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div style="display: flex; gap: 12px; justify-content: flex-end; padding: 20px 28px; border-top: 2px solid #f0f0f0;">
+        <button class="btn btn-secondary" onclick="closeDynamicFillModalSign()" style="padding: 12px 24px; font-size: 14px; font-weight: 600; border-radius: 8px;">Cancelar</button>
+        <button id="saveDynamicFieldsBtnSign" class="btn btn-primary" style="padding: 12px 24px; font-size: 14px; font-weight: 600; border-radius: 8px;">💾 Guardar Valores</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Libs desde UNPKG (alternativa a CDNJS) -->
+  <script src="https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.min.mjs" type="module"></script>
+  <script type="module">
+    // Importar PDF.js como módulo
+    import * as pdfjsLib from 'https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.min.mjs';
+    
+    // Configurar worker
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs';
+    
+    // Hacer disponible globalmente
+    window.pdfjsLib = pdfjsLib;
+    console.log('✅ PDF.js cargado correctamente desde UNPKG');
+    console.log('� pdfjsLib disponible:', window.pdfjsLib);
+  </script>
+  
+  <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <script>
+    setTimeout(function() {
+      if (typeof PDFLib !== 'undefined') {
+        console.log('✅ pdf-lib cargado correctamente');
+      } else {
+        console.error('❌ pdf-lib no se cargó');
+      }
+    }, 100);
+  </script>
+
+  <!-- 🔥 NUEVO: Sistema de roles para asignar campos a partes -->
+  <script src="/public/Main/roles-field-selector.js"></script>
+
+  <!-- 🎨 Sistema de notificaciones toast -->
+  <script src="/public/Main/toast-notifications.js"></script>
+
+  <!-- Tu JS - versión corregida -->
+  <script src="/public/Main/sign.js"></script>
+
+  <!-- 📋 Sistema de mapeo de campos -->
+  <script src="/public/Main/sign-field-mapping.js"></script>
+
+  <!-- Cargar valores completados si es vista de documento firmado -->
+  <script>
+    (async function() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const docId = urlParams.get('id');
+      const recipientId = urlParams.get('recipient');
+      const userId = urlParams.get('user_id') || localStorage.getItem('user_id') || '1';
+
+      // Si hay recipient, significa que estamos viendo un documento completado
+      if (docId && recipientId) {
+        console.log(`📥 Cargando valores completados para doc ${docId}, recipient ${recipientId}`);
+        
+        try {
+          const response = await fetch(`/api/documents/${docId}/recipients/${recipientId}/values?user_id=${userId}`);
+          const data = await response.json();
+
+          if (data.success && data.values && data.values.length > 0) {
+            console.log(`✅ ${data.values.length} valor(es) cargado(s)`, data.values);
+
+            // Esperar a que los campos se rendericen
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            // Aplicar valores a los campos
+            data.values.forEach(value => {
+              console.log(`🔍 Procesando valor:`, {
+                field_id: value.field_id,
+                value_type: value.value_type,
+                has_signature: !!value.signature_path,
+                has_text: !!value.text_value,
+                has_date: !!value.date_value
+              });
+              
+              const fieldDiv = document.querySelector(`[data-field-id="${value.field_id}"]`);
+              console.log(`🔍 Campo en DOM:`, fieldDiv ? 'Encontrado ✅' : 'No encontrado ❌');
+              
+              if (fieldDiv) {
+                fieldDiv.classList.add('signed');
+                
+                // Obtener o crear label
+                let label = fieldDiv.querySelector('.label');
+                if (!label && value.field_label) {
+                  label = document.createElement('div');
+                  label.className = 'label';
+                  label.textContent = value.field_label;
+                }
+
+                // Aplicar valor según el tipo
+                if (value.value_type === 'signature_image' && value.signature_path) {
+                  // Firma
+                  console.log(`🖼️ Aplicando firma...`);
+                  fieldDiv.innerHTML = '';
+                  if (label) fieldDiv.appendChild(label);
+                  const img = document.createElement('img');
+                  img.src = value.signature_path;
+                  img.style.width = '100%';
+                  img.style.height = '100%';
+                  img.style.objectFit = 'contain';
+                  fieldDiv.appendChild(img);
+                  console.log(`   ✓ Firma aplicada al campo ${value.field_id}`);
+                  
+                } else if (value.value_type === 'text' && value.text_value) {
+                  // Texto
+                  try {
+                    const textData = JSON.parse(value.text_value);
+                    fieldDiv.innerHTML = '';
+                    if (label) fieldDiv.appendChild(label);
+                    
+                    const contentDiv = document.createElement('div');
+                    contentDiv.className = 'field-content';
+                    contentDiv.textContent = textData.text;
+                    contentDiv.style.fontFamily = textData.style?.fontFamily || 'Arial';
+                    contentDiv.style.fontSize = `${textData.style?.fontSize || 12}px`;
+                    contentDiv.style.color = textData.style?.fontColor || '#000';
+                    contentDiv.style.fontWeight = textData.style?.bold ? 'bold' : 'normal';
+                    contentDiv.style.fontStyle = textData.style?.italic ? 'italic' : 'normal';
+                    contentDiv.style.textDecoration = textData.style?.underline ? 'underline' : 'none';
+                    contentDiv.style.textAlign = textData.style?.textAlign || 'left';
+                    contentDiv.style.width = '100%';
+                    contentDiv.style.height = '100%';
+                    contentDiv.style.display = 'flex';
+                    contentDiv.style.alignItems = 'center';
+                    contentDiv.style.padding = '4px';
+                    fieldDiv.appendChild(contentDiv);
+                    console.log(`   ✓ Texto aplicado al campo ${value.field_id}`);
+                  } catch (e) {
+                    console.error('Error parseando texto:', e);
+                  }
+                  
+                } else if (value.value_type === 'date' && value.date_value) {
+                  // Fecha
+                  console.log(`📅 Procesando fecha:`, value.date_value);
+                  
+                  // La fecha viene en formato YYYY-MM-DD desde la BD
+                  const [year, month, day] = value.date_value.split('-');
+                  const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                  
+                  console.log(`📅 Fecha parseada:`, date);
+                  
+                  const formattedDate = date.toLocaleDateString('es-ES', { 
+                    year: 'numeric', 
+                    month: 'long', 
+                    day: 'numeric' 
+                  });
+                  
+                  console.log(`📅 Fecha formateada:`, formattedDate);
+                  
+                  fieldDiv.innerHTML = '';
+                  if (label) fieldDiv.appendChild(label);
+                  
+                  const contentDiv = document.createElement('div');
+                  contentDiv.className = 'field-content';
+                  contentDiv.textContent = formattedDate;
+                  contentDiv.style.width = '100%';
+                  contentDiv.style.height = '100%';
+                  contentDiv.style.display = 'flex';
+                  contentDiv.style.alignItems = 'center';
+                  contentDiv.style.justifyContent = 'center';
+                  contentDiv.style.fontSize = '14px';
+                  contentDiv.style.fontWeight = '600';
+                  contentDiv.style.color = '#333';
+                  fieldDiv.appendChild(contentDiv);
+                  console.log(`   ✓ Fecha aplicada al campo ${value.field_id}`);
+                }
+              } else {
+                console.warn(`⚠️ Campo con field_id ${value.field_id} no encontrado en DOM`);
+              }
+            });
+
+            console.log('✅ Todos los valores han sido aplicados');
+          }
+        } catch (error) {
+          console.error('❌ Error cargando valores completados:', error);
+        }
+      }
+    })();
+  </script>
+
+  <!-- =============================================
+       MODAL DE ENVÍO MASIVO
+       ============================================= -->
+  <div id="bulkSendModal" class="bulk-modal-overlay" style="display: none;">
+    <div class="bulk-modal">
+      <!-- Header -->
+      <div class="bulk-modal-header">
+        <h2 class="bulk-modal-title">Agregar nuevos destinatarios</h2>
+        <button class="bulk-close-btn" onclick="closeBulkSendModal()" title="Cerrar">×</button>
+      </div>
+
+      <!-- Tabs -->
+      <div class="bulk-tabs">
+        <button class="bulk-tab active" data-tab="upload">Subir lista</button>
+        <button class="bulk-tab" data-tab="email">por Email</button>
+        <button class="bulk-tab" data-tab="phone">por Teléfono</button>
+        <button class="bulk-tab" data-tab="detailed">Detallado</button>
+      </div>
+
+      <!-- Body -->
+      <div class="bulk-modal-body">
+        <!-- Tab: Subir lista -->
+        <div class="bulk-tab-content active" id="bulk-tab-upload">
+          <!-- Upload Area -->
+          <div id="bulkUploadSection">
+            <div class="bulk-upload-area" id="bulkDropzone">
+              <svg class="bulk-upload-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+              </svg>
+              <div class="bulk-upload-title">Subir hoja de cálculo CSV o XLSX</div>
+              <div class="bulk-upload-subtitle">Haz clic para subir o arrastra y suelta los archivos.</div>
+              <a href="#" class="bulk-upload-link" onclick="downloadBulkTemplate(); return false;">
+                <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                  <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
+                  <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/>
+                </svg>
+                descarga una hoja de cálculo de ejemplo para completar e importar.
+              </a>
+            </div>
+            <input type="file" id="bulkFileInput" accept=".csv,.xlsx,.xls" style="display: none;">
+          </div>
+
+          <!-- Preview Section -->
+          <div id="bulkPreviewSection" class="bulk-preview-section">
+            <div class="bulk-stats-row">
+              <div class="bulk-stat-card">
+                <div class="bulk-stat-label">Total</div>
+                <div class="bulk-stat-value" id="bulkTotalCount">0</div>
+              </div>
+              <div class="bulk-stat-card">
+                <div class="bulk-stat-label">Válidos</div>
+                <div class="bulk-stat-value success" id="bulkValidCount">0</div>
+              </div>
+              <div class="bulk-stat-card">
+                <div class="bulk-stat-label">Errores</div>
+                <div class="bulk-stat-value error" id="bulkErrorCount">0</div>
+              </div>
+            </div>
+
+            <!-- Error List -->
+            <div id="bulkErrorListContainer" style="display: none;" class="bulk-error-list">
+              <div class="bulk-error-list-title"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="#dc3545" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Errores encontrados:</div>
+              <div id="bulkErrorList"></div>
+            </div>
+
+            <!-- Recipients Table -->
+            <table class="bulk-recipients-table">
+              <thead>
+                <tr>
+                  <th style="width: 50px;">#</th>
+                  <th>Email</th>
+                  <th>Nombre</th>
+                </tr>
+              </thead>
+              <tbody id="bulkRecipientsTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Tab: por Email -->
+        <div class="bulk-tab-content" id="bulk-tab-email">
+          <p style="color: #666; font-size: 13px; text-align: center; padding: 40px 0;">Esta funcionalidad estará disponible próximamente.</p>
+        </div>
+
+        <!-- Tab: por Teléfono -->
+        <div class="bulk-tab-content" id="bulk-tab-phone">
+          <p style="color: #666; font-size: 13px; text-align: center; padding: 40px 0;">Esta funcionalidad estará disponible próximamente.</p>
+        </div>
+
+        <!-- Tab: Detallado -->
+        <div class="bulk-tab-content" id="bulk-tab-detailed">
+          <p style="color: #666; font-size: 13px; text-align: center; padding: 40px 0;">Esta funcionalidad estará disponible próximamente.</p>
+        </div>
+
+        <!-- Success Message -->
+        <div id="bulkSuccessSection" class="bulk-success-message">
+          <div class="bulk-success-icon">✓</div>
+          <div class="bulk-success-title">¡Envío Completado!</div>
+          <div class="bulk-success-text" id="bulkSuccessText">
+            Los destinatarios recibirán el documento en los próximos minutos.
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="bulk-modal-footer">
+        <button class="bulk-btn bulk-btn-secondary" onclick="closeBulkSendModal()">Cancelar</button>
+        <button class="bulk-btn bulk-btn-primary" id="bulkSendBtn" onclick="sendBulkEmailsFromModal()" disabled>
+          <span id="bulkBtnText">Enviar a 0 destinatarios</span>
+          <span id="bulkBtnSpinner" style="display: none;" class="bulk-loading-spinner"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts para modal de envío masivo -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+  <style>
+    /* Estilos para el modal de envío masivo */
+    .bulk-modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100000;
+    }
+
+    .bulk-modal {
+      background: white;
+      border-radius: 8px;
+      width: 90%;
+      max-width: 700px;
+      max-height: 90vh;
+      overflow: hidden;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .bulk-modal-header {
+      padding: 20px 24px;
+      border-bottom: 1px solid #e5e5e5;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .bulk-modal-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #333;
+    }
+
+    .bulk-close-btn {
+      background: none;
+      border: none;
+      font-size: 24px;
+      color: #666;
+      cursor: pointer;
+      padding: 0;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      transition: background 0.2s;
+    }
+
+    .bulk-close-btn:hover {
+      background: #f0f0f0;
+    }
+
+    .bulk-tabs {
+      display: flex;
+      background: #f8f8f8;
+      border-bottom: 1px solid #e5e5e5;
+      padding: 0 24px;
+    }
+
+    .bulk-tab {
+      padding: 16px 24px;
+      background: none;
+      border: none;
+      font-size: 14px;
+      font-weight: 500;
+      color: #666;
+      cursor: pointer;
+      border-bottom: 3px solid transparent;
+      transition: all 0.2s;
+    }
+
+    .bulk-tab:hover {
+      color: #333;
+      background: rgba(0,0,0,0.03);
+    }
+
+    .bulk-tab.active {
+      color: #0066cc;
+      border-bottom-color: #0066cc;
+      background: white;
+    }
+
+    .bulk-modal-body {
+      padding: 32px 24px;
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    .bulk-tab-content {
+      display: none;
+    }
+
+    .bulk-tab-content.active {
+      display: block;
+    }
+
+    .bulk-upload-area {
+      border: 2px dashed #d0d0d0;
+      border-radius: 8px;
+      padding: 48px 32px;
+      text-align: center;
+      background: #fafafa;
+      cursor: pointer;
+      transition: all 0.3s;
+      margin-bottom: 24px;
+    }
+
+    .bulk-upload-area:hover {
+      border-color: #0066cc;
+      background: #f0f7ff;
+    }
+
+    .bulk-upload-area.dragover {
+      border-color: #0066cc;
+      background: #e6f2ff;
+      transform: scale(1.02);
+    }
+
+    .bulk-upload-icon {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 16px;
+      color: #0066cc;
+    }
+
+    .bulk-upload-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 8px;
+    }
+
+    .bulk-upload-subtitle {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 16px;
+    }
+
+    .bulk-upload-link {
+      color: #0066cc;
+      font-size: 14px;
+      font-weight: 500;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .bulk-upload-link:hover {
+      text-decoration: underline;
+    }
+
+    .bulk-preview-section {
+      display: none;
+    }
+
+    .bulk-preview-section.active {
+      display: block;
+    }
+
+    .bulk-stats-row {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .bulk-stat-card {
+      flex: 1;
+      background: #f8f9fa;
+      padding: 16px;
+      border-radius: 8px;
+      border: 1px solid #e5e5e5;
+    }
+
+    .bulk-stat-label {
+      font-size: 13px;
+      color: #666;
+      margin-bottom: 4px;
+    }
+
+    .bulk-stat-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #333;
+    }
+
+    .bulk-stat-value.success {
+      color: #28a745;
+    }
+
+    .bulk-stat-value.error {
+      color: #dc3545;
+    }
+
+    .bulk-recipients-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 24px;
+      background: white;
+      border: 1px solid #e5e5e5;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .bulk-recipients-table thead {
+      background: #f8f9fa;
+    }
+
+    .bulk-recipients-table th {
+      padding: 12px 16px;
+      text-align: left;
+      font-size: 13px;
+      font-weight: 600;
+      color: #666;
+      border-bottom: 1px solid #e5e5e5;
+    }
+
+    .bulk-recipients-table td {
+      padding: 12px 16px;
+      font-size: 14px;
+      color: #333;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    .bulk-recipients-table tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    .bulk-recipients-table tbody tr:hover {
+      background: #f8f9fa;
+    }
+
+    .bulk-error-list {
+      background: #fff5f5;
+      border: 1px solid #feb2b2;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 24px;
+    }
+
+    .bulk-error-list-title {
+      color: #c53030;
+      font-weight: 600;
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+
+    .bulk-error-item {
+      padding: 8px 12px;
+      background: white;
+      border-left: 3px solid #f56565;
+      margin-bottom: 8px;
+      border-radius: 4px;
+      font-size: 13px;
+      color: #c53030;
+    }
+
+    .bulk-error-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .bulk-modal-footer {
+      padding: 16px 24px;
+      border-top: 1px solid #e5e5e5;
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      background: #f8f8f8;
+    }
+
+    .bulk-btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .bulk-btn-secondary {
+      background: white;
+      color: #666;
+      border: 1px solid #d0d0d0;
+    }
+
+    .bulk-btn-secondary:hover {
+      background: #f5f5f5;
+      border-color: #b0b0b0;
+    }
+
+    .bulk-btn-primary {
+      background: #0066cc;
+      color: white;
+      border: 1px solid #0066cc;
+    }
+
+    .bulk-btn-primary:hover {
+      background: #0052a3;
+    }
+
+    .bulk-btn-primary:disabled {
+      background: #ccc;
+      border-color: #ccc;
+      cursor: not-allowed;
+    }
+
+    .bulk-loading-spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: bulkSpin 0.6s linear infinite;
+    }
+
+    @keyframes bulkSpin {
+      to { transform: rotate(360deg); }
+    }
+
+    .bulk-success-message {
+      display: none;
+      text-align: center;
+      padding: 48px 24px;
+    }
+
+    .bulk-success-message.active {
+      display: block;
+    }
+
+    .bulk-success-icon {
+      width: 80px;
+      height: 80px;
+      margin: 0 auto 24px;
+      background: #d4edda;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 48px;
+      color: #28a745;
+    }
+
+    .bulk-success-title {
+      font-size: 24px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 12px;
+    }
+
+    .bulk-success-text {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 24px;
+    }
+
+    .bulk-more-recipients {
+      text-align: center;
+      padding: 12px;
+      background: #f8f9fa;
+      color: #666;
+      font-size: 13px;
+      font-style: italic;
+    }
+  </style>
+
+  <script>
+    // Variables globales para el modal de envío masivo
+    let bulkParsedRecipients = [];
+    let bulkSignatureDocumentId = null;
+
+    // =============================================
+    // ABRIR/CERRAR MODAL
+    // =============================================
+    function openBulkSendModal(documentId) {
+      bulkSignatureDocumentId = documentId;
+      document.getElementById('bulkSendModal').style.display = 'flex';
+
+      // Reset estado
+      document.getElementById('bulkUploadSection').style.display = 'block';
+      document.getElementById('bulkPreviewSection').classList.remove('active');
+      document.getElementById('bulkSuccessSection').classList.remove('active');
+      document.getElementById('bulkFileInput').value = '';
+      bulkParsedRecipients = [];
+      updateBulkSendButton(0);
+
+      // Activar tab "Subir lista" por defecto
+      document.querySelectorAll('.bulk-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.bulk-tab-content').forEach(c => c.classList.remove('active'));
+      document.querySelector('.bulk-tab[data-tab="upload"]').classList.add('active');
+      document.getElementById('bulk-tab-upload').classList.add('active');
+    }
+
+    function closeBulkSendModal() {
+      document.getElementById('bulkSendModal').style.display = 'none';
+    }
+
+    // =============================================
+    // MANEJO DE PESTAÑAS
+    // =============================================
+    document.addEventListener('DOMContentLoaded', function() {
+      document.querySelectorAll('.bulk-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          document.querySelectorAll('.bulk-tab').forEach(t => t.classList.remove('active'));
+          document.querySelectorAll('.bulk-tab-content').forEach(c => c.classList.remove('active'));
+
+          tab.classList.add('active');
+          const tabId = 'bulk-tab-' + tab.dataset.tab;
+          document.getElementById(tabId).classList.add('active');
+        });
+      });
+
+      // =============================================
+      // DRAG & DROP
+      // =============================================
+      const dropzone = document.getElementById('bulkDropzone');
+      const fileInput = document.getElementById('bulkFileInput');
+
+      dropzone.addEventListener('click', () => fileInput.click());
+
+      dropzone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropzone.classList.add('dragover');
+      });
+
+      dropzone.addEventListener('dragleave', () => {
+        dropzone.classList.remove('dragover');
+      });
+
+      dropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('dragover');
+        const file = e.dataTransfer.files[0];
+        if (file) handleBulkFile(file);
+      });
+
+      fileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) handleBulkFile(file);
+      });
+    });
+
+    // =============================================
+    // PROCESAR ARCHIVO
+    // =============================================
+    function handleBulkFile(file) {
+      console.log('Archivo seleccionado:', file.name);
+
+      if (file.size > 5 * 1024 * 1024) {
+        toast.warning('El archivo es demasiado grande. Máximo: 5MB');
+        return;
+      }
+
+      const ext = file.name.split('.').pop().toLowerCase();
+      if (!['csv', 'xlsx', 'xls'].includes(ext)) {
+        toast.warning('Formato no soportado. Por favor sube un archivo CSV o XLSX');
+        return;
+      }
+
+      if (ext === 'csv') {
+        parseBulkCSV(file);
+      } else if (ext === 'xlsx' || ext === 'xls') {
+        parseBulkXLSX(file);
+      }
+    }
+
+    function parseBulkCSV(file) {
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (results) => {
+          processBulkData(results.data);
+        },
+        error: (error) => {
+          toast.error('Error al leer CSV: ' + error.message);
+        }
+      });
+    }
+
+    function parseBulkXLSX(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const jsonData = XLSX.utils.sheet_to_json(sheet);
+        processBulkData(jsonData);
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    // =============================================
+    // VALIDAR Y PROCESAR DATOS
+    // =============================================
+    function processBulkData(data) {
+      console.log('Datos parseados:', data);
+
+      const recipients = [];
+      const errors = [];
+      const seenEmails = new Set();
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+      data.forEach((row, index) => {
+        const rowNum = index + 2;
+        const email = (row.email || row.Email || '').trim();
+        const name = (row.name || row.Name || row.nombre || row.Nombre || '').trim();
+
+        if (!email) {
+          errors.push({ row: rowNum, field: 'email', message: 'Email vacío' });
+          return;
+        }
+
+        if (!emailRegex.test(email)) {
+          errors.push({ row: rowNum, field: 'email', message: `Email inválido: ${email}` });
+          return;
+        }
+
+        if (seenEmails.has(email.toLowerCase())) {
+          errors.push({ row: rowNum, field: 'email', message: `Email duplicado: ${email}` });
+          return;
+        }
+
+        if (!name) {
+          errors.push({ row: rowNum, field: 'name', message: 'Nombre vacío' });
+          return;
+        }
+
+        seenEmails.add(email.toLowerCase());
+        recipients.push({ email, name });
+      });
+
+      document.getElementById('bulkTotalCount').textContent = data.length;
+      document.getElementById('bulkValidCount').textContent = recipients.length;
+      document.getElementById('bulkErrorCount').textContent = errors.length;
+
+      if (errors.length > 0) {
+        showBulkErrors(errors);
+        bulkParsedRecipients = [];
+        updateBulkSendButton(0);
+      } else if (recipients.length > 1000) {
+        toast.warning(`El límite es 1000 destinatarios. Tu archivo tiene ${recipients.length}.`);
+        bulkParsedRecipients = [];
+        updateBulkSendButton(0);
+      } else {
+        bulkParsedRecipients = recipients;
+        showBulkPreview(recipients);
+        updateBulkSendButton(recipients.length);
+      }
+    }
+
+    function showBulkErrors(errors) {
+      document.getElementById('bulkUploadSection').style.display = 'none';
+      document.getElementById('bulkPreviewSection').classList.add('active');
+      document.getElementById('bulkErrorListContainer').style.display = 'block';
+
+      const errorList = document.getElementById('bulkErrorList');
+      errorList.innerHTML = errors.slice(0, 10).map(e => `
+        <div class="bulk-error-item">
+          <strong>Fila ${e.row}:</strong> ${e.message} <span style="color: #999;">[${e.field}]</span>
+        </div>
+      `).join('');
+
+      if (errors.length > 10) {
+        errorList.innerHTML += `<div class="bulk-error-item">... y ${errors.length - 10} errores más</div>`;
+      }
+
+      document.getElementById('bulkRecipientsTableBody').innerHTML = '<tr><td colspan="3" style="text-align: center; color: #999;">No hay destinatarios válidos</td></tr>';
+    }
+
+    function showBulkPreview(recipients) {
+      document.getElementById('bulkUploadSection').style.display = 'none';
+      document.getElementById('bulkPreviewSection').classList.add('active');
+      document.getElementById('bulkErrorListContainer').style.display = 'none';
+
+      const tbody = document.getElementById('bulkRecipientsTableBody');
+      const preview = recipients.slice(0, 10);
+
+      tbody.innerHTML = preview.map((r, i) => `
+        <tr>
+          <td>${i + 1}</td>
+          <td>${r.email}</td>
+          <td>${r.name}</td>
+        </tr>
+      `).join('');
+
+      if (recipients.length > 10) {
+        tbody.innerHTML += `
+          <tr>
+            <td colspan="3" class="bulk-more-recipients">
+              ... y ${recipients.length - 10} destinatarios más
+            </td>
+          </tr>
+        `;
+      }
+    }
+
+    function updateBulkSendButton(count) {
+      const sendBtn = document.getElementById('bulkSendBtn');
+      const btnText = document.getElementById('bulkBtnText');
+
+      if (count > 0) {
+        sendBtn.disabled = false;
+        btnText.textContent = `Enviar a ${count} destinatario${count > 1 ? 's' : ''}`;
+      } else {
+        sendBtn.disabled = true;
+        btnText.textContent = 'Enviar a 0 destinatarios';
+      }
+    }
+
+    // =============================================
+    // ENVIAR EMAILS
+    // =============================================
+    async function sendBulkEmailsFromModal() {
+      if (bulkParsedRecipients.length === 0) {
+        toast.warning('No hay destinatarios para enviar');
+        return;
+      }
+
+      // Mostrar confirmación moderna
+      const confirmed = await toast.confirm(
+        `¿Estás seguro de enviar el documento a ${bulkParsedRecipients.length} destinatario${bulkParsedRecipients.length > 1 ? 's' : ''}?`,
+        { confirmText: 'Enviar', cancelText: 'Cancelar' }
+      );
+
+      if (!confirmed) {
+        return;
+      }
+
+      const sendBtn = document.getElementById('bulkSendBtn');
+      const btnText = document.getElementById('bulkBtnText');
+      const btnSpinner = document.getElementById('bulkBtnSpinner');
+
+      sendBtn.disabled = true;
+      btnText.textContent = 'Procesando...';
+      btnSpinner.style.display = 'inline-block';
+
+      const csvContent = Papa.unparse(bulkParsedRecipients);
+      const blob = new Blob([csvContent], { type: 'text/csv' });
+      const formData = new FormData();
+      formData.append('file', blob, 'recipients.csv');
+      formData.append('signature_document_id', bulkSignatureDocumentId);
+
+      try {
+        const response = await fetch('/api/signatures/bulk-send', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: formData
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+          document.getElementById('bulk-tab-upload').style.display = 'none';
+          document.getElementById('bulkSuccessSection').classList.add('active');
+
+          document.getElementById('bulkSuccessText').innerHTML = `
+            Se han encolado <strong>${result.data.queued_emails} emails</strong> para envío.<br>
+            Documento: <strong>${result.data.document_title}</strong>
+          `;
+
+          btnText.textContent = 'Cerrar';
+          btnSpinner.style.display = 'none';
+          sendBtn.disabled = false;
+          sendBtn.onclick = () => closeBulkSendModal();
+        } else {
+          throw new Error(result.error || 'Error desconocido');
+        }
+
+      } catch (error) {
+        toast.error('Error al enviar: ' + error.message);
+        btnText.textContent = `Enviar a ${bulkParsedRecipients.length} destinatarios`;
+        btnSpinner.style.display = 'none';
+        sendBtn.disabled = false;
+      }
+    }
+
+    // =============================================
+    // DESCARGAR PLANTILLA
+    // =============================================
+    function downloadBulkTemplate() {
+      const csv = 'email,name\njuan.perez@example.com,Juan Pérez\nmaria.lopez@example.com,María López\ncarlos.gomez@example.com,Carlos Gómez';
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'plantilla-destinatarios.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  </script>
+
+  <!-- ========================================
+       SELECTOR DE ROLES - JavaScript
+       ======================================== -->
+  <script>
+    // Sistema de Roles Simplificado
+    const rolesSystem = {
+      roles: [],
+      currentRoleId: null,
+      roleColors: ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#14B8A6', '#F97316'],
+
+      // ✅ Nombres de roles según el tipo de documento
+      getRoleNames() {
+        // Leer directamente de la URL para evitar problemas de carga de scripts
+        const urlParams = new URLSearchParams(window.location.search);
+        const documentType = urlParams.get('documentType') || urlParams.get('type') || 'normal';
+        const isPagare = documentType === 'pagare';
+
+        console.log(`🔍 getRoleNames - isPagare: ${isPagare}, documentType: ${documentType}`);
+
+        if (isPagare) {
+          return ['Firmante N1', 'Firmante N2', 'Firmante N3', 'Firmante N4', 'Firmante N5', 'Firmante N6', 'Firmante N7', 'Firmante N8'];
+        } else {
+          return ['Primera Parte', 'Segunda Parte', 'Tercera Parte', 'Cuarta Parte', 'Quinta Parte', 'Sexta Parte', 'Séptima Parte', 'Octava Parte'];
+        }
+      },
+
+      init() {
+        // Crear rol por defecto
+        this.createDefaultRole();
+        this.render();
+        this.setupListeners();
+        console.log('✅ Sistema de roles inicializado');
+      },
+
+      createDefaultRole() {
+        const roleNames = this.getRoleNames();
+        this.roles = [{
+          id: 1,
+          name: roleNames[0], // ✅ Usar nombre dinámico según tipo de documento
+          color: this.roleColors[0]
+        }];
+        // Por defecto NO seleccionar ninguna parte (campos sin rol)
+        this.currentRoleId = null;
+      },
+
+      render() {
+        const rolesList = document.getElementById('rolesList');
+        if (!rolesList) return;
+
+        rolesList.innerHTML = this.roles.map(role => {
+          const isSelected = role.id === this.currentRoleId;
+          const colorLight = role.color + '20';
+          const canDelete = this.roles.length > 1; // Solo permitir eliminar si hay más de una parte
+
+          return `
+            <div class="role-option ${isSelected ? 'selected' : ''}"
+                 data-role-id="${role.id}"
+                 style="--role-color: ${role.color}; --role-color-light: ${colorLight};">
+              <div class="role-info">
+                <div class="role-color-dot" style="background: ${role.color};"></div>
+                <span class="role-name">${role.name}</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                ${isSelected ? `
+                  <svg class="check-icon" viewBox="0 0 16 16" fill="${role.color}">
+                    <circle cx="8" cy="8" r="8"/>
+                    <path d="M6 8l2 2 4-4" stroke="white" stroke-width="2" fill="none"/>
+                  </svg>
+                ` : ''}
+                ${canDelete ? `
+                  <button class="delete-role-btn" 
+                          data-role-id="${role.id}"
+                          title="Eliminar parte"
+                          style="
+                            background: transparent;
+                            border: none;
+                            color: #EF4444;
+                            cursor: pointer;
+                            padding: 4px;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            border-radius: 4px;
+                            transition: all 0.2s;
+                            font-size: 18px;
+                            font-weight: bold;
+                            line-height: 1;
+                            width: 24px;
+                            height: 24px;
+                          ">
+                    ×
+                  </button>
+                ` : ''}
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        // Actualizar título
+        const currentRole = this.getCurrentRole();
+        const titleEl = document.getElementById('currentRoleTitle');
+        if (titleEl) {
+          if (currentRole) {
+            titleEl.textContent = currentRole.name;
+            titleEl.style.color = currentRole.color;
+          } else {
+            // Sin parte seleccionada = campos genéricos sin rol
+            titleEl.textContent = 'Sin asignar';
+            titleEl.style.color = '#9CA3AF'; // Color gris
+          }
+        }
+      },
+
+      setupListeners() {
+        // Click en roles y botones
+        document.addEventListener('click', async (e) => {
+          // Click en botón eliminar - VERIFICAR PRIMERO
+          const deleteBtn = e.target.closest('.delete-role-btn');
+          if (deleteBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const roleId = parseInt(deleteBtn.dataset.roleId);
+            console.log('🗑️ Click en eliminar, roleId:', roleId);
+            await this.deleteRole(roleId);
+            return; // Detener propagación
+          }
+          
+          // Click en roles - VERIFICAR DESPUÉS
+          const roleOption = e.target.closest('.role-option');
+          if (roleOption) {
+            const roleId = parseInt(roleOption.dataset.roleId);
+            this.selectRole(roleId);
+          }
+        });
+
+        // Botón agregar parte
+        const addBtn = document.getElementById('addRoleBtn');
+        if (addBtn) {
+          addBtn.addEventListener('click', () => this.addRole());
+        }
+
+        // Interceptar creación de campos
+        this.interceptFieldCreation();
+      },
+
+      selectRole(roleId) {
+        // Toggle: si ya está seleccionado, deseleccionar
+        if (this.currentRoleId === roleId) {
+          this.currentRoleId = null;
+          console.log('🔄 Parte desactivada - Modo sin roles (campos genéricos)');
+        } else {
+          this.currentRoleId = roleId;
+          console.log('✅ Parte activada:', this.getCurrentRole()?.name);
+        }
+        this.render();
+      },
+
+      getCurrentRole() {
+        return this.roles.find(r => r.id === this.currentRoleId);
+      },
+
+      addRole() {
+        if (this.roles.length >= 8) {
+          toast.warning('Máximo 8 partes permitidas');
+          return;
+        }
+
+        const roleNames = this.getRoleNames(); // ✅ Obtener nombres dinámicos
+        const nextIndex = this.roles.length;
+        const newRole = {
+          id: this.roles.length + 1,
+          name: roleNames[nextIndex], // ✅ Usar nombre dinámico
+          color: this.roleColors[nextIndex]
+        };
+
+        this.roles.push(newRole);
+        this.currentRoleId = newRole.id;
+        this.render();
+
+        console.log(`✅ Nueva parte agregada: ${newRole.name}`);
+        console.log(`📊 Total de roles ahora: ${this.roles.length}`, this.roles);
+
+        // 🔥 NUEVO: Guardar partes automáticamente
+        this.autoSaveParts();
+
+        // Actualizar formulario de destinatarios si el modal está abierto
+        const recipientsModal = document.getElementById('recipientsModal');
+        if (recipientsModal && recipientsModal.style.display === 'flex') {
+          console.log('🔄 Modal está abierto, actualizando formulario...');
+          this.renderRecipientsForm();
+        } else {
+          console.log('ℹ️ Modal no está abierto, no se actualiza formulario');
+        }
+      },
+
+      async deleteRole(roleId) {
+        // No permitir eliminar si solo hay una parte
+        if (this.roles.length <= 1) {
+          toast.warning('Debe haber al menos una parte');
+          return;
+        }
+
+        const roleToDelete = this.roles.find(r => r.id === roleId);
+        if (!roleToDelete) return;
+
+        // Confirmar eliminación con modal moderno
+        const confirmed = await toast.confirm(
+          `¿Eliminar "${roleToDelete.name}"?\n\nLos campos asignados a esta parte quedarán sin asignar.`,
+          { confirmText: 'Eliminar', cancelText: 'Cancelar', type: 'error' }
+        );
+
+        if (!confirmed) {
+          return;
+        }
+
+        console.log(`🗑️ Eliminando parte: ${roleToDelete.name}`);
+
+        // Eliminar la parte del array
+        this.roles = this.roles.filter(r => r.id !== roleId);
+
+        // Si la parte eliminada estaba seleccionada, deseleccionar
+        if (this.currentRoleId === roleId) {
+          this.currentRoleId = null;
+          console.log('⚠️ Parte seleccionada eliminada - Deseleccionando');
+        }
+
+        // Reasignar IDs para mantener secuencia
+        const roleNames = this.getRoleNames(); // ✅ Obtener nombres dinámicos
+        this.roles.forEach((role, index) => {
+          role.id = index + 1;
+          role.name = roleNames[index]; // ✅ Usar nombres dinámicos
+          role.color = this.roleColors[index];
+        });
+
+        // Si currentRoleId ya no existe, ajustarlo
+        if (this.currentRoleId && !this.roles.find(r => r.id === this.currentRoleId)) {
+          this.currentRoleId = null;
+        }
+
+        this.render();
+
+        console.log(`✅ Parte eliminada. Total de roles ahora: ${this.roles.length}`, this.roles);
+
+        // Actualizar formulario de destinatarios si el modal está abierto
+        const recipientsModal = document.getElementById('recipientsModal');
+        if (recipientsModal && recipientsModal.style.display === 'flex') {
+          console.log('🔄 Modal está abierto, actualizando formulario...');
+          this.renderRecipientsForm();
+        }
+      },
+
+      // 🔥 NUEVO: Guardar partes automáticamente en la BD
+      async autoSaveParts() {
+        // Obtener document ID de la URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const documentId = urlParams.get('id');
+        
+        if (!documentId) {
+          console.warn('⚠️ No hay documentId para guardar partes');
+          return false;
+        }
+
+        // Solo guardar si hay más de una parte
+        if (this.roles.length === 1) {
+          console.log('ℹ️ Solo hay una parte, no se guarda aún');
+          return false;
+        }
+
+        try {
+          // Obtener user_id del usuario autenticado
+          const userStr = localStorage.getItem('currentUser');
+          if (!userStr) {
+            console.error('❌ Usuario no autenticado');
+            return false;
+          }
+
+          const user = JSON.parse(userStr);
+          const userId = user.user_id;
+
+          if (!userId) {
+            console.error('❌ user_id no encontrado en localStorage');
+            console.error('   Usuario en localStorage:', user);
+            return false;
+          }
+          
+          console.log('✅ user_id encontrado:', userId);
+          
+          // Detectar y loggear el uso de partes
+          console.log(`\n📌 ========================================`);
+          console.log(`📌 SISTEMA DE PARTES DETECTADO`);
+          console.log(`📌 ========================================`);
+          console.log(`📌 Documento: ${documentId}`);
+          console.log(`📌 Total de partes: ${this.roles.length}`);
+          console.log(`📌 ----------------------------------------`);
+          
+          this.roles.forEach((role, index) => {
+            console.log(`📌 ${role.name}:`);
+            console.log(`   - Orden: ${index + 1}`);
+            console.log(`   - Color: ${role.color}`);
+          });
+          
+          console.log(`📌 ========================================\n`);
+
+          console.log('🔵 [DEBUG] Enviando solicitud POST /api/documents/' + documentId + '/parts');
+          console.log('🔵 [DEBUG] user_id:', userId);
+          
+          const bodyData = {
+            user_id: userId, // 🔥 IMPORTANTE: El middleware requireAuth espera user_id en el body
+            parts: this.roles.map((role, index) => ({
+              name: role.name,
+              order: index + 1,
+              color: role.color
+            }))
+          };
+          
+          console.log('🔵 [DEBUG] Body:', JSON.stringify(bodyData, null, 2));
+
+          const response = await fetch(`/api/documents/${documentId}/parts`, {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(bodyData)
+          });
+
+          console.log('🔵 [DEBUG] Response status:', response.status);
+          console.log('🔵 [DEBUG] Response ok:', response.ok);
+
+          const data = await response.json();
+          
+          console.log('🔵 [DEBUG] Response data:', data);
+
+          if (data.ok) {
+            console.log('✅ Partes guardadas automáticamente en BD');
+            console.log('✅ Partes insertadas:', data.parts);
+            return true;
+          } else {
+            console.warn('⚠️ No se pudieron guardar las partes:', data.error);
+            return false;
+          }
+
+        } catch (error) {
+          console.error('❌ Error al guardar partes:', error);
+          console.error('❌ Stack trace:', error.stack);
+          toast.error('Error al guardar partes: ' + error.message);
+          return false;
+        }
+      },
+
+      interceptFieldCreation() {
+        // Hook para agregar datos de rol a los campos creados
+        const originalCreateField = window.createField;
+        if (typeof originalCreateField === 'function') {
+          window.createField = (fieldData) => {
+            const currentRole = this.getCurrentRole();
+            if (currentRole) {
+              fieldData.roleId = currentRole.id;
+              fieldData.roleName = currentRole.name;
+              fieldData.roleColor = currentRole.color;
+            }
+
+            const field = originalCreateField.call(window, fieldData);
+
+            // Agregar badge de rol al campo
+            if (field && currentRole) {
+              this.addRoleBadgeToField(field, currentRole);
+            }
+
+            return field;
+          };
+        }
+      },
+
+      addRoleBadgeToField(fieldElement, role) {
+        // Cambiar color del borde
+        fieldElement.style.borderColor = role.color;
+        fieldElement.style.borderWidth = '2px';
+
+        // Agregar badge
+        const badge = document.createElement('div');
+        badge.className = 'field-role-badge';
+        badge.textContent = role.name;
+        badge.style.background = role.color;
+        fieldElement.appendChild(badge);
+      },
+
+      // Nuevo: Renderizar formulario de destinatarios por rol
+      renderRecipientsForm() {
+        this.renderEmailTab();
+      },
+
+      // Renderizar pestaña "por Email" con diseño mejorado
+      renderEmailTab() {
+        const emailTabContent = document.getElementById('emailTabContent');
+        
+        if (!emailTabContent) {
+          console.error('❌ No se encontró el contenedor emailTabContent');
+          return;
+        }
+
+        // 🔍 Verificar si hay partes activadas
+        const hasActiveRoles = this.currentRoleId !== null;
+
+        if (!hasActiveRoles) {
+          // ⚠️ Sin partes activadas → Mostrar textarea simple
+          console.log('⚠️ Sin partes activadas - Mostrando textarea simple');
+          emailTabContent.innerHTML = `
+            <textarea
+              id="emailInput"
+              class="recipients-textarea"
+              placeholder="Escribe correos electrónicos aquí (uno por línea)..."
+              rows="6"
+            ></textarea>
+          `;
+          return;
+        }
+
+        // ✅ Hay partes activadas → Mostrar diseño detallado bonito
+        console.log('✅ Partes activadas - Mostrando formulario detallado en Email');
+        
+        emailTabContent.innerHTML = this.roles.map(role => `
+          <div class="role-recipient-group" data-role-id="${role.id}">
+            <label class="role-label">
+              <div class="role-color-indicator" style="background: ${role.color};"></div>
+              <span>${role.name}</span>
+              <span class="recipient-name-preview" data-role-id="${role.id}" style="color: #666; font-weight: normal; margin-left: 8px;"></span>
+            </label>
+            <div class="role-inputs-container" data-role-id="${role.id}">
+              <input
+                type="email"
+                class="form-input role-email-input"
+                data-role-id="${role.id}"
+                placeholder="Correo electrónico"
+                style="
+                  width: 100%;
+                  padding: 12px 16px;
+                  border: 2px solid ${role.color};
+                  border-radius: 10px;
+                  font-size: 14px;
+                  transition: all 0.2s;
+                  box-sizing: border-box;
+                "
+              />
+            </div>
+          </div>
+        `).join('');
+        
+        // Agregar event listeners para actualizar el preview del nombre
+        const emailInputs = document.querySelectorAll('.role-email-input');
+        emailInputs.forEach(input => {
+          input.addEventListener('input', (e) => {
+            const roleId = input.dataset.roleId;
+            const previewSpan = document.querySelector(`.recipient-name-preview[data-role-id="${roleId}"]`);
+            const email = e.target.value.trim();
+            
+            if (previewSpan) {
+              if (email) {
+                // Extraer nombre del email (parte antes del @)
+                const emailName = email.split('@')[0];
+                previewSpan.textContent = `(${email})`;
+              } else {
+                previewSpan.textContent = '';
+              }
+            }
+          });
+        });
+      },
+
+      // Recopilar destinatarios del formulario por rol
+      getRecipientsFromForm() {
+        const inputs = document.querySelectorAll('.role-email-input');
+        const recipients = [];
+
+        inputs.forEach(input => {
+          const email = input.value.trim();
+          const roleId = parseInt(input.dataset.roleId);
+
+          if (email) {
+            const role = this.roles.find(r => r.id === roleId);
+            recipients.push({
+              email,
+              roleId,
+              roleName: role ? role.name : '',
+              roleColor: role ? role.color : ''
+            });
+          }
+        });
+
+        return recipients;
+      }
+    };
+
+    // Inicializar cuando el DOM esté listo
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => {
+        setTimeout(() => rolesSystem.init(), 500);
+      });
+    } else {
+      setTimeout(() => rolesSystem.init(), 500);
+    }
+
+    // Exponer globalmente
+    window.rolesSystem = rolesSystem;
+  </script>
+
+  <!-- ============================================= -->
+  <!-- SISTEMA DE ENVÍO MASIVO (CSV/XLSX) -->
+  <!-- ============================================= -->
+  <script>
+    // Variable global para almacenar destinatarios del CSV
+    window.bulkRecipientsSign = [];
+
+    // Helper para usar ToastManager de forma segura
+    function safeToast(type, title, message, duration = 6000) {
+      if (typeof ToastManager !== 'undefined') {
+        ToastManager[type](title, message, duration);
+      } else {
+        console.warn(`[ToastManager] ${type}: ${title} - ${message}`);
+        if (type === 'error') {
+          alert(`${title}: ${message}`);
+        }
+      }
+    }
+
+    // Función del modal de confirmación
+    window.showConfirmModalSign = function(message) {
+      return new Promise((resolve) => {
+        const modal = document.getElementById('confirmModalSign');
+        const messageEl = document.getElementById('confirmMessageSign');
+        const confirmBtn = document.getElementById('confirmButtonSign');
+
+        messageEl.textContent = message;
+        modal.style.display = 'block';
+        modal.setAttribute('aria-hidden', 'false');
+
+        const newConfirmBtn = confirmBtn.cloneNode(true);
+        confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+        newConfirmBtn.id = 'confirmButtonSign';
+
+        newConfirmBtn.addEventListener('click', () => {
+          modal.style.display = 'none';
+          modal.setAttribute('aria-hidden', 'true');
+          resolve(true);
+        });
+
+        window.closeConfirmModalSign = () => {
+          modal.style.display = 'none';
+          modal.setAttribute('aria-hidden', 'true');
+          resolve(false);
+        };
+      });
+    };
+
+    // NOTA: La función downloadTemplateSign() está definida en sign-field-mapping.js
+    // Esa versión obtiene datos dinámicos del documento actual y soporta ambos modos:
+    // - Modo Manual: Solo partes (Parte, Email, Nombre)
+    // - Modo CSV Completo: Partes + campos de texto extraídos del PDF
+    // NO redefinir aquí para evitar sobrescribir la versión correcta
+
+    // Configurar zona de carga de archivos
+    // Usar 'load' en lugar de 'DOMContentLoaded' para garantizar que ToastManager esté disponible
+    window.addEventListener('load', function() {
+      const uploadZone = document.getElementById('uploadZone');
+      const fileInput = document.getElementById('csvFileInputSign');
+
+      if (!uploadZone || !fileInput) return;
+
+      // Mostrar nombre del documento
+      const urlParams = new URLSearchParams(window.location.search);
+      const docName = urlParams.get('name') || 'Documento';
+      const docId = urlParams.get('id') || '';
+
+      const nameDisplay = document.getElementById('templateNameDisplaySign');
+      const idDisplay = document.getElementById('templateIdDisplaySign');
+
+      if (nameDisplay) nameDisplay.textContent = docName;
+      if (idDisplay) idDisplay.textContent = docId ? `ID: ${docId}` : '';
+
+      // Agregar enlace de descarga de plantilla
+      const uploadTabContent = document.getElementById('tab-upload');
+      if (uploadTabContent) {
+        const downloadLink = document.createElement('p');
+        downloadLink.style.cssText = 'text-align: center; margin-top: 16px; font-size: 14px;';
+        downloadLink.innerHTML = `
+          <a href="#" onclick="downloadTemplateSign(); return false;" style="color: #0066cc; text-decoration: none; font-weight: 500;">
+            📥 Descargar plantilla de ejemplo (CSV)
+          </a>
+        `;
+        uploadZone.after(downloadLink);
+      }
+
+      // Click en zona abre selector
+      uploadZone.addEventListener('click', (e) => {
+        if (e.target.tagName !== 'BUTTON') {
+          fileInput.click();
+        }
+      });
+
+      // Drag & drop
+      uploadZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadZone.style.borderColor = '#2a0d31';
+        uploadZone.style.background = '#f0e6f6';
+      });
+
+      uploadZone.addEventListener('dragleave', () => {
+        uploadZone.style.borderColor = '#ccc';
+        uploadZone.style.background = '#f9f9f9';
+      });
+
+      uploadZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadZone.style.borderColor = '#ccc';
+        uploadZone.style.background = '#f9f9f9';
+
+        const file = e.dataTransfer.files[0];
+        if (file) {
+          fileInput.files = e.dataTransfer.files;
+          processFileSign(file);
+        }
+      });
+
+      // Cambio de archivo
+      fileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          processFileSign(file);
+        }
+      });
+
+      // NOTA: El event listener para "AGREGAR DESTINATARIOS" está definido a nivel de módulo
+      // (fuera del window.addEventListener('load')) para ejecutarse inmediatamente como tracking.js
+      // Ver línea ~2195
+
+      // Botones de cerrar modal
+      const recipientsClose = document.getElementById('recipientsClose');
+      const recipientsCancel = document.getElementById('recipientsCancel');
+
+      if (recipientsClose) {
+        recipientsClose.addEventListener('click', function() {
+          const modal = document.getElementById('recipientsModal');
+          if (modal) {
+            modal.style.display = 'none';
+            modal.setAttribute('aria-hidden', 'true');
+          }
+        });
+      }
+
+      if (recipientsCancel) {
+        recipientsCancel.addEventListener('click', function() {
+          const modal = document.getElementById('recipientsModal');
+          if (modal) {
+            modal.style.display = 'none';
+            modal.setAttribute('aria-hidden', 'true');
+          }
+        });
+      }
+    });
+
+    // 🔥 EVENTO PARA BOTÓN "AGREGAR DESTINATARIOS" - Adaptado del patrón de tracking.js
+    // Esperar a que el DOM esté completamente cargado antes de agregar el event listener
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', attachRecipientButtonListener);
+    } else {
+      // DOM ya está cargado, ejecutar inmediatamente
+      attachRecipientButtonListener();
+    }
+
+    function attachRecipientButtonListener() {
+      // NOTA: El event listener para "AGREGAR DESTINATARIOS" ya está configurado en sign.js (línea 1995)
+      // Este código está comentado para evitar duplicados
+      console.log('ℹ️ [SIGN-INIT] Event listener para recipientsAdd ya está en sign.js');
+    }
+
+    // Procesar archivo CSV/XLSX
+    function processFileSign(file) {
+      console.log('📄 Procesando archivo:', file.name);
+
+      const ext = file.name.split('.').pop().toLowerCase();
+
+      if (!['csv', 'xlsx', 'xls'].includes(ext)) {
+        safeToast('error', 'Formato no soportado', 'Por favor sube un archivo CSV o XLSX', 6000);
+        return;
+      }
+
+      if (file.size > 5 * 1024 * 1024) {
+        safeToast('error', 'Archivo demasiado grande', 'El tamaño máximo permitido es 5MB', 6000);
+        return;
+      }
+
+      // Procesar según el tipo
+      if (ext === 'csv') {
+        Papa.parse(file, {
+          complete: function(results) {
+            parseRecipientsSign(results.data);
+          },
+          header: true,
+          skipEmptyLines: true
+        });
+      } else {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+          const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+          parseRecipientsSign(jsonData);
+        };
+        reader.readAsArrayBuffer(file);
+      }
+    }
+
+    // Parsear destinatarios del archivo
+    function parseRecipientsSign(data) {
+      console.log('📊 Parseando destinatarios:', data);
+
+      // Detectar modo activo
+      const csvModeBtn = document.getElementById('modeCsvBtnSign');
+      const isCsvCompleteMode = csvModeBtn && csvModeBtn.classList.contains('active');
+      console.log('🔍 Modo detectado:', isCsvCompleteMode ? 'Rellenar por CSV' : 'Manual');
+
+      const recipients = [];
+      const errors = [];
+
+      // ✅ Obtener nombre de la primera parte según el tipo de documento
+      const roleNames = rolesSystem.getRoleNames();
+      const defaultParte = roleNames[0];
+
+      data.forEach((row, index) => {
+        const email = (row.Email || row.email || '').trim();
+        const name = (row.Nombre || row.nombre || row.Name || row.name || '').trim();
+        const parte = (row.Parte || row.parte || row.Part || row.part || '').trim();
+
+        // Validar email
+        if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          errors.push(`Fila ${index + 2}: Email inválido`);
+          return;
+        }
+
+        const recipient = {
+          email,
+          name: name || email.split('@')[0],
+          parte: parte || defaultParte // ✅ Usar nombre dinámico
+        };
+
+        // Si estamos en modo CSV Completo, procesar campos de texto dinámicos
+        if (isCsvCompleteMode) {
+          recipient.textFieldValues = {};
+
+          // Procesar todas las columnas del CSV excepto Parte, Email, Nombre
+          Object.keys(row).forEach(columnName => {
+            if (!['Parte', 'parte', 'Part', 'part', 'Email', 'email', 'Nombre', 'nombre', 'Name', 'name'].includes(columnName)) {
+              const value = (row[columnName] || '').toString().trim();
+              if (value) {
+                recipient.textFieldValues[columnName] = value;
+              }
+            }
+          });
+
+          console.log(`   Fila ${index + 2}: ${email} → ${Object.keys(recipient.textFieldValues).length} campos de texto`);
+        }
+
+        recipients.push(recipient);
+      });
+
+      // Mostrar resultados
+      if (errors.length > 0) {
+        const errorMessage = errors.slice(0, 3).join('<br>') +
+              (errors.length > 3 ? `<br>...y ${errors.length - 3} errores más` : '');
+        safeToast('error', 'Errores en el archivo', errorMessage, 8000);
+        window.bulkRecipientsSign = [];
+        return;
+      }
+
+      if (recipients.length > 1000) {
+        safeToast('error', 'Límite excedido', `El límite es 1000 destinatarios. Tu archivo tiene ${recipients.length}`, 6000);
+        window.bulkRecipientsSign = [];
+        return;
+      }
+
+      // Guardar destinatarios válidos
+      window.bulkRecipientsSign = recipients;
+      console.log('✅ [CSV-PARSE] window.bulkRecipientsSign DESPUÉS de parsear CSV:', window.bulkRecipientsSign);
+      console.log('✅ [CSV-PARSE] Cantidad DESPUÉS de parsear CSV:', window.bulkRecipientsSign?.length);
+
+      // Actualizar UI
+      const uploadZone = document.getElementById('uploadZone');
+      uploadZone.innerHTML = `
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#28a745" stroke-width="2" style="margin: 0 auto 16px;">
+          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+          <polyline points="22 4 12 14.01 9 11.01"/>
+        </svg>
+        <p style="color: #28a745; font-weight: 600;"><svg style="width:16px;height:16px;vertical-align:middle;" viewBox="0 0 24 24" fill="none" stroke="#28a745" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Archivo procesado correctamente</p>
+        <p style="color: #666; font-size: 14px; margin-top: 8px;">
+          ${recipients.length} destinatario${recipients.length > 1 ? 's' : ''} válido${recipients.length > 1 ? 's' : ''}
+        </p>
+        <button class="upload-btn" onclick="console.log('🔄 [CAMBIAR-ARCHIVO] Botón clickeado - limpiando array'); document.getElementById('csvFileInputSign').click(); window.bulkRecipientsSign = [];" style="margin-top: 12px; padding: 10px 20px; background: #2a0d31; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+          Cambiar archivo
+        </button>
+      `;
+
+      console.log(`✅ ${recipients.length} destinatarios válidos listos para enviar`);
+    }
+
+    // Función global de envío masivo para sign.html
+    window.sendBulkEmailsSign = async function() {
+      console.log('📤 [SEND-BULK] Iniciando envío masivo...');
+
+      if (!window.bulkRecipientsSign || window.bulkRecipientsSign.length === 0) {
+        console.log('❌ [SEND-BULK] No hay destinatarios en window.bulkRecipientsSign');
+        safeToast('error', 'No hay destinatarios', 'Por favor, sube un archivo CSV o XLSX válido', 6000);
+        return;
+      }
+
+      console.log('✅ [SEND-BULK] Destinatarios encontrados:', window.bulkRecipientsSign.length);
+
+      const urlParams = new URLSearchParams(window.location.search);
+      const documentId = urlParams.get('id');
+
+      console.log('🔍 [SEND-BULK] Document ID:', documentId);
+
+      if (!documentId) {
+        console.log('❌ [SEND-BULK] No se pudo obtener document ID');
+        safeToast('error', 'Error', 'No se pudo obtener el ID del documento', 6000);
+        return;
+      }
+
+      // Confirmar envío con confirm nativo (más simple y confiable)
+      console.log('🔔 [SEND-BULK] Mostrando confirmación...');
+      const confirmed = confirm(`¿Estás seguro de enviar el documento a ${window.bulkRecipientsSign.length} destinatarios?`);
+      console.log('🔍 [SEND-BULK] Usuario confirmó:', confirmed);
+
+      if (!confirmed) {
+        console.log('⏹️ [SEND-BULK] Envío cancelado por el usuario');
+        return;
+      }
+
+      console.log('✅ [SEND-BULK] Confirmación recibida, continuando...');
+
+      // 🔥 IMPORTANTE: Cerrar modal de destinatarios ANTES de empezar el proceso
+      const recipientsModal = document.getElementById('recipientsModal');
+      if (recipientsModal) {
+        recipientsModal.style.display = 'none';
+        recipientsModal.setAttribute('aria-hidden', 'true');
+        console.log('🔒 [SEND-BULK] Modal de destinatarios cerrado');
+      }
+
+      // Obtener botón y guardar estado original (como tracking.html)
+      const addButton = document.getElementById('recipientsAdd');
+      const originalText = addButton ? addButton.textContent : '';
+
+      if (addButton) {
+        addButton.disabled = true;
+        addButton.textContent = 'PROCESANDO...';
+        console.log('🔒 [SEND-BULK] Botón deshabilitado');
+      }
+
+      try {
+        // Obtener usuario actual
+        const userStr = localStorage.getItem('currentUser');
+        if (!userStr) {
+          safeToast('error', 'No autenticado', 'Por favor, inicia sesión nuevamente', 6000);
+          return;
+        }
+
+        const user = JSON.parse(userStr);
+        if (!user.user_id) {
+          safeToast('error', 'Usuario inválido', 'Por favor, inicia sesión nuevamente', 6000);
+          return;
+        }
+
+        console.log('📤 [SEND-BULK] Enviando CSV al backend...');
+        console.log('📤 [SEND-BULK] Document ID:', documentId);
+        console.log('📤 [SEND-BULK] User ID:', user.user_id);
+        console.log('📤 [SEND-BULK] Recipients:', window.bulkRecipientsSign.length);
+
+        // Aplanar destinatarios (mismo formato que tracking.html)
+        const flattenedRecipients = window.bulkRecipientsSign.map(recipient => {
+          const flat = {
+            parte: recipient.parte,
+            email: recipient.email,
+            name: recipient.name
+          };
+
+          // 🔥 IMPORTANTE: Solo incluir textFieldValues si existen Y tienen datos
+          // Si no hay textFieldValues, es Modo Manual (pre-llenado compartido)
+          if (recipient.textFieldValues && Object.keys(recipient.textFieldValues).length > 0) {
+            Object.assign(flat, recipient.textFieldValues);
+          }
+
+          return flat;
+        });
+
+        console.log('📤 [SEND-BULK] Destinatarios aplanados:', flattenedRecipients.length);
+        console.log('📤 [SEND-BULK] Primer destinatario de muestra:', JSON.stringify(flattenedRecipients[0], null, 2));
+
+        // Crear CSV
+        const csvContent = Papa.unparse(flattenedRecipients);
+        console.log('📤 [SEND-BULK] CSV generado (primeras 200 chars):', csvContent.substring(0, 200));
+
+        const blob = new Blob([csvContent], { type: 'text/csv' });
+        const formData = new FormData();
+        formData.append('file', blob, 'recipients.csv');
+        formData.append('signature_document_id', documentId);
+
+        console.log('📤 [SEND-BULK] FormData preparado:');
+        console.log('   - file: recipients.csv (', blob.size, 'bytes)');
+        console.log('   - signature_document_id:', documentId);
+
+        // Enviar al backend
+        console.log('📤 [SEND-BULK] Enviando petición POST a /api/signatures/bulk-send...');
+        console.log('📤 [SEND-BULK] URL completa:', `/api/signatures/bulk-send?user_id=${user.user_id}`);
+
+        let response;
+        try {
+          response = await fetch(`/api/signatures/bulk-send?user_id=${user.user_id}`, {
+            method: 'POST',
+            body: formData
+          });
+          console.log('📥 [SEND-BULK] Fetch completado exitosamente');
+        } catch (fetchError) {
+          console.error('❌ [SEND-BULK] Error en fetch:', fetchError);
+          console.error('❌ [SEND-BULK] Tipo de error:', fetchError.constructor.name);
+          console.error('❌ [SEND-BULK] Mensaje de error:', fetchError.message);
+          console.error('❌ [SEND-BULK] Stack:', fetchError.stack);
+          throw new Error(`Error de red: ${fetchError.message}`);
+        }
+
+        console.log('📥 [SEND-BULK] Respuesta del servidor:', response.status, response.statusText);
+        console.log('📥 [SEND-BULK] Headers de respuesta:', [...response.headers.entries()]);
+
+        let result;
+        try {
+          const responseText = await response.text();
+          console.log('📥 [SEND-BULK] Respuesta texto (primeras 500 chars):', responseText.substring(0, 500));
+          result = JSON.parse(responseText);
+        } catch (parseError) {
+          console.error('❌ [SEND-BULK] Error parseando JSON:', parseError);
+          throw new Error('El servidor no devolvió un JSON válido');
+        }
+
+        console.log('📥 [SEND-BULK] Resultado parseado:', result);
+
+        if (result.success) {
+          safeToast('success', '¡Envío Completado!', `Se han encolado ${result.data.queued_emails} emails para envío`, 8000);
+
+          // Cerrar modal
+          document.getElementById('recipientsClose')?.click();
+
+          // Redirigir a tracking después de un breve delay
+          setTimeout(() => {
+            const docName = urlParams.get('name') || 'documento';
+            console.log('📍 [SEND-BULK] Redirigiendo a tracking.html...');
+            window.location.href = `/tracking.html?id=${documentId}&name=${encodeURIComponent(docName)}`;
+          }, 1500);
+        } else {
+          throw new Error(result.error || 'Error desconocido');
+        }
+
+      } catch (error) {
+        console.error('❌ [SEND-BULK] Error al enviar:', error);
+        console.error('❌ [SEND-BULK] Tipo de error:', error.constructor.name);
+        console.error('❌ [SEND-BULK] Stack completo:', error.stack);
+        safeToast('error', 'Error al enviar', error.message, 8000);
+      } finally {
+        // Restaurar estado del botón (como tracking.html)
+        if (addButton) {
+          addButton.disabled = false;
+          addButton.textContent = originalText;
+        }
+      }
+    };
+  </script>
+</body>
+</html>
