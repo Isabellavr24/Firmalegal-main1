@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Equipos - FirmaLegalOnline</title>
+
+  <link rel="stylesheet" href="/public/Main/M-styles/Styles.css?v=8">
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <style>
+    .icon-svg { display:inline-block; width:18px; height:18px; vertical-align:middle; flex-shrink:0; }
+    .avatar{ position:relative; overflow:hidden; display:flex; align-items:center; justify-content:center; width:34px; height:34px; border-radius:50% }
+    .avatar img{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; border-radius:50% }
+
+    /* Teams Grid */
+    .teams-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 16px;
+      max-width: var(--content-max, 1200px);
+      margin: 0 auto;
+      padding: 0 var(--page-gutter, 24px);
+    }
+
+    .team-card {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 16px;
+      padding: 20px;
+      transition: box-shadow 0.2s, transform 0.15s;
+      cursor: pointer;
+    }
+    .team-card:hover {
+      box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+      transform: translateY(-2px);
+    }
+
+    .team-card-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .team-color-dot {
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .team-card-header h3 {
+      font-size: 16px;
+      font-weight: 700;
+      color: #1f2937;
+      margin: 0;
+    }
+
+    .team-card-meta {
+      font-size: 13px;
+      color: #6b7280;
+      margin-bottom: 12px;
+    }
+
+    .team-members-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .member-avatar {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      background: #e5e7eb;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 600; color: #6b7280;
+      border: 2px solid #fff;
+    }
+    .member-avatar:not(:first-child) { margin-left: -8px; }
+    .member-count {
+      font-size: 12px; color: #9ca3af; margin-left: 4px;
+    }
+
+    /* Team Detail Panel */
+    .team-detail {
+      max-width: var(--content-max, 1200px);
+      margin: 0 auto;
+      padding: 0 var(--page-gutter, 24px);
+    }
+    .team-detail-header {
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: 24px;
+    }
+    .team-detail-header h2 {
+      font-size: 22px; font-weight: 700; color: #1f2937; margin: 0;
+    }
+    .back-btn {
+      display: flex; align-items: center; gap: 6px;
+      background: none; border: none; cursor: pointer;
+      font-size: 14px; color: #6b7280; font-family: inherit;
+      padding: 6px 12px; border-radius: 8px;
+    }
+    .back-btn:hover { background: #f3f4f6; color: #374151; }
+
+    /* Members List */
+    .members-section { margin-top: 24px; }
+    .members-section h3 {
+      font-size: 15px; font-weight: 600; color: #374151;
+      margin-bottom: 12px;
+    }
+    .member-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 12px; border-radius: 10px;
+      transition: background 0.15s;
+    }
+    .member-row:hover { background: #f9fafb; }
+    .member-row .member-info { flex: 1; }
+    .member-row .member-name { font-size: 14px; font-weight: 600; color: #1f2937; }
+    .member-row .member-email { font-size: 12px; color: #9ca3af; }
+    .member-role-badge {
+      font-size: 11px; font-weight: 600; padding: 3px 8px;
+      border-radius: 6px; text-transform: uppercase;
+    }
+    .member-role-badge.owner { background: #fef3c7; color: #92400e; }
+    .member-role-badge.admin { background: #dbeafe; color: #1e40af; }
+    .member-role-badge.member { background: #f3f4f6; color: #6b7280; }
+
+    .member-actions { display: flex; gap: 4px; }
+    .member-actions button {
+      width: 30px; height: 30px;
+      display: grid; place-items: center;
+      background: none; border: 1px solid transparent;
+      border-radius: 8px; cursor: pointer; color: #9ca3af;
+    }
+    .member-actions button:hover { background: #fee2e2; color: #dc2626; border-color: #fecaca; }
+
+    /* Add Member Form */
+    .add-member-row {
+      display: flex; gap: 8px; margin-top: 12px;
+    }
+    .add-member-row input {
+      flex: 1; padding: 8px 12px;
+      border: 1px solid #d1d5db; border-radius: 10px;
+      font-size: 14px; font-family: inherit;
+    }
+    .add-member-row input:focus { outline: none; border-color: #7c3aed; box-shadow: 0 0 0 3px rgba(124,58,237,0.1); }
+
+    /* Shared Content Section */
+    .shared-content { margin-top: 32px; }
+    .shared-content h3 {
+      font-size: 15px; font-weight: 600; color: #374151;
+      margin-bottom: 12px;
+    }
+
+    .empty-state-sm {
+      text-align: center; padding: 32px; color: #9ca3af;
+      border: 2px dashed #e5e7eb; border-radius: 12px;
+    }
+    .empty-state-sm p { margin: 8px 0; font-size: 14px; }
+
+    /* Toast container from main scripts */
+    .toast-container {
+      position: fixed; top: 16px; right: 16px; z-index: 10000;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+  </style>
+</head>
+
+<body>
+  <!-- Header -->
+  <header class="main-header">
+    <div class="brand-wrap">
+      <img class="brand-logo-full" src="/img/Nuevologo.jpg" alt="PKI Services" />
+    </div>
+    <nav class="top-actions">
+      <a class="link-config" href="/config.html" id="configLink" style="display: none;">Configuracion</a>
+      <details class="user-menu" id="userMenu" style="opacity: 0;">
+        <summary class="avatar" aria-label="Perfil"></summary>
+        <div class="user-dropdown" role="menu" aria-label="Menu de usuario">
+          <a class="menu-item" id="profileMenuItem" href="/config.html#perfil" role="menuitem">Perfil</a>
+          <button class="menu-item" id="logoutBtn" type="button" role="menuitem">Cerrar sesion</button>
+        </div>
+      </details>
+    </nav>
+  </header>
+
+  <!-- Titulo + controles -->
+  <section class="page-head">
+    <div class="left">
+      <a href="/index.html" style="text-decoration:none; color:#6b7280; font-size:14px; margin-right:12px;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;"><polyline points="15 18 9 12 15 6"/></svg>
+        Plantillas
+      </a>
+      <h1>Equipos</h1>
+    </div>
+    <div class="right">
+      <button class="primary-btn" id="newTeamBtn" title="Crear equipo">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>
+        </svg>
+        CREAR EQUIPO
+      </button>
+    </div>
+  </section>
+
+  <!-- Vista: Lista de equipos -->
+  <div id="teamsListView">
+    <div id="teamsGrid" class="teams-grid"></div>
+    <div id="emptyTeams" class="empty-state-sm" style="display:none; max-width:500px; margin:40px auto;">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" stroke-width="1.5" style="margin-bottom:8px;">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+        <circle cx="9" cy="7" r="4"/>
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+        <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+      </svg>
+      <p><strong>No tienes equipos</strong></p>
+      <p>Crea un equipo para compartir carpetas y documentos con otros usuarios.</p>
+    </div>
+  </div>
+
+  <!-- Vista: Detalle de equipo -->
+  <div id="teamDetailView" style="display:none;">
+    <div class="team-detail">
+      <div class="team-detail-header">
+        <button class="back-btn" id="backToTeams">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+          Volver
+        </button>
+        <div class="team-color-dot" id="detailTeamColor"></div>
+        <h2 id="detailTeamName"></h2>
+        <button class="ghost-btn" id="editTeamBtn" title="Editar equipo" style="margin-left:auto;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          </svg>
+        </button>
+        <button class="ghost-btn" id="deleteTeamBtn" title="Eliminar equipo" style="color:#dc2626;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+          </svg>
+        </button>
+      </div>
+
+      <p id="detailTeamDesc" style="color:#6b7280; font-size:14px; margin-bottom:24px;"></p>
+
+      <!-- Miembros -->
+      <div class="members-section">
+        <h3>Miembros</h3>
+        <div id="membersList"></div>
+        <div class="add-member-row">
+          <input type="email" id="addMemberEmail" placeholder="Email del usuario a agregar..." />
+          <button class="primary-btn" id="addMemberBtn" style="white-space:nowrap;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+              <circle cx="8.5" cy="7" r="4"/>
+              <line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/>
+            </svg>
+            Agregar
+          </button>
+        </div>
+      </div>
+
+      <!-- Contenido compartido -->
+      <div class="shared-content">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+          <h3 style="margin:0;">Carpetas y documentos del equipo</h3>
+          <button class="ghost-btn" id="shareContentBtn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+            </svg>
+            Compartir contenido
+          </button>
+        </div>
+
+        <div id="teamFolders"></div>
+        <div id="teamDocuments" style="margin-top:16px;"></div>
+        <div id="emptyTeamContent" class="empty-state-sm" style="display:none;">
+          <p>No hay contenido compartido con este equipo.</p>
+          <p>Usa el boton "Compartir contenido" para agregar carpetas o documentos.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Crear/Editar Equipo -->
+  <div id="teamModal" class="modal" aria-hidden="true" style="display:none">
+    <div class="modal-content create-modal" role="dialog" aria-modal="true" style="max-width:480px;">
+      <header class="modal-header">
+        <h2 id="teamModalTitle">Crear nuevo equipo</h2>
+        <button class="close-btn" id="teamModalClose" aria-label="Cerrar">&times;</button>
+      </header>
+      <div class="modal-body create-body">
+        <label class="form-label" style="display:block; font-size:14px; font-weight:600; color:#374151; margin-bottom:6px;">Nombre del equipo</label>
+        <input id="teamNameInput" type="text" class="ct-input" placeholder="Ej: Equipo Legal" required autocomplete="off" style="width:100%; padding:10px 14px; border:1px solid #d1d5db; border-radius:10px; font-size:14px; font-family:inherit;" />
+        <label class="form-label" style="display:block; font-size:14px; font-weight:600; color:#374151; margin-bottom:6px; margin-top:16px;">Descripcion (opcional)</label>
+        <textarea id="teamDescInput" class="ct-input" placeholder="Breve descripcion del equipo..." rows="3" style="width:100%; padding:10px 14px; border:1px solid #d1d5db; border-radius:10px; font-size:14px; font-family:inherit; resize:vertical;"></textarea>
+        <label class="form-label" style="display:block; font-size:14px; font-weight:600; color:#374151; margin-bottom:6px; margin-top:16px;">Color</label>
+        <div style="display:flex; gap:8px;">
+          <button type="button" class="color-opt" data-color="#7c3aed" style="width:32px; height:32px; border-radius:50%; border:3px solid #7c3aed; background:#7c3aed; cursor:pointer;"></button>
+          <button type="button" class="color-opt" data-color="#2563eb" style="width:32px; height:32px; border-radius:50%; border:3px solid transparent; background:#2563eb; cursor:pointer;"></button>
+          <button type="button" class="color-opt" data-color="#059669" style="width:32px; height:32px; border-radius:50%; border:3px solid transparent; background:#059669; cursor:pointer;"></button>
+          <button type="button" class="color-opt" data-color="#dc2626" style="width:32px; height:32px; border-radius:50%; border:3px solid transparent; background:#dc2626; cursor:pointer;"></button>
+          <button type="button" class="color-opt" data-color="#d97706" style="width:32px; height:32px; border-radius:50%; border:3px solid transparent; background:#d97706; cursor:pointer;"></button>
+          <button type="button" class="color-opt" data-color="#2b0e31" style="width:32px; height:32px; border-radius:50%; border:3px solid transparent; background:#2b0e31; cursor:pointer;"></button>
+        </div>
+      </div>
+      <footer class="modal-footer create-footer">
+        <button type="button" class="btn secondary" id="teamModalCancel">Cancelar</button>
+        <button type="button" class="cta-create" id="teamModalSave">Crear</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- MODAL: Compartir contenido con equipo -->
+  <div id="shareModal" class="modal" aria-hidden="true" style="display:none">
+    <div class="modal-content create-modal" role="dialog" aria-modal="true" style="max-width:520px;">
+      <header class="modal-header">
+        <h2>Compartir con el equipo</h2>
+        <button class="close-btn" id="shareModalClose" aria-label="Cerrar">&times;</button>
+      </header>
+      <div class="modal-body create-body">
+        <nav style="display:flex; gap:4px; margin-bottom:16px;">
+          <button class="tab is-active" id="shareFoldersTab" style="flex:1; padding:8px; border:1px solid #e5e7eb; border-radius:8px; background:#f3f4f6; font-size:13px; font-weight:600; cursor:pointer; font-family:inherit;">Carpetas</button>
+          <button class="tab" id="shareDocsTab" style="flex:1; padding:8px; border:1px solid #e5e7eb; border-radius:8px; background:#fff; font-size:13px; font-weight:600; cursor:pointer; font-family:inherit;">Documentos</button>
+        </nav>
+        <div id="shareItemsList" style="max-height:300px; overflow-y:auto;"></div>
+      </div>
+      <footer class="modal-footer create-footer">
+        <button type="button" class="btn secondary" id="shareModalCancel">Cancelar</button>
+        <button type="button" class="cta-create" id="shareModalSave">Compartir seleccionados</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- MODAL: Confirmar -->
+  <div id="confirmModal" class="modal" aria-hidden="true" style="display:none; z-index:1100;">
+    <div class="modal-content create-modal" role="dialog" aria-modal="true" style="max-width:440px;">
+      <header class="modal-header">
+        <h2 id="confirmTitle">Confirmar</h2>
+        <button class="close-btn" id="confirmClose" aria-label="Cerrar">&times;</button>
+      </header>
+      <div class="modal-body create-body">
+        <p id="confirmMessage" style="font-size:14px; line-height:1.6;"></p>
+      </div>
+      <footer class="modal-footer create-footer">
+        <button type="button" class="btn secondary" id="confirmCancel">Cancelar</button>
+        <button type="button" class="btn primary" id="confirmOk" style="background:#dc2626; border-color:#dc2626;">Confirmar</button>
+      </footer>
+    </div>
+  </div>
+
+  <script src="/public/Main/auth-helper.js"></script>
+  <script>
+    if (typeof requireAuth === 'function') requireAuth();
+  </script>
+  <script src="/public/Main/permissions.js"></script>
+  <script src="/public/Main/teams.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      if (window.permissions) {
+        const link = document.getElementById('configLink');
+        if (link && window.permissions.canAccessConfig?.()) link.style.display = '';
+        window.permissions.updateAllAvatars?.();
+        const userMenu = document.getElementById('userMenu');
+        if (userMenu) userMenu.style.opacity = '1';
+      }
+      const logoutBtn = document.getElementById('logoutBtn');
+      if (logoutBtn && typeof logout === 'function') logoutBtn.addEventListener('click', logout);
+      document.addEventListener('click', (e) => {
+        const dd = document.getElementById('userMenu');
+        if (dd && !dd.contains(e.target)) dd.removeAttribute('open');
+      });
+    });
+  </script>
+</body>
+</html>

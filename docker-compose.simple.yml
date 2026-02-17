@@ -1,0 +1,90 @@
+version: '3.8'
+
+# ==========================================
+# Docker Compose Simplificado
+# Sin Nginx - Para pruebas rápidas
+# ==========================================
+
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: firmalegal-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: firmalegalonline
+      MYSQL_USER: firmalegal_user
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database-dump.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "3306:3306"
+    networks:
+      - firmalegal-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: firmalegal-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - firmalegal-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Aplicación FirmaLegal
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: firmalegal-app
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - DB_HOST=mysql
+      - DB_USER=firmalegal_user
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=firmalegalonline
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - APP_URL=${APP_URL}
+      - CERT_PASSWORD=${CERT_PASSWORD}
+      - TSA_URL=${TSA_URL}
+      - SENDGRID_API_KEY=${SENDGRID_API_KEY}
+      - JWT_SECRET=${JWT_SECRET}
+    volumes:
+      - ./uploads:/app/uploads
+      - ./backend/certificates:/app/backend/certificates:ro
+      - app_logs:/app/logs
+    ports:
+      - "3000:3000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - firmalegal-network
+
+volumes:
+  mysql_data:
+  redis_data:
+  app_logs:
+
+networks:
+  firmalegal-network:
+    driver: bridge

@@ -1,0 +1,66 @@
+# Node
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Python
+backend/python_signer/venv
+backend/python_signer/__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentación (ya eliminada)
+*.md
+
+# Logs
+logs
+*.log
+
+# Tests
+test
+tests
+*.test.js
+*.spec.js
+
+# Environment (se usará .env.production)
+.env.development
+.env.local
+backend/.env
+backend/.env.backup
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# Uploads temporales (se crean en el contenedor)
+uploads/documents/*
+uploads/signed/*
+uploads/temp/*
+uploads/pagares/*
+uploads/templates/*
+
+# Mantener estructura de carpetas
+!uploads/documents/.gitkeep
+!uploads/signed/.gitkeep
+!uploads/temp/.gitkeep
+!uploads/pagares/.gitkeep
+!uploads/templates/.gitkeep

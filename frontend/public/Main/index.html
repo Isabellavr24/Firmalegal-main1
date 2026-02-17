@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Plantillas - FirmaLegalOnline</title>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="/public/Main/M-styles/Styles.css?v=8">
+
+  <!-- Fuente -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <style>
+    /* Iconos SVG inline */
+    .icon-svg { display:inline-block; width:18px; height:18px; vertical-align:middle; flex-shrink:0; }
+    .icon-svg-lg { display:inline-block; width:32px; height:32px; vertical-align:middle; flex-shrink:0; }
+
+    /* Avatar */
+    .avatar{ position:relative; overflow:hidden; display:flex; align-items:center; justify-content:center; width:34px; height:34px; border-radius:50% }
+    .avatar img{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; border-radius:50% }
+
+    /* ===== Acciones laterales para documentos (si ya lo pusiste en Styles.css, puedes borrar este bloque) ===== */
+    .card.doc{ position: relative; }
+    .card.doc .card-link{ padding-right: 72px; }
+    .doc-actions{
+      position:absolute; top:50%; right:12px;
+      transform:translateY(-50%) translateX(8px);
+      display:flex; flex-direction:column; gap:12px;
+      opacity:0; pointer-events:none;
+      transition: opacity .18s ease, transform .18s ease;
+    }
+    .card.doc:hover .doc-actions{ opacity:1; transform:translateY(-50%) translateX(0); pointer-events:auto; }
+    .doc-actions .icon-btn{
+      width:34px; height:34px; display:grid; place-items:center;
+      border-radius:12px; border:1px solid transparent;
+      background:transparent; color:var(--brand-plum,#2b0e31); cursor:pointer;
+    }
+    .doc-actions .icon-btn:hover{ background:#fff; border-color:#eadfd8; box-shadow:0 6px 16px rgba(0,0,0,.10); }
+    .doc-actions .icon-btn.danger:hover{ color:#c2185b; background:#fff0f4; border-color:#ffd6e6; }
+    .doc-actions svg{ width:18px; height:18px; stroke:currentColor; }
+
+    /* ===== Selector de tipo de documento ===== */
+    .document-type-selector {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 8px;
+    }
+
+    .doc-type-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      padding: 16px 12px;
+      background: #f8f9fa;
+      border: 2px solid #e5e7eb;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      font-family: inherit;
+    }
+
+    .doc-type-btn:hover {
+      background: #fff;
+      border-color: #c4b5fd;
+      transform: translateY(-2px);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .doc-type-btn.active {
+      background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+      border-color: #7c3aed;
+      color: white;
+      box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+    }
+
+    .doc-type-icon {
+      font-size: 32px;
+      line-height: 1;
+    }
+
+    .doc-type-text {
+      font-size: 13px;
+      font-weight: 600;
+      text-align: center;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 14px;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 6px;
+    }
+
+    /* Estilos para botones de tipo de documento en upload modal */
+    .doc-type-upload-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+    }
+    .doc-type-upload-btn.active {
+      background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%) !important;
+      border-color: #7c3aed !important;
+      color: white !important;
+      box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3) !important;
+    }
+  </style>
+</head>
+
+<body>
+  <!-- Header -->
+  <header class="main-header">
+    <div class="brand-wrap">
+      <img class="brand-logo-full" src="/img/Nuevologo.jpg" alt="PKI Services" />
+    </div>
+    <nav class="top-actions">
+      <a class="link-config" href="/teams.html" style="margin-right:8px;">Equipos</a>
+      <a class="link-config" href="/config.html" id="configLink" style="display: none;">Configuración</a>
+      <details class="user-menu" id="userMenu" style="opacity: 0;">
+        <summary class="avatar" aria-label="Perfil"></summary>
+        <div class="user-dropdown" role="menu" aria-label="Menú de usuario">
+          <a class="menu-item" id="profileMenuItem" href="/config.html#perfil" role="menuitem">Perfil</a>
+          <button class="menu-item" id="logoutBtn" type="button" role="menuitem">Cerrar sesión</button>
+        </div>
+      </details>
+    </nav>
+  </header>
+
+  <!-- Título + controles -->
+  <section class="page-head">
+    <div class="left">
+      <div class="view-toggle" role="tablist" aria-label="Cambiar vista">
+        <button class="toggle-btn is-active" data-view="grid" title="Vista de cuadrícula" aria-selected="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <rect x="3" y="3" width="7" height="7" />
+            <rect x="14" y="3" width="7" height="7" />
+            <rect x="14" y="14" width="7" height="7" />
+            <rect x="3" y="14" width="7" height="7" />
+          </svg>
+        </button>
+        <button class="toggle-btn" data-view="list" title="Vista de lista" aria-selected="false">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <line x1="8" y1="6" x2="21" y2="6" />
+            <line x1="8" y1="12" x2="21" y2="12" />
+            <line x1="8" y1="18" x2="21" y2="18" />
+            <rect x="3" y="5" width="3" height="3" />
+            <rect x="3" y="11" width="3" height="3" />
+            <rect x="3" y="17" width="3" height="3" />
+          </svg>
+        </button>
+      </div>
+      <h1>Documentos Plantillas</h1>
+    </div>
+
+    <div class="right">
+      <div class="search">
+        <svg class="icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <circle cx="11" cy="11" r="8" />
+          <line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+        <input id="searchInput" type="search" placeholder="Buscar…" />
+      </div>
+
+      <button class="ghost-btn" id="uploadBtn" title="Subir">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="17 8 12 3 7 8" />
+          <line x1="12" y1="3" x2="12" y2="15" />
+        </svg>
+        SUBIR
+      </button>
+      <input id="uploadPicker" type="file" class="sr-only" multiple
+        accept="application/pdf,.pdf" />
+
+      <button class="primary-btn" id="newTemplateBtn" title="Crear plantilla">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="8" x2="12" y2="16"/>
+          <line x1="8" y1="12" x2="16" y2="12"/>
+        </svg>
+        CREAR
+      </button>
+    </div>
+  </section>
+
+  <!-- Tabs -->
+  <nav class="tabs">
+    <button class="tab is-active" data-filter="*">Todas</button>
+    <button class="tab" data-filter="mine">Mis Plantillas</button>
+    <button class="tab" data-filter="shared">Compartidas conmigo</button>
+    <button class="tab" data-filter="archived">Archivadas</button>
+  </nav>
+
+  <!-- Grid de Carpetas -->
+  <div id="foldersContainer" style="display:none; max-width:var(--content-max); margin:0 auto 24px; padding:0 var(--page-gutter);">
+    <div id="foldersGrid" class="cards grid-view"></div>
+  </div>
+
+  <!-- Grid de Documentos -->
+  <div id="docsContainer" style="display:none; max-width:var(--content-max); margin:0 auto; padding:0 var(--page-gutter);">
+    <main id="grid" class="cards grid-view"></main>
+  </div>
+
+  <!-- Estado vacío -->
+  <main id="emptyGrid" class="cards grid-view" style="display:none;"></main>
+
+  <!-- Modal CREAR plantilla -->
+  <div id="createTemplateModal" class="modal" aria-hidden="true" style="display:none">
+    <div class="modal-content create-modal" role="dialog" aria-modal="true" aria-labelledby="ct-title">
+      <header class="modal-header">
+        <h2 id="ct-title">Nueva plantilla de documento</h2>
+        <button class="close-btn" id="ct-close" aria-label="Cerrar">×</button>
+      </header>
+
+      <div class="modal-body create-body">
+        <div class="segmented" role="tablist" aria-label="Origen del archivo">
+          <button class="segmented-btn is-active" data-tab="upload" aria-selected="true">
+            <span class="segmented-icon"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></span> Subir Documento
+          </button>
+          <button class="segmented-btn" data-tab="gdrive" aria-selected="false">
+            <span class="segmented-icon">△</span> Google Drive
+          </button>
+        </div>
+
+        <input id="ct-name" class="ct-input" type="text" placeholder="Document Name" />
+
+        <!-- Selector de tipo de documento -->
+        <div class="form-group" style="margin-top: 16px;">
+          <label class="form-label">Tipo de documento</label>
+          <div class="document-type-selector">
+            <button type="button" class="doc-type-btn active" data-type="normal">
+              <span class="doc-type-icon"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
+              <span class="doc-type-text">Documento Normal</span>
+            </button>
+            <button type="button" class="doc-type-btn" data-type="pagare">
+              <span class="doc-type-icon"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg></span>
+              <span class="doc-type-text">Pagaré</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="ct-tabs">
+          <div id="ct-tab-upload" class="ct-tab is-visible">
+            <label class="file-pill" for="ct-file">
+              <span class="file-pill-icon">⬆</span>
+              <span class="file-pill-text" id="ct-file-text">Selecciona un archivo…</span>
+            </label>
+            <input id="ct-file" type="file" class="sr-only" multiple
+              accept="application/pdf,.pdf" />
+          </div>
+
+          <div id="ct-tab-gdrive" class="ct-tab">
+            <div class="gdrive-box">
+              <p>Pega Google Drive link:</p>
+              <input id="ct-gdrive" class="ct-input small" type="url" placeholder="https://drive.google.com/..." />
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Guardar en carpeta</label>
+          <div class="custom-select-wrapper">
+            <div class="folder-selector custom-select-trigger" id="ct-folder-trigger">
+              <span class="folder-selector-icon"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.8a2 2 0 0 1-1.7-.9l-.8-1.1A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/></svg></span>
+              <span class="custom-select-value" id="ct-folder-value">Sin carpeta</span>
+              <svg class="custom-select-arrow" width="12" height="8" viewBox="0 0 12 8" fill="none">
+                <path d="M1 1.5L6 6.5L11 1.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <div class="custom-select-dropdown" id="ct-folder-dropdown">
+              <div class="custom-select-option" data-value="">
+                <span class="option-icon"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.8a2 2 0 0 1-1.7-.9l-.8-1.1A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/></svg></span>
+                <span class="option-text">Sin carpeta</span>
+              </div>
+            </div>
+          </div>
+          <input type="hidden" id="ct-folder-select" value="" />
+          <div style="margin-top: .5rem; text-align:center;">
+            <button type="button" class="link-btn" id="ct-new-folder" style="font-size:.875rem; color:var(--brand-magenta);">
+              + Crear nueva carpeta
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <footer class="modal-footer create-footer">
+        <button id="ct-create" class="cta-create" disabled>Crear</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- MODAL: Crear Nueva Carpeta -->
+  <div id="newFolderModal" class="modal" aria-hidden="true" style="display:none">
+    <div class="modal-content create-modal" role="dialog" aria-modal="true" aria-labelledby="nf-title" style="max-width:520px;">
+      <header class="modal-header">
+        <h2 id="nf-title">Crear nueva carpeta</h2>
+        <button class="close-btn" id="nf-close" aria-label="Cerrar">×</button>
+      </header>
+
+      <div class="modal-body create-body">
+        <form id="newFolderForm">
+          <label for="nf-name" class="nf-label">Nombre de la carpeta</label>
+          <input id="nf-name" type="text" class="ct-input" placeholder="Ej: Contratos 2025" required autocomplete="off" />
+          <label for="nf-description" class="nf-label">Descripción (opcional)</label>
+          <textarea id="nf-description" class="ct-input nf-textarea" placeholder="Breve descripción..." rows="4"></textarea>
+        </form>
+      </div>
+
+      <footer class="modal-footer create-footer">
+        <button type="button" class="btn secondary" id="nf-cancel">Cancelar</button>
+        <button type="submit" form="newFolderForm" class="cta-create" id="nf-create">Crear Carpeta</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ========== TEMPLATE: Card de documento con botones de acción ========== -->
+  <template id="doc-card-template">
+    <article class="card doc">
+      <a class="card-link" data-open-doc>
+        <h3 class="title"></h3>
+        <div class="meta">
+          <p class="owner"></p>
+          <p class="date"></p>
+        </div>
+      </a>
+      
+      <!-- Botones de acción (aparecen al hover) -->
+      <div class="doc-actions">
+        <button class="icon-btn" data-action="move" title="Mover a otra carpeta">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.8a2 2 0 0 1-1.7-.9l-.8-1.1A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/>
+          </svg>
+        </button>
+        
+        <button class="icon-btn" data-action="edit" title="Editar nombre">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          </svg>
+        </button>
+        
+        <button class="icon-btn" data-action="clone" title="Duplicar documento">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+          </svg>
+        </button>
+        
+        <button class="icon-btn" data-action="archive" title="Archivar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="21 8 21 21 3 21 3 8"/>
+            <rect x="1" y="3" width="22" height="5"/>
+            <line x1="10" y1="12" x2="14" y2="12"/>
+          </svg>
+        </button>
+      </div>
+    </article>
+  </template>
+
+  <!-- ========== MODAL: Mover documento ========== -->
+  <div id="moveDocModal" class="modal" aria-hidden="true" style="display:none; z-index: 1100;">
+    <div class="modal-content create-modal" role="dialog" aria-modal="true" aria-labelledby="md-title" style="max-width:520px;">
+      <header class="modal-header">
+        <h2 id="md-title">Mover documento</h2>
+        <button class="close-btn" id="md-close" aria-label="Cerrar">×</button>
+      </header>
+      <div class="modal-body create-body">
+        <p id="md-doc-name" style="margin-bottom: 1rem; font-weight: 500;"></p>
+        <div class="form-group">
+          <label class="form-label">Selecciona la carpeta destino</label>
+          <div id="md-folder-select" class="custom-select">
+            <button type="button" class="select-trigger">
+              <span class="select-text">Selecciona una carpeta...</span>
+              <svg class="select-arrow" width="12" height="8" viewBox="0 0 12 8" fill="none">
+                <path d="M1 1.5L6 6.5L11 1.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+            <div class="select-dropdown">
+              <!-- Opciones dinámicas cargadas por JS -->
+            </div>
+          </div>
+        </div>
+      </div>
+      <footer class="modal-footer create-footer">
+        <button type="button" class="btn secondary" id="md-cancel">Cancelar</button>
+        <button type="button" class="btn primary" id="md-move">Mover</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ========== MODAL: Editar nombre ========== -->
+  <div id="editNameModal" class="modal" aria-hidden="true" style="display:none; z-index: 1100;">
+    <div class="modal-content create-modal" role="dialog" aria-modal="true" aria-labelledby="en-title" style="max-width:480px;">
+      <header class="modal-header">
+        <h2 id="en-title">Editar nombre</h2>
+        <button class="close-btn" id="en-close" aria-label="Cerrar">×</button>
+      </header>
+      <div class="modal-body create-body">
+        <div class="form-group">
+          <label class="form-label">Nuevo nombre del documento</label>
+          <input type="text" id="en-input" class="ct-input" placeholder="Nombre del documento" />
+        </div>
+      </div>
+      <footer class="modal-footer create-footer">
+        <button type="button" class="btn secondary" id="en-cancel">Cancelar</button>
+        <button type="button" class="btn primary" id="en-save">Guardar</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ========== MODAL: Confirmar acción ========== -->
+  <div id="confirmModal" class="modal" aria-hidden="true" style="display:none; z-index: 1100;">
+    <div class="modal-content create-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title" style="max-width:480px;">
+      <header class="modal-header">
+        <h2 id="confirm-title">Confirmar</h2>
+        <button class="close-btn" id="confirm-close" aria-label="Cerrar">×</button>
+      </header>
+      <div class="modal-body create-body">
+        <p id="confirm-message" style="font-size: 1rem; line-height: 1.6;"></p>
+      </div>
+      <footer class="modal-footer create-footer">
+        <button type="button" class="btn secondary" id="confirm-cancel">Cancelar</button>
+        <button type="button" class="btn primary" id="confirm-ok">Confirmar</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ========== MODAL: Personalizar Plantilla ========== -->
+  <div id="personalizeModal" class="modal" aria-hidden="true" style="display:none; z-index: 1100;">
+    <div class="modal-content create-modal" role="dialog" aria-modal="true" aria-labelledby="personalize-title" style="max-width:600px;">
+      <header class="modal-header">
+        <h2 id="personalize-title"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg> Personalizar Plantilla</h2>
+        <button class="close-btn" id="personalize-close" aria-label="Cerrar">×</button>
+      </header>
+      <div class="modal-body create-body" style="max-height: 60vh; overflow-y: auto;">
+        <div style="background: #f3f4f6; padding: 12px; border-radius: 8px; margin-bottom: 16px;">
+          <p style="margin: 0; font-size: 14px; color: #374151;">
+            <strong id="personalize-template-name">Cargando...</strong>
+          </p>
+          <p style="margin: 4px 0 0 0; font-size: 13px; color: #6b7280;">
+            Completa los valores para cada campo detectado
+          </p>
+        </div>
+
+        <div id="personalize-fields-container" style="display: flex; flex-direction: column; gap: 16px;">
+          <!-- Los campos se cargarán dinámicamente aquí -->
+          <div style="text-align: center; padding: 40px; color: #9ca3af;">
+            <p>Cargando campos...</p>
+          </div>
+        </div>
+      </div>
+      <footer class="modal-footer create-footer">
+        <button type="button" class="btn secondary" id="personalize-cancel">Cancelar</button>
+        <button type="button" class="btn primary" id="personalize-generate"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L9.19 8.63 2 9.24l5.46 4.73L5.82 21 12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61z"/></svg> Generar PDF</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- MODAL: Seleccionar tipo de documento para subida rápida -->
+  <div id="uploadTypeModal" class="modal" aria-hidden="true" style="display:none; z-index: 1100;">
+    <div class="modal-content create-modal" role="dialog" aria-modal="true" style="max-width:480px;">
+      <header class="modal-header">
+        <h2>Tipo de documento</h2>
+        <button class="close-btn" id="upload-type-close" aria-label="Cerrar">×</button>
+      </header>
+      <div class="modal-body create-body" style="padding: 24px;">
+        <p style="margin-bottom: 20px; color: #6b7280; font-size: 14px;">Selecciona el tipo de documento que deseas subir:</p>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <button type="button" class="doc-type-upload-btn active" data-upload-type="normal" style="display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 20px 12px; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); border: 2px solid #7c3aed; color: white; border-radius: 12px; cursor: pointer; transition: all 0.2s; font-family: inherit; box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);">
+            <svg class="icon-svg-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <span style="font-weight: 600; font-size: 14px;">Documento Normal</span>
+          </button>
+          <button type="button" class="doc-type-upload-btn" data-upload-type="pagare" style="display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 20px 12px; background: #f8f9fa; border: 2px solid #e5e7eb; color: #1f2937; border-radius: 12px; cursor: pointer; transition: all 0.2s; font-family: inherit;">
+            <svg class="icon-svg-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+            <span style="font-weight: 600; font-size: 14px;">Pagaré</span>
+          </button>
+        </div>
+      </div>
+      <footer class="modal-footer create-footer">
+        <button type="button" class="btn secondary" id="upload-type-cancel">Cancelar</button>
+        <button type="button" class="cta-create" id="upload-type-continue">Continuar</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- Cargar helper de autenticación PRIMERO -->
+  <script src="/public/Main/auth-helper.js"></script>
+  <script>
+    // Proteger esta página - redirige a login si no hay sesión
+    if (typeof requireAuth === 'function') {
+      requireAuth();
+    }
+  </script>
+  <script src="/public/Main/permissions.js"></script>
+  <script defer src="/script.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      if (window.permissions) {
+        // Mostrar/ocultar enlace de configuración según permisos
+        const link = document.getElementById('configLink');
+        if (link) {
+          if (window.permissions.canAccessConfig?.()) {
+            link.style.display = '';
+          } else {
+            link.style.display = 'none';
+          }
+        }
+        
+        // Actualizar avatares con datos reales del usuario
+        window.permissions.updateAllAvatars?.();
+        
+        // Hacer visible el avatar después de actualizarlo
+        const userMenu = document.getElementById('userMenu');
+        if (userMenu) {
+          userMenu.style.opacity = '1';
+        }
+      }
+
+      // Agregar evento al botón de logout
+      const logoutBtn = document.getElementById('logoutBtn');
+      if (logoutBtn && typeof logout === 'function') {
+        logoutBtn.addEventListener('click', logout);
+      }
+
+      document.addEventListener('click', (e) => {
+        const dd = document.getElementById('userMenu');
+        if (dd && !dd.contains(e.target)) dd.removeAttribute('open');
+      });
+    });
+  </script>
+</body>
+</html>
