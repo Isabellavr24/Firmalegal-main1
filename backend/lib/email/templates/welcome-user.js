@@ -30,7 +30,6 @@ module.exports = function welcomeUserTemplate({ firstName, lastName, email, pass
 <body>
     <div class="container">
         <div class="header">
-            <div><img src="https://firmalegalonline.com/img/Nuevologo.jpg" alt="FirmaLegal" style="max-width:120px;height:auto;border-radius:12px;" /></div>
             <h1>¡Bienvenido/a a<br>FirmaLegal Online!</h1>
         </div>
         <div class="content">
