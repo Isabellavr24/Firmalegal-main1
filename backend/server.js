@@ -1358,27 +1358,52 @@ app.get('/api/roles', (req, res) => {
     });
 });
 
+// Generar contraseña segura aleatoria
+function generateSecurePassword(length = 12) {
+    const uppercase = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+    const lowercase = 'abcdefghjkmnpqrstuvwxyz';
+    const digits = '23456789';
+    const symbols = '@#$%&!';
+    const all = uppercase + lowercase + digits + symbols;
+    // Garantizar al menos 1 de cada tipo
+    let pwd = [
+        uppercase[Math.floor(Math.random() * uppercase.length)],
+        lowercase[Math.floor(Math.random() * lowercase.length)],
+        digits[Math.floor(Math.random() * digits.length)],
+        symbols[Math.floor(Math.random() * symbols.length)]
+    ];
+    for (let i = 4; i < length; i++) {
+        pwd.push(all[Math.floor(Math.random() * all.length)]);
+    }
+    // Mezclar array
+    for (let i = pwd.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pwd[i], pwd[j]] = [pwd[j], pwd[i]];
+    }
+    return pwd.join('');
+}
+
 // Crear nuevo usuario
 app.post('/api/users', async (req, res) => {
     console.log('➕ Creando nuevo usuario');
     console.log('📦 Datos recibidos:', JSON.stringify(req.body, null, 2));
-    
-    const { firstName, lastName, email, password, roleId, requestingUserId, requestingUserRole } = req.body;
+
+    const { firstName, lastName, email, roleId, requestingUserId, requestingUserRole } = req.body;
 
     // VERIFICAR PERMISOS: Solo Superadministrador puede crear usuarios
     if (!requestingUserRole || !canManageUsers(requestingUserRole)) {
         console.warn('⛔ Intento de crear usuario sin permisos:', requestingUserRole);
-        return res.status(403).json({ 
-            success: false, 
-            message: 'No tienes permisos para crear usuarios' 
+        return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para crear usuarios'
         });
     }
 
-    // Validaciones
-    if (!firstName || !lastName || !email || !password || !roleId) {
-        return res.status(400).json({ 
-            success: false, 
-            message: 'Todos los campos son requeridos' 
+    // Validaciones (sin contraseña — se genera automáticamente)
+    if (!firstName || !lastName || !email || !roleId) {
+        return res.status(400).json({
+            success: false,
+            message: 'Todos los campos son requeridos'
         });
     }
 
@@ -1392,29 +1417,30 @@ app.post('/api/users', async (req, res) => {
         });
 
         if (existing.length > 0) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'El email ya está registrado' 
+            return res.status(400).json({
+                success: false,
+                message: 'El email ya está registrado'
             });
         }
 
-        // Verificar que el rol existe
+        // Verificar que el rol existe y obtener su nombre
         const [roleResult] = await new Promise((resolve, reject) => {
-            db.query('SELECT role_id FROM roles WHERE role_id = ?', [roleId], (err, results) => {
+            db.query('SELECT role_id, role_name FROM roles WHERE role_id = ?', [roleId], (err, results) => {
                 if (err) reject(err);
                 else resolve([results]);
             });
         });
 
         if (roleResult.length === 0) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'Rol no válido' 
+            return res.status(400).json({
+                success: false,
+                message: 'Rol no válido'
             });
         }
 
-        // Hashear contraseña
-        const passwordHash = await bcrypt.hash(password, 10);
+        // Generar contraseña automática segura
+        const plainPassword = generateSecurePassword(12);
+        const passwordHash = await bcrypt.hash(plainPassword, 10);
 
         // Insertar usuario
         await new Promise((resolve, reject) => {
@@ -1429,13 +1455,40 @@ app.post('/api/users', async (req, res) => {
         });
 
         console.log('✅ Usuario creado exitosamente');
-        res.json({ success: true, message: 'Usuario creado exitosamente' });
+
+        // Enviar email de bienvenida con credenciales
+        const welcomeTemplate = require('./lib/email/templates/welcome-user');
+        const loginUrl = `${mailer.APP_URL}/login.html`;
+        const emailHtml = welcomeTemplate({
+            firstName,
+            lastName,
+            email,
+            password: plainPassword,
+            roleName: roleResult[0].role_name,
+            loginUrl,
+            appUrl: mailer.APP_URL
+        });
+
+        try {
+            await mailer.sendEmail({
+                to: email,
+                subject: '🎉 Bienvenido/a a FirmaLegal Online — Tus credenciales de acceso',
+                text: `Hola ${firstName},\n\nTu cuenta en FirmaLegal Online ha sido creada.\n\nCorreo: ${email}\nContraseña: ${plainPassword}\nRol: ${roleResult[0].role_name}\n\nInicia sesión en: ${loginUrl}\n\nTe recomendamos cambiar tu contraseña en el primer inicio de sesión.\n\nFirmaLegal Online`,
+                html: emailHtml
+            });
+            console.log(`📧 Email de bienvenida enviado a ${email}`);
+        } catch (emailErr) {
+            // No fallar la creación si el email falla
+            console.warn('⚠️ Usuario creado pero no se pudo enviar el email de bienvenida:', emailErr.message);
+        }
+
+        res.json({ success: true, message: 'Usuario creado. Se ha enviado un correo con las credenciales.' });
 
     } catch (error) {
         console.error('❌ Error al crear usuario:', error);
-        res.status(500).json({ 
-            success: false, 
-            message: 'Error al crear usuario' 
+        res.status(500).json({
+            success: false,
+            message: 'Error al crear usuario'
         });
     }
 });

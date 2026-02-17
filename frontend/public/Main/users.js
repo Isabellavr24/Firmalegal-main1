@@ -271,14 +271,21 @@ function openCreateModal() {
     const modal = document.getElementById('userModal');
     const title = document.getElementById('um-title');
     const form = document.getElementById('userForm');
-    
+
     form.reset();
     document.getElementById('um-id').value = '';
     title.textContent = 'Nuevo usuario';
-    
-    // Hacer contraseña requerida para nuevo usuario
-    document.getElementById('um-pass').required = true;
-    
+
+    // Ocultar campo contraseña — se genera automáticamente y llega por email
+    const passRow = document.getElementById('um-pass-row');
+    if (passRow) passRow.style.display = 'none';
+    const passField = document.getElementById('um-pass');
+    if (passField) { passField.required = false; passField.value = ''; }
+
+    // Mostrar nota informativa
+    const passNote = document.getElementById('um-pass-note');
+    if (passNote) passNote.style.display = '';
+
     modal.setAttribute('aria-hidden', 'false');
     modal.style.display = 'flex';
 }
@@ -287,25 +294,37 @@ function openCreateModal() {
 function openEditModal(user) {
     const modal = document.getElementById('userModal');
     const title = document.getElementById('um-title');
-    
+
     title.textContent = 'Editar usuario';
-    
+
     // Rellenar formulario
     document.getElementById('um-id').value = user.user_id;
     document.getElementById('um-first').value = user.first_name;
     document.getElementById('um-last').value = user.last_name;
     document.getElementById('um-email').value = user.email;
-    document.getElementById('um-pass').value = '';
-    document.getElementById('um-pass').required = false;
-    document.getElementById('um-pass').placeholder = 'Dejar vacío para mantener actual';
-    
+
+    const passField = document.getElementById('um-pass');
+    if (passField) {
+        passField.value = '';
+        passField.required = false;
+        passField.placeholder = 'Dejar vacío para mantener actual';
+    }
+
+    // Mostrar campo contraseña en modo edición (opcional)
+    const passRow = document.getElementById('um-pass-row');
+    if (passRow) passRow.style.display = '';
+
+    // Ocultar nota informativa de contraseña automática
+    const passNote = document.getElementById('um-pass-note');
+    if (passNote) passNote.style.display = 'none';
+
     // Seleccionar rol por role_id
     const roleSelect = document.getElementById('um-role');
     const userRole = availableRoles.find(r => r.role_name === user.role_name);
     if (userRole) {
         roleSelect.value = userRole.role_id;
     }
-    
+
     modal.setAttribute('aria-hidden', 'false');
     modal.style.display = 'flex';
 }
@@ -331,11 +350,6 @@ async function handleUserSubmit() {
     // Validaciones
     if (!firstName || !lastName || !email || !roleId) {
         alert('Por favor completa todos los campos requeridos');
-        return;
-    }
-
-    if (!userId && !password) {
-        alert('La contraseña es requerida para nuevos usuarios');
         return;
     }
 
@@ -391,7 +405,7 @@ async function handleUserSubmit() {
             // Recargar usuarios
             await loadUsers();
             
-            alert(userId ? 'Usuario actualizado correctamente' : 'Usuario creado correctamente');
+            alert(userId ? 'Usuario actualizado correctamente' : '✅ Usuario creado. Se ha enviado un correo con sus credenciales de acceso.');
         } else {
             alert(data.message || 'Error al guardar usuario');
         }
