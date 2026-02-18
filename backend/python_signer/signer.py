@@ -13,7 +13,10 @@ from io import BytesIO
 import logging
 import os
 import asyncio
+import ssl
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.ssl_ import create_urllib3_context
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Optional, Dict, List
@@ -23,6 +26,60 @@ from reportlab.lib.pagesizes import letter
 from pathlib import Path
 import time
 import threading
+
+
+class LegacyTLSHTTPTimeStamper(HTTPTimeStamper):
+    """HTTPTimeStamper con adaptador TLS legacy para compatibilidad con OpenSSL 3.x"""
+
+    def _make_session(self):
+        class LegacyTLSAdapter(HTTPAdapter):
+            def init_poolmanager(self, *args, **kwargs):
+                ctx = create_urllib3_context()
+                ctx.set_ciphers('DEFAULT@SECLEVEL=1')
+                ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+                ctx.options |= ssl.OP_LEGACY_SERVER_CONNECT
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                kwargs['ssl_context'] = ctx
+                super().init_poolmanager(*args, **kwargs)
+
+        session = requests.Session()
+        session.mount('https://', LegacyTLSAdapter())
+        return session
+
+    async def async_request_tsa_response(self, req):
+        from asn1crypto import tsp
+        from asyncio import to_thread
+        from pyhanko.sign.timestamps.common_utils import TimestampRequestError, set_tsp_headers
+
+        def task():
+            session = self._make_session()
+            try:
+                import urllib3
+                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                raw_res = session.post(
+                    self.url,
+                    req.dump(),
+                    headers=set_tsp_headers(self.headers or {}),
+                    auth=self.auth,
+                    timeout=self.timeout,
+                    verify=False,
+                )
+            except IOError as e:
+                raise TimestampRequestError(
+                    'Error in communication with timestamp server',
+                ) from e
+
+            if raw_res.headers.get('Content-Type') not in (
+                'application/timestamp-reply',
+                'application/octet-stream',
+            ):
+                raise TimestampRequestError(
+                    'Timestamp server response is malformed.', raw_res
+                )
+            return tsp.TimeStampResp.load(raw_res.content)
+
+        return await to_thread(task)
 
 # Importar funciones de sello visual
 from signature_seal import draw_signature_seal, draw_qr_vertical
@@ -390,10 +447,10 @@ class PDFSigner:
             pdf_bytes = self._draw_seals_on_pdf(pdf_bytes, seals, signer, verification_token)
             logger.info("   ✅ QR y sellos dibujados")
 
-            # 2. Configurar timestamper (timeout 30s para dar tiempo al TSA)
+            # 2. Configurar timestamper con adaptador TLS legacy (OpenSSL 3.x compat)
             logger.info(f"📋 2. Configurando TSA: {self.tsa_url}")
-            timestamper = HTTPTimeStamper(self.tsa_url, timeout=30)
-            logger.info("   ✅ TSA configurado (timeout=30s)")
+            timestamper = LegacyTLSHTTPTimeStamper(self.tsa_url, timeout=30)
+            logger.info("   ✅ TSA configurado (timeout=30s, TLS legacy)")
 
             # 3. Preparar PDF
             logger.info(f"📋 3. Preparando PDF ({len(pdf_bytes)} bytes)")
@@ -482,8 +539,10 @@ class PDFSigner:
                     last_tsa_error = None
                     break
                 except Exception as tsa_error:
+                    import traceback
                     last_tsa_error = tsa_error
                     logger.warning(f"   ⚠️  Intento {attempt} fallido: {str(tsa_error)}")
+                    logger.warning(f"   📋 Traceback: {traceback.format_exc()}")
 
             if last_tsa_error is not None:
                 raise last_tsa_error
