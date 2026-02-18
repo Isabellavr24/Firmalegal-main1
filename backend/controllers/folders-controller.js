@@ -83,16 +83,17 @@ router.get('/', requireAuth, async (req, res) => {
                 OR (f.team_id IS NOT NULL AND f.team_id IN (SELECT team_id FROM team_members WHERE user_id = ?) AND f.user_id != ?)
             )`;
             params.push(req.userId, req.userId, req.userId);
-        } else {
-            // Carpetas propias del usuario
+        } else if (filter === 'mine') {
+            // Solo carpetas propias del usuario
             query += ` AND f.user_id = ?`;
             params.push(req.userId);
-
-            // Filtrar por tag si no es '*'
-            if (filter !== '*') {
-                query += ` AND f.tag = ?`;
-                params.push(filter);
-            }
+        } else {
+            // Filtro '*' (Todas): carpetas propias + carpetas del equipo del usuario
+            query += ` AND (
+                f.user_id = ?
+                OR (f.team_id IS NOT NULL AND f.team_id IN (SELECT team_id FROM team_members WHERE user_id = ?))
+            )`;
+            params.push(req.userId, req.userId);
         }
 
         // Búsqueda por nombre

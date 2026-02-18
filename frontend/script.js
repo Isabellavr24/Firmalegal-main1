@@ -203,7 +203,7 @@ function countFolderItems(folderId) {
 }
 
 // Crea una card de carpeta con HREF directo a folder.html (relativo al index)
-function folderCardTemplate({ id, name, item_count = 0, tag = 'mine' }){
+function folderCardTemplate({ id, name, item_count = 0, tag = 'mine', owner_name = null }){
   const folderId = id || slugify(name);
 
   // Construye URL relativa al documento actual (index.html)
@@ -234,9 +234,10 @@ function folderCardTemplate({ id, name, item_count = 0, tag = 'mine' }){
           <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.8a2 2 0 0 1-1.7-.9l-.8-1.1A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/>
         </svg>
       </div>
-      <div class="meta">
-        <h3 class="title">${name}</h3>
-        <p class="sub">${realItemCount} ítem${realItemCount !== 1 ? 's' : ''}</p>
+      <div class="meta" style="display:flex;flex-direction:column;gap:4px;">
+        <h3 class="title" style="margin:0;">${name}</h3>
+        <p class="sub" style="margin:0;">${realItemCount} ítem${realItemCount !== 1 ? 's' : ''}</p>
+        ${owner_name ? `<p class="sub" style="margin:0;color:var(--text-secondary,#888);font-size:0.85em;">${owner_name}</p>` : ''}
       </div>
     </a>
   `;
@@ -373,34 +374,34 @@ async function fetchFoldersAPI(){
 }
 
 async function loadFolders(){
-  const folders = await fetchFoldersAPI();
   clearRenderedFolders();
 
   // Limpiar grid de documentos también
   if (grid) grid.innerHTML = '';
   if (docsContainer) docsContainer.style.display = 'none';
 
-  // Separar carpetas y documentos
-  if (folders.length > 0) {
-    foldersContainer.style.display = 'block';
-    folders.forEach(f => {
-      const card = folderCardTemplate(f);
-      foldersGrid.appendChild(card);
-    });
-  } else {
-    foldersContainer.style.display = 'none';
-  }
-
   // ✅ Cargar documentos según el filtro actual
   if (currentFilter === 'archived') {
     console.log('📦 [index] Cargando documentos archivados...');
+    foldersContainer.style.display = 'none';
     await loadArchivedDocuments();
   } else if (currentFilter === 'shared') {
+    // "Compartidas conmigo": solo usar vault (no fetchFoldersAPI para evitar duplicados)
     console.log('🔗 [index] Cargando documentos compartidos via equipos...');
+    foldersContainer.style.display = 'none';
     await loadSharedDocuments();
   } else {
-    // ✅ Cargar documentos activos del index (folder_id=NULL)
-    // currentFilter puede ser '*' (todas) o 'mine' (mis plantillas)
+    // "Todas" o "Mis Plantillas": carpetas del API general
+    const folders = await fetchFoldersAPI();
+    if (folders.length > 0) {
+      foldersContainer.style.display = 'block';
+      folders.forEach(f => {
+        const card = folderCardTemplate(f);
+        foldersGrid.appendChild(card);
+      });
+    } else {
+      foldersContainer.style.display = 'none';
+    }
     console.log(`📄 [index] Cargando documentos activos del index (filtro: ${currentFilter})...`);
     await loadActiveDocuments();
   }
@@ -550,18 +551,13 @@ async function loadSharedDocuments() {
       if (folders && folders.length > 0) {
         foldersContainer.style.display = 'block';
         folders.forEach(f => {
-          const folderCard = document.createElement('article');
-          folderCard.className = 'card folder';
-          folderCard.innerHTML = `
-            <a class="card-link" href="/folder.html?id=${f.id}&name=${encodeURIComponent(f.name)}">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;">
-                <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.8a2 2 0 0 1-1.7-.9l-.8-1.1A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/>
-              </svg>
-              <div>
-                <h3 class="title">${f.name}</h3>
-                <div class="meta"><p class="owner">${f.owner_name || ''}</p></div>
-              </div>
-            </a>`;
+          const folderCard = folderCardTemplate({
+            id: f.id,
+            name: f.name,
+            item_count: f.doc_count || 0,
+            tag: 'shared',
+            owner_name: f.owner_name || null
+          });
           foldersGrid.appendChild(folderCard);
         });
       }

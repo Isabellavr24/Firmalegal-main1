@@ -390,10 +390,10 @@ class PDFSigner:
             pdf_bytes = self._draw_seals_on_pdf(pdf_bytes, seals, signer, verification_token)
             logger.info("   ✅ QR y sellos dibujados")
 
-            # 2. Configurar timestamper
+            # 2. Configurar timestamper (timeout 30s para dar tiempo al TSA)
             logger.info(f"📋 2. Configurando TSA: {self.tsa_url}")
-            timestamper = HTTPTimeStamper(self.tsa_url)
-            logger.info("   ✅ TSA configurado")
+            timestamper = HTTPTimeStamper(self.tsa_url, timeout=30)
+            logger.info("   ✅ TSA configurado (timeout=30s)")
 
             # 3. Preparar PDF
             logger.info(f"📋 3. Preparando PDF ({len(pdf_bytes)} bytes)")
@@ -455,19 +455,38 @@ class PDFSigner:
             else:
                 logger.info("📋 5. Firma invisible (sin campo visual)")
 
-            # 6. Firmar PDF con timestamp
+            # 6. Firmar PDF con timestamp (hasta 3 intentos con TSA)
             logger.info("📋 6. Firmando PDF...")
             logger.info("   ⏳ Generando firma PKCS#7...")
             logger.info("   ⏳ Solicitando timestamp TSA...")
 
-            out = signers.sign_pdf(
-                pdf_out=w,
-                signature_meta=meta,
-                signer=signer,
-                timestamper=timestamper,
-                new_field_spec=sig_field_spec,
-                existing_fields_only=False
-            )
+            max_tsa_attempts = 3
+            last_tsa_error = None
+            out = None
+            for attempt in range(1, max_tsa_attempts + 1):
+                try:
+                    if attempt > 1:
+                        logger.warning(f"   ⚠️  Reintento TSA {attempt}/{max_tsa_attempts}...")
+                        # Recrear writer porque el anterior quedó en estado inconsistente
+                        pdf_in_retry = BytesIO(pdf_bytes)
+                        reader_retry = PyHankoPdfReader(pdf_in_retry)
+                        w = IncrementalPdfFileWriter.from_reader(reader_retry)
+                    out = signers.sign_pdf(
+                        pdf_out=w,
+                        signature_meta=meta,
+                        signer=signer,
+                        timestamper=timestamper,
+                        new_field_spec=sig_field_spec,
+                        existing_fields_only=False
+                    )
+                    last_tsa_error = None
+                    break
+                except Exception as tsa_error:
+                    last_tsa_error = tsa_error
+                    logger.warning(f"   ⚠️  Intento {attempt} fallido: {str(tsa_error)}")
+
+            if last_tsa_error is not None:
+                raise last_tsa_error
 
             signed_pdf = out.getvalue()
 

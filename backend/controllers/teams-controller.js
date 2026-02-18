@@ -154,7 +154,7 @@ router.get('/shared-with-me/vault', requireAuth, async (req, res) => {
             ORDER BY t.team_name ASC, f.created_at ASC
         `, [...teamIds, req.userId]);
 
-        // Documentos de otros miembros del mismo equipo
+        // Documentos sin carpeta de otros miembros del mismo equipo
         const documents = await dbQuery(db, `
             SELECT d.document_id, d.title, d.file_name, d.document_type, d.status,
                    d.is_template, d.created_at, d.folder_id, d.team_id,
@@ -168,6 +168,7 @@ router.get('/shared-with-me/vault', requireAuth, async (req, res) => {
             WHERE d.team_id IN (${placeholders})
               AND d.status = 'active'
               AND d.owner_id != ?
+              AND (d.folder_id IS NULL OR d.folder_id = 0)
             ORDER BY t.team_name ASC, d.created_at DESC
         `, [...teamIds, req.userId]);
 
@@ -310,6 +311,16 @@ router.post('/', requireAuth, async (req, res) => {
         await dbQuery(db,
             'INSERT INTO team_members (team_id, user_id, role) VALUES (?, ?, ?)',
             [teamId, req.userId, 'owner']
+        );
+
+        // AUTO-SHARE: asignar team_id a todos los folders y documents del owner
+        await dbQuery(db,
+            'UPDATE folders SET team_id = ? WHERE user_id = ? AND team_id IS NULL AND is_active = TRUE',
+            [teamId, req.userId]
+        );
+        await dbQuery(db,
+            'UPDATE documents SET team_id = ? WHERE owner_id = ? AND team_id IS NULL AND status = "active"',
+            [teamId, req.userId]
         );
 
         await logActivity(db, {
