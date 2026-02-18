@@ -115,35 +115,83 @@ router.get('/', requireAuth, async (req, res) => {
     const db = req.app.locals.db;
 
     try {
-        let query = `
-            SELECT
-                d.document_id,
-                d.folder_id,
-                d.title,
-                d.file_name,
-                d.file_path,
-                d.file_type,
-                d.file_size,
-                d.owner_id,
-                d.is_template,
-                d.status,
-                d.document_type,
-                d.google_drive_url,
-                d.tags,
-                d.created_at,
-                d.updated_at,
-                u.first_name,
-                u.last_name,
-                CONCAT(u.first_name, ' ', u.last_name) as owner_name,
-                f.folder_name,
-                f.folder_slug
-            FROM documents d
-            LEFT JOIN users u ON d.owner_id = u.user_id
-            LEFT JOIN folders f ON d.folder_id = f.folder_id
-            WHERE d.owner_id = ? AND d.status = ?
-        `;
+        // Obtener team_id del usuario (si pertenece a un equipo)
+        const teamRows = await new Promise((resolve, reject) => {
+            db.query(
+                'SELECT team_id FROM team_members WHERE user_id = ? LIMIT 1',
+                [req.userId],
+                (err, rows) => err ? reject(err) : resolve(rows)
+            );
+        });
+        const userTeamId = teamRows.length > 0 ? teamRows[0].team_id : null;
 
-        const params = [req.userId, status];
+        let query;
+        let params;
+
+        if (userTeamId) {
+            // Usuario en equipo: ver sus docs + docs de compañeros de equipo con team_id
+            query = `
+                SELECT
+                    d.document_id,
+                    d.folder_id,
+                    d.title,
+                    d.file_name,
+                    d.file_path,
+                    d.file_type,
+                    d.file_size,
+                    d.owner_id,
+                    d.is_template,
+                    d.status,
+                    d.document_type,
+                    d.google_drive_url,
+                    d.tags,
+                    d.created_at,
+                    d.updated_at,
+                    d.team_id,
+                    u.first_name,
+                    u.last_name,
+                    CONCAT(u.first_name, ' ', u.last_name) as owner_name,
+                    f.folder_name,
+                    f.folder_slug
+                FROM documents d
+                LEFT JOIN users u ON d.owner_id = u.user_id
+                LEFT JOIN folders f ON d.folder_id = f.folder_id
+                WHERE d.status = ?
+                  AND (d.owner_id = ? OR d.team_id = ?)
+            `;
+            params = [status, req.userId, userTeamId];
+        } else {
+            // Usuario sin equipo: solo sus docs
+            query = `
+                SELECT
+                    d.document_id,
+                    d.folder_id,
+                    d.title,
+                    d.file_name,
+                    d.file_path,
+                    d.file_type,
+                    d.file_size,
+                    d.owner_id,
+                    d.is_template,
+                    d.status,
+                    d.document_type,
+                    d.google_drive_url,
+                    d.tags,
+                    d.created_at,
+                    d.updated_at,
+                    d.team_id,
+                    u.first_name,
+                    u.last_name,
+                    CONCAT(u.first_name, ' ', u.last_name) as owner_name,
+                    f.folder_name,
+                    f.folder_slug
+                FROM documents d
+                LEFT JOIN users u ON d.owner_id = u.user_id
+                LEFT JOIN folders f ON d.folder_id = f.folder_id
+                WHERE d.owner_id = ? AND d.status = ?
+            `;
+            params = [req.userId, status];
+        }
 
         // Filtrar por carpeta si se especifica
         if (folder_id) {
@@ -345,6 +393,16 @@ router.post('/upload', requireAuth, upload.array('files', 10), async (req, res) 
     const errors = [];
 
     try {
+        // Obtener team_id del usuario (si pertenece a un equipo)
+        const teamRows = await new Promise((resolve, reject) => {
+            db.query(
+                'SELECT team_id FROM team_members WHERE user_id = ? LIMIT 1',
+                [req.userId],
+                (err, rows) => err ? reject(err) : resolve(rows)
+            );
+        });
+        const userTeamId = teamRows.length > 0 ? teamRows[0].team_id : null;
+
         // Parsear títulos personalizados si vienen
         let customTitles = [];
         if (titles) {
@@ -363,12 +421,12 @@ router.post('/upload', requireAuth, upload.array('files', 10), async (req, res) 
             console.log(`   📄 Procesando archivo ${i + 1}/${req.files.length}: ${file.originalname}`);
 
             try {
-                // Insertar en BD
+                // Insertar en BD (con team_id si el usuario pertenece a un equipo)
                 const result = await new Promise((resolve, reject) => {
                     db.query(
                         `INSERT INTO documents
-                         (folder_id, title, file_name, file_path, file_type, file_size, owner_id, is_template, status, document_type)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
+                         (folder_id, title, file_name, file_path, file_type, file_size, owner_id, is_template, status, document_type, team_id)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
                         [
                             folder_id || null,
                             title,
@@ -378,7 +436,8 @@ router.post('/upload', requireAuth, upload.array('files', 10), async (req, res) 
                             file.size,
                             req.userId,
                             parseInt(is_template),
-                            document_type // ✅ Agregar tipo de documento
+                            document_type,
+                            userTeamId  // ✅ Asignar team_id automáticamente
                         ],
                         (err, result) => {
                             if (err) reject(err);
