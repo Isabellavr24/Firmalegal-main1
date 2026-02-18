@@ -983,6 +983,9 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch(e) { console.warn('[Equipos] load:', e); }
   }
 
+  // Paleta de emojis/colores para íconos de equipos
+  const TEAM_ICONS = ['🏢', '🚀', '⚡', '🎯', '🔷', '🌿', '🔮', '🏆'];
+
   function renderTeamList(teams) {
     if (!eqList) return;
     eqList.innerHTML = '';
@@ -991,46 +994,61 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     eqEmpty && (eqEmpty.style.display = 'none');
-    teams.forEach(t => {
-      const item = document.createElement('div');
-      item.className = 'eq-item' + (t.team_id === selectedTeamId ? ' is-active' : '');
-      item.dataset.teamId = t.team_id;
-      item.innerHTML = `
-        <div class="eq-item-info">
-          <div class="eq-item-name">${escapeHtml(t.team_name)}</div>
-          <div class="eq-item-meta">${t.member_count || 0} inquilino(s)</div>
+    teams.forEach((t, i) => {
+      const count = t.member_count || 0;
+      const icon  = TEAM_ICONS[i % TEAM_ICONS.length];
+      const card  = document.createElement('div');
+      card.className = 'eq-card' + (t.team_id === selectedTeamId ? ' is-active' : '');
+      card.dataset.teamId = t.team_id;
+      card.innerHTML = `
+        <div class="eq-card-top">
+          <div class="eq-card-icon">${icon}</div>
+          <div class="eq-card-actions">
+            <button class="eq-icon-btn edit" data-action="edit" title="Editar equipo">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </button>
+            <button class="eq-icon-btn delete" data-action="delete" title="Eliminar equipo">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+            </button>
+          </div>
         </div>
-        <div class="eq-item-actions">
-          <button class="eq-icon-btn edit" data-action="edit" data-id="${t.team_id}" data-name="${escapeHtml(t.team_name)}" title="Editar">✏️</button>
-          <button class="eq-icon-btn" data-action="delete" data-id="${t.team_id}" data-name="${escapeHtml(t.team_name)}" title="Eliminar">🗑️</button>
+        <div>
+          <div class="eq-card-name">${escapeHtml(t.team_name)}</div>
+          ${t.team_description ? `<p class="eq-card-desc">${escapeHtml(t.team_description)}</p>` : ''}
+        </div>
+        <div class="eq-card-footer">
+          <span class="eq-card-count">${count}</span>
+          <span class="eq-card-label">${count === 1 ? 'inquilino' : 'inquilinos'}</span>
         </div>
       `;
-      item.addEventListener('click', (e) => {
+      card.addEventListener('click', (e) => {
         if (e.target.closest('button[data-action]')) return;
-        selectTeam(t.team_id, t.team_name);
+        selectTeam(t.team_id, t.team_name, t.team_description);
       });
-      item.querySelector('[data-action="edit"]').addEventListener('click', (e) => {
+      card.querySelector('[data-action="edit"]').addEventListener('click', (e) => {
         e.stopPropagation();
         openEditTeamModal(t.team_id, t.team_name, t.team_description);
       });
-      item.querySelector('[data-action="delete"]').addEventListener('click', (e) => {
+      card.querySelector('[data-action="delete"]').addEventListener('click', (e) => {
         e.stopPropagation();
         deleteTeam(t.team_id, t.team_name);
       });
-      eqList.appendChild(item);
+      eqList.appendChild(card);
     });
   }
 
-  async function selectTeam(teamId, teamName) {
+  async function selectTeam(teamId, teamName, teamDesc) {
     selectedTeamId = teamId;
     // Marcar activo
-    document.querySelectorAll('.eq-item').forEach(el => {
+    document.querySelectorAll('.eq-card').forEach(el => {
       el.classList.toggle('is-active', parseInt(el.dataset.teamId) === teamId);
     });
-    // Mostrar panel derecho
+    // Mostrar panel inferior
     if (eqRightEmpty) eqRightEmpty.style.display = 'none';
     if (eqRightCont)  eqRightCont.style.display = '';
     if (eqTeamTitle)  eqTeamTitle.textContent = `Inquilinos — ${teamName}`;
+    const descEl = document.getElementById('eq-team-desc');
+    if (descEl) descEl.textContent = teamDesc || '';
     await loadMembers(teamId);
   }
 

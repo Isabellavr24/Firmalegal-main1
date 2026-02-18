@@ -488,49 +488,61 @@
 
 <!-- SEC: Equipos e Inquilinos -->
 <section class="set-section" id="sec-equipos" aria-labelledby="sec-equipos-h">
-  <h1 class="page-h1" id="sec-equipos-h">Equipos e Inquilinos</h1>
-  <p style="color:#888;font-size:14px;margin-bottom:24px;">Gestiona los equipos de tu organización y los usuarios (inquilinos) que pertenecen a cada uno.</p>
+  <div class="eq-page-header">
+    <div>
+      <h1 class="page-h1" id="sec-equipos-h" style="margin-bottom:4px;">Equipos e Inquilinos</h1>
+      <p class="eq-subtitle">Gestiona los equipos de tu organización y los usuarios que pertenecen a cada uno.</p>
+    </div>
+    <button class="eq-btn-new" id="eq-newBtn">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Nuevo Equipo
+    </button>
+  </div>
 
-  <div class="equipos-layout">
-    <!-- PANEL IZQUIERDO: Lista de Equipos -->
-    <div class="equipos-panel equipos-panel--left">
-      <div class="equipos-panel-header">
-        <h2 class="equipos-panel-title">Equipos</h2>
-        <button class="btn-soft" id="eq-newBtn" style="font-size:13px;padding:6px 14px;">
-          <span>＋</span> Nuevo Equipo
-        </button>
-      </div>
-      <div id="eq-list" class="eq-list">
-        <div class="eq-empty" id="eq-empty">No hay equipos creados</div>
+  <!-- BLOQUE SUPERIOR: Lista de Equipos (cards horizontales) -->
+  <div class="eq-teams-block">
+    <div id="eq-list" class="eq-cards-grid">
+      <div class="eq-empty" id="eq-empty">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#d1c4e9" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+        <span>No hay equipos creados aún</span>
+        <span style="font-size:12px;color:#c4b8cc;">Crea tu primer equipo con el botón de arriba</span>
       </div>
     </div>
+  </div>
 
-    <!-- PANEL DERECHO: Inquilinos del equipo seleccionado -->
-    <div class="equipos-panel equipos-panel--right" id="eq-right-panel">
-      <div id="eq-right-empty" class="eq-right-placeholder">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-        <p>Selecciona un equipo para ver sus inquilinos</p>
+  <!-- SEPARADOR / BLOQUE INFERIOR: Panel de Inquilinos -->
+  <div class="eq-members-block" id="eq-members-block">
+    <!-- Estado vacío: ningún equipo seleccionado -->
+    <div id="eq-right-empty" class="eq-right-placeholder">
+      <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#d1c4e9" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <p>Selecciona un equipo para gestionar sus inquilinos</p>
+    </div>
+
+    <!-- Contenido al seleccionar un equipo -->
+    <div id="eq-right-content" style="display:none;">
+      <div class="eq-members-header">
+        <div>
+          <h2 class="eq-members-title" id="eq-team-title">Inquilinos</h2>
+          <p class="eq-members-subtitle" id="eq-team-desc"></p>
+        </div>
       </div>
 
-      <div id="eq-right-content" style="display:none;">
-        <div class="equipos-panel-header">
-          <h2 class="equipos-panel-title" id="eq-team-title">Inquilinos</h2>
+      <!-- Buscador de usuarios -->
+      <div class="eq-search-wrap" id="eq-add-section">
+        <div class="eq-search-inner">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="eq-user-search" placeholder="Buscar usuario por nombre o correo para agregar..." autocomplete="off" />
+          <button id="eq-search-btn">Agregar</button>
         </div>
+        <div id="eq-search-results" class="eq-search-results" style="display:none;"></div>
+      </div>
 
-        <!-- Buscador de usuarios -->
-        <div class="eq-search-wrap" id="eq-add-section">
-          <div style="position:relative;">
-            <input type="text" id="eq-user-search" class="ct-input" placeholder="Buscar usuario por nombre o correo..." autocomplete="off" style="width:100%;padding-right:48px;" />
-            <button id="eq-search-btn" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:#2a0d31;color:#fff;border:none;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:12px;">Buscar</button>
-          </div>
-          <div id="eq-search-results" class="eq-search-results" style="display:none;"></div>
-        </div>
-
-        <!-- Lista de inquilinos -->
-        <div id="eq-members-list" class="eq-members-list">
-          <!-- renderizado por JS -->
-        </div>
-        <div id="eq-members-empty" class="eq-empty" style="display:none;">Este equipo no tiene inquilinos aún</div>
+      <!-- Lista de inquilinos -->
+      <div id="eq-members-list" class="eq-members-list"></div>
+      <div id="eq-members-empty" class="eq-members-empty-state" style="display:none;">
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#d1c4e9" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+        <p>Este equipo no tiene inquilinos aún</p>
+        <span>Usa el buscador de arriba para agregar usuarios</span>
       </div>
     </div>
   </div>
@@ -588,121 +600,366 @@
 </div>
 
 <style>
-.equipos-layout {
-  display: grid;
-  grid-template-columns: 300px 1fr;
-  gap: 24px;
-  align-items: start;
-  margin-top: 8px;
-}
-.equipos-panel {
-  background: #fff;
-  border: 1px solid #e9ecef;
-  border-radius: 16px;
-  overflow: hidden;
-}
-.equipos-panel-header {
+/* ── Equipos e Inquilinos — layout vertical ─────────────────────────────── */
+
+/* Cabecera de página */
+.eq-page-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  padding: 16px 20px;
-  border-bottom: 1px solid #f0f0f0;
+  gap: 16px;
+  margin-bottom: 28px;
 }
-.equipos-panel-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: #2a0d31;
+.eq-subtitle {
+  color: #9b8fa0;
+  font-size: 14px;
   margin: 0;
 }
-.eq-list { padding: 8px; min-height: 120px; }
-.eq-item {
-  display: flex;
+.eq-btn-new {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 12px 14px;
+  gap: 7px;
+  background: #2a0d31;
+  color: #fff;
+  border: none;
   border-radius: 10px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.15s, transform 0.1s;
+}
+.eq-btn-new:hover { background: #3d1348; transform: translateY(-1px); }
+
+/* ── Bloque superior: grid de cards de equipos ───── */
+.eq-teams-block {
+  margin-bottom: 28px;
+}
+
+.eq-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+/* Estado vacío dentro del grid */
+.eq-empty {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 48px 20px;
+  background: #faf8fd;
+  border: 1.5px dashed #d8cfe8;
+  border-radius: 16px;
+  color: #b0a0bc;
+  font-size: 14px;
+  text-align: center;
+}
+
+/* Card de equipo */
+.eq-card {
+  background: #fff;
+  border: 1.5px solid #ece6f4;
+  border-radius: 16px;
+  padding: 20px;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.12s;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: relative;
+}
+.eq-card:hover {
+  border-color: #c5b3e0;
+  box-shadow: 0 4px 16px rgba(42,13,49,0.08);
+  transform: translateY(-2px);
+}
+.eq-card.is-active {
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 3px rgba(124,58,237,0.12);
+  background: #faf8ff;
+}
+.eq-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 8px;
 }
-.eq-item:hover { background: #f8f5ff; }
-.eq-item.is-active { background: #ede9f8; }
-.eq-item-info { flex: 1; min-width: 0; }
-.eq-item-name { font-weight: 600; font-size: 14px; color: #2a0d31; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.eq-item-meta { font-size: 12px; color: #888; margin-top: 2px; }
-.eq-item-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.eq-card-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #ede9f8, #d8cfe8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+}
+.eq-card-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.eq-card:hover .eq-card-actions { opacity: 1; }
 .eq-icon-btn {
   background: none;
   border: none;
-  border-radius: 6px;
-  padding: 4px 7px;
+  border-radius: 7px;
+  padding: 5px 7px;
   cursor: pointer;
-  color: #888;
-  font-size: 13px;
+  color: #aaa;
+  font-size: 14px;
+  line-height: 1;
   transition: background 0.15s, color 0.15s;
 }
-.eq-icon-btn:hover { background: #fee; color: #c0392b; }
-.eq-icon-btn.edit:hover { background: #eef; color: #2a0d31; }
-.eq-empty { padding: 32px 20px; text-align: center; color: #aaa; font-size: 14px; }
-.eq-right-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 60px 20px; color: #bbb; font-size: 14px; }
-.eq-search-wrap { padding: 16px 20px; border-bottom: 1px solid #f0f0f0; }
+.eq-icon-btn:hover { background: #f3f0f8; color: #2a0d31; }
+.eq-icon-btn.delete:hover { background: #fef2f2; color: #c0392b; }
+.eq-card-name {
+  font-weight: 700;
+  font-size: 15px;
+  color: #1a0a20;
+  line-height: 1.3;
+}
+.eq-card-desc {
+  font-size: 12px;
+  color: #9b8fa0;
+  line-height: 1.4;
+  margin: 0;
+}
+.eq-card-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid #f0eaf8;
+}
+.eq-card-count {
+  font-size: 12px;
+  font-weight: 600;
+  color: #7c3aed;
+  background: #f3f0ff;
+  padding: 3px 10px;
+  border-radius: 20px;
+}
+.eq-card-label {
+  font-size: 12px;
+  color: #aaa;
+}
+
+/* Indicador de equipo activo en la card */
+.eq-card.is-active .eq-card-count {
+  background: #7c3aed;
+  color: #fff;
+}
+
+/* ── Bloque inferior: panel de inquilinos ───── */
+.eq-members-block {
+  background: #fff;
+  border: 1.5px solid #ece6f4;
+  border-radius: 20px;
+  overflow: hidden;
+}
+
+/* Placeholder cuando no hay equipo seleccionado */
+.eq-right-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 64px 20px;
+  color: #c4b8cc;
+  font-size: 14px;
+  text-align: center;
+}
+
+/* Cabecera del panel de miembros */
+.eq-members-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 22px 24px 18px;
+  border-bottom: 1px solid #f3eff9;
+}
+.eq-members-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #1a0a20;
+  margin: 0 0 4px;
+}
+.eq-members-subtitle {
+  font-size: 13px;
+  color: #9b8fa0;
+  margin: 0;
+}
+
+/* Buscador */
+.eq-search-wrap {
+  padding: 16px 24px;
+  border-bottom: 1px solid #f3eff9;
+  position: relative;
+}
+.eq-search-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #faf8fd;
+  border: 1.5px solid #e4daf0;
+  border-radius: 12px;
+  padding: 10px 14px;
+  transition: border-color 0.15s;
+}
+.eq-search-inner:focus-within {
+  border-color: #7c3aed;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(124,58,237,0.08);
+}
+.eq-search-inner input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  color: #1a0a20;
+  outline: none;
+  min-width: 0;
+}
+.eq-search-inner input::placeholder { color: #b0a0bc; }
+.eq-search-inner button {
+  background: #2a0d31;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.eq-search-inner button:hover { background: #3d1348; }
+
+/* Dropdown de resultados */
 .eq-search-results {
   position: absolute;
-  top: calc(100% + 4px);
-  left: 0; right: 0;
+  top: calc(100% - 8px);
+  left: 24px;
+  right: 24px;
   background: #fff;
-  border: 1px solid #e0d6f8;
-  border-radius: 10px;
-  box-shadow: 0 4px 16px rgba(42,13,49,0.1);
+  border: 1.5px solid #e0d6f8;
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(42,13,49,0.12);
   z-index: 100;
-  max-height: 240px;
+  max-height: 260px;
   overflow-y: auto;
 }
 .eq-search-result-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
+  gap: 12px;
+  padding: 11px 16px;
   cursor: pointer;
   transition: background 0.15s;
-  border-bottom: 1px solid #f5f5f5;
+  border-bottom: 1px solid #f7f4fc;
 }
 .eq-search-result-item:last-child { border-bottom: none; }
 .eq-search-result-item:hover { background: #f8f5ff; }
-.eq-search-avatar { width: 32px; height: 32px; border-radius: 50%; background: #ede9f8; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; color: #2a0d31; flex-shrink: 0; }
+.eq-search-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ede9f8, #d8cfe8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 13px;
+  color: #2a0d31;
+  flex-shrink: 0;
+}
 .eq-search-name { font-weight: 600; font-size: 13px; color: #1f2937; }
-.eq-search-email { font-size: 12px; color: #888; }
-.eq-search-team { font-size: 11px; color: #c0392b; font-weight: 600; }
-.eq-members-list { padding: 8px 12px; }
+.eq-search-email { font-size: 12px; color: #9b8fa0; margin-top: 1px; }
+.eq-search-team { font-size: 11px; color: #c0392b; font-weight: 600; margin-top: 2px; }
+
+/* Lista de miembros */
+.eq-members-list {
+  padding: 8px 12px 12px;
+}
 .eq-member-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 10px;
-  border-radius: 10px;
+  gap: 14px;
+  padding: 12px 12px;
+  border-radius: 12px;
   transition: background 0.15s;
 }
-.eq-member-row:hover { background: #fafafa; }
-.eq-member-avatar { width: 36px; height: 36px; border-radius: 50%; background: #ede9f8; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; color: #2a0d31; flex-shrink: 0; overflow: hidden; }
+.eq-member-row:hover { background: #faf8fd; }
+.eq-member-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ede9f8, #d8cfe8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 15px;
+  color: #2a0d31;
+  flex-shrink: 0;
+  overflow: hidden;
+}
 .eq-member-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .eq-member-info { flex: 1; min-width: 0; }
-.eq-member-name { font-weight: 600; font-size: 13px; color: #1f2937; }
-.eq-member-email { font-size: 12px; color: #888; }
-.eq-member-role { font-size: 11px; background: #ede9f8; color: #2a0d31; padding: 2px 8px; border-radius: 20px; font-weight: 600; text-transform: uppercase; flex-shrink: 0; }
+.eq-member-name { font-weight: 600; font-size: 14px; color: #1a0a20; }
+.eq-member-email { font-size: 12px; color: #9b8fa0; margin-top: 2px; }
+.eq-member-role {
+  font-size: 11px;
+  background: #f3f0ff;
+  color: #7c3aed;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
 .eq-member-remove {
   background: none;
   border: none;
-  color: #ccc;
+  color: #d1c4e9;
   cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 6px;
-  font-size: 16px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 18px;
+  line-height: 1;
   transition: background 0.15s, color 0.15s;
   flex-shrink: 0;
 }
-.eq-member-remove:hover { background: #fee; color: #c0392b; }
-@media (max-width: 768px) {
-  .equipos-layout { grid-template-columns: 1fr; }
+.eq-member-remove:hover { background: #fef2f2; color: #c0392b; }
+
+/* Estado vacío de miembros */
+.eq-members-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 48px 20px;
+  color: #c4b8cc;
+  font-size: 14px;
+  text-align: center;
+}
+.eq-members-empty-state span { font-size: 12px; }
+
+@media (max-width: 640px) {
+  .eq-cards-grid { grid-template-columns: 1fr; }
+  .eq-page-header { flex-direction: column; align-items: stretch; }
+  .eq-btn-new { justify-content: center; }
 }
 </style>
 
