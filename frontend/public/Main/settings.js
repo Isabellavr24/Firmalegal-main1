@@ -983,8 +983,8 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch(e) { console.warn('[Equipos] load:', e); }
   }
 
-  // Paleta de emojis/colores para íconos de equipos
-  const TEAM_ICONS = ['🏢', '🚀', '⚡', '🎯', '🔷', '🌿', '🔮', '🏆'];
+  // SVG de ícono genérico para cards de equipos
+  const TEAM_ICON_SVG = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>`;
 
   function renderTeamList(teams) {
     if (!eqList) return;
@@ -994,15 +994,14 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     eqEmpty && (eqEmpty.style.display = 'none');
-    teams.forEach((t, i) => {
+    teams.forEach((t) => {
       const count = t.member_count || 0;
-      const icon  = TEAM_ICONS[i % TEAM_ICONS.length];
       const card  = document.createElement('div');
       card.className = 'eq-card' + (t.team_id === selectedTeamId ? ' is-active' : '');
       card.dataset.teamId = t.team_id;
       card.innerHTML = `
         <div class="eq-card-top">
-          <div class="eq-card-icon">${icon}</div>
+          <div class="eq-card-icon">${TEAM_ICON_SVG}</div>
           <div class="eq-card-actions">
             <button class="eq-icon-btn edit" data-action="edit" title="Editar equipo">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -1054,13 +1053,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function loadMembers(teamId) {
     if (!eqMembersList) return;
-    eqMembersList.innerHTML = '<div style="padding:16px;color:#aaa;font-size:14px;">Cargando...</div>';
+    eqMembersList.innerHTML = '<div style="padding:16px 24px;color:#aaa;font-size:14px;">Cargando...</div>';
     try {
       const res = await authFetch(`/api/teams/${teamId}`);
       const json = await res.json();
       if (!json.ok) { eqMembersList.innerHTML = ''; return; }
       const members = json.data.members || [];
+      const stats   = json.data.stats || {};
       renderMembers(members, teamId);
+      // Actualizar estadísticas
+      const sM = document.getElementById('eq-stat-members');
+      const sD = document.getElementById('eq-stat-docs');
+      const sF = document.getElementById('eq-stat-folders');
+      if (sM) sM.textContent = stats.members   ?? members.length;
+      if (sD) sD.textContent = stats.documents ?? 0;
+      if (sF) sF.textContent = stats.folders   ?? 0;
     } catch(e) { console.warn('[Equipos] members:', e); }
   }
 
@@ -1196,40 +1203,51 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.disabled = false; btn.textContent = 'GUARDAR CAMBIOS';
   });
 
-  // -------- Buscador de usuarios
-  eqSearchInput?.addEventListener('input', () => {
+  // -------- Buscador de usuarios (delegación de eventos para elementos dinámicos)
+  document.addEventListener('input', (e) => {
+    if (e.target.id !== 'eq-user-search') return;
     clearTimeout(searchTimeout);
-    const q = eqSearchInput.value.trim();
-    if (q.length < 2) { eqSearchRes.style.display = 'none'; return; }
+    const q = e.target.value.trim();
+    const res = document.getElementById('eq-search-results');
+    if (q.length < 2) { if (res) res.style.display = 'none'; return; }
     searchTimeout = setTimeout(() => searchUsers(q), 350);
   });
 
-  document.getElementById('eq-search-btn')?.addEventListener('click', () => {
-    const q = eqSearchInput?.value.trim();
-    if (q && q.length >= 2) searchUsers(q);
-  });
-
   document.addEventListener('click', (e) => {
+    // Botón Buscar
+    if (e.target.id === 'eq-search-btn' || e.target.closest('#eq-search-btn')) {
+      const input = document.getElementById('eq-user-search');
+      const q = input?.value.trim();
+      if (q && q.length >= 2) searchUsers(q);
+      return;
+    }
+    // Cerrar dropdown al hacer click fuera
     if (!e.target.closest('#eq-add-section')) {
-      if (eqSearchRes) eqSearchRes.style.display = 'none';
+      const res = document.getElementById('eq-search-results');
+      if (res) res.style.display = 'none';
     }
   });
 
   async function searchUsers(q) {
+    const searchRes = document.getElementById('eq-search-results');
+    if (!searchRes) return;
+    searchRes.innerHTML = '<div style="padding:12px 16px;color:#aaa;font-size:13px;">Buscando...</div>';
+    searchRes.style.display = '';
     try {
       const res = await authFetch(`/api/teams/members/search?q=${encodeURIComponent(q)}`);
       const json = await res.json();
-      if (!json.ok || !eqSearchRes) return;
-      eqSearchRes.innerHTML = '';
+      if (!json.ok) { searchRes.style.display = 'none'; return; }
+      searchRes.innerHTML = '';
       if (!json.data.length) {
-        eqSearchRes.innerHTML = '<div style="padding:12px 16px;color:#aaa;font-size:13px;">No se encontraron usuarios</div>';
-        eqSearchRes.style.display = '';
+        searchRes.innerHTML = '<div style="padding:12px 16px;color:#aaa;font-size:13px;">No se encontraron usuarios</div>';
+        searchRes.style.display = '';
         return;
       }
       json.data.forEach(u => {
         const initials = ((u.first_name||'')[0]||'') + ((u.last_name||'')[0]||'');
         const item = document.createElement('div');
         item.className = 'eq-search-result-item';
+        const alreadyIn = !!u.current_team_id;
         item.innerHTML = `
           <div class="eq-search-avatar">${escapeHtml(initials.toUpperCase())}</div>
           <div style="flex:1;min-width:0;">
@@ -1237,20 +1255,20 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="eq-search-email">${escapeHtml(u.email)}</div>
             ${u.current_team_name ? `<div class="eq-search-team">Ya en: ${escapeHtml(u.current_team_name)}</div>` : ''}
           </div>
-          <button class="btn-soft" style="font-size:12px;padding:4px 12px;" ${u.current_team_id ? 'disabled title="Ya pertenece a un equipo"' : ''}>
-            ${u.current_team_id ? 'Asignado' : 'Agregar'}
+          <button class="eq-add-btn" ${alreadyIn ? 'disabled title="Ya pertenece a un equipo"' : ''}>
+            ${alreadyIn ? 'Asignado' : 'Agregar'}
           </button>
         `;
-        if (!u.current_team_id) {
-          item.querySelector('button').addEventListener('click', (e) => {
-            e.stopPropagation();
+        if (!alreadyIn) {
+          item.querySelector('button').addEventListener('click', (ev) => {
+            ev.stopPropagation();
             addMember(selectedTeamId, u.user_id, `${u.first_name} ${u.last_name}`);
           });
         }
-        eqSearchRes.appendChild(item);
+        searchRes.appendChild(item);
       });
-      eqSearchRes.style.display = '';
-    } catch(e) { console.warn('[Equipos] search:', e); }
+      searchRes.style.display = '';
+    } catch(e) { console.warn('[Equipos] search:', e); searchRes.style.display = 'none'; }
   }
 
   async function addMember(teamId, userId, name) {
@@ -1263,8 +1281,10 @@ document.addEventListener('DOMContentLoaded', () => {
       const json = await res.json();
       if (json.ok) {
         showToast(`${name} agregado como inquilino`);
-        if (eqSearchRes) eqSearchRes.style.display = 'none';
-        if (eqSearchInput) eqSearchInput.value = '';
+        const sr = document.getElementById('eq-search-results');
+        const si = document.getElementById('eq-user-search');
+        if (sr) sr.style.display = 'none';
+        if (si) si.value = '';
         await loadMembers(teamId);
         await loadTeams();
       } else { showToast(json.error || 'Error al agregar', false); }

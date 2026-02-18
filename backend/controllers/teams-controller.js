@@ -243,12 +243,31 @@ router.get('/:id', requireAuth, async (req, res) => {
             ORDER BY tm.role = 'owner' DESC, tm.joined_at ASC
         `, [teamId]);
 
+        // Estadísticas del equipo
+        const [docStats] = await dbQuery(db,
+            'SELECT COUNT(*) AS total_docs FROM documents WHERE team_id = ? AND status = "active"',
+            [teamId]
+        );
+        const [folderStats] = await dbQuery(db,
+            'SELECT COUNT(*) AS total_folders FROM folders WHERE team_id = ? AND is_active = TRUE',
+            [teamId]
+        );
+
         const myRole = isSuperAdmin ? 'owner' : members.find(m => m.user_id === req.userId)?.role;
 
         res.json({
             ok: true,
             success: true,
-            data: { ...team, members, my_role: myRole }
+            data: {
+                ...team,
+                members,
+                my_role: myRole,
+                stats: {
+                    members: members.length,
+                    documents: docStats?.total_docs || 0,
+                    folders: folderStats?.total_folders || 0
+                }
+            }
         });
     } catch (error) {
         console.error('[TEAMS] Error:', error);
