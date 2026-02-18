@@ -528,18 +528,18 @@ async function loadArchivedDocuments() {
   }
 }
 
-// ====== Documentos compartidos via inquilinos (tenants) ======
+// ====== Documentos compartidos via equipos (teams) ======
 async function loadSharedDocuments() {
   const user = getCurrentUser();
   if (!user) return;
 
   try {
-    const res = await authFetch('/api/tenants/shared-with-me/vault');
+    const res = await authFetch('/api/teams/shared-with-me/vault');
     const json = await res.json();
 
     if (json.ok && json.data) {
       const { folders, documents } = json.data;
-      console.log(`✅ [API] ${documents.length} documentos y ${folders.length} carpetas compartidas via inquilinos`);
+      console.log(`✅ [API] ${documents.length} documentos y ${folders.length} carpetas compartidas via equipos`);
 
       // Mostrar carpetas compartidas
       if (folders && folders.length > 0) {
@@ -554,7 +554,7 @@ async function loadSharedDocuments() {
               </svg>
               <div>
                 <h3 class="title">${f.name}</h3>
-                <div class="meta"><p class="owner">${f.owner_name || ''}</p></div>
+                <div class="meta"><p class="owner">${f.owner_name || ''}${f.team_name ? ` <span style="display:inline-block;font-size:10px;font-weight:700;padding:1px 7px;border-radius:10px;background:${f.team_color||'#2a0d31'}22;color:${f.team_color||'#2a0d31'};margin-left:4px;">${f.team_name}</span>` : ''}</p></div>
               </div>
             </a>`;
           foldersGrid.appendChild(folderCard);
@@ -578,11 +578,13 @@ async function loadSharedDocuments() {
             documentType: doc.document_type || 'normal'
           });
 
-          // Badge del inquilino
-          if (doc.tenant_name) {
+          // Badge del equipo
+          const badgeName = doc.team_name || doc.tenant_name;
+          const badgeColor = doc.team_color || doc.tenant_color || '#2a0d31';
+          if (badgeName) {
             const badge = document.createElement('span');
-            badge.style.cssText = `display:inline-block; font-size:11px; font-weight:600; padding:2px 8px; border-radius:6px; background:${doc.tenant_color || '#7c3aed'}22; color:${doc.tenant_color || '#7c3aed'}; margin-top:4px;`;
-            badge.textContent = doc.tenant_name;
+            badge.style.cssText = `display:inline-block; font-size:11px; font-weight:600; padding:2px 8px; border-radius:6px; background:${badgeColor}22; color:${badgeColor}; margin-top:4px;`;
+            badge.textContent = badgeName;
             const meta = card.querySelector('.meta');
             if (meta) meta.appendChild(badge);
           }

@@ -1303,12 +1303,15 @@ app.get('/api/users', (req, res) => {
     console.log('🔍 Puerto:', db.config.port);
     
     const query = `
-        SELECT u.user_id, u.first_name, u.last_name, u.email, 
+        SELECT u.user_id, u.first_name, u.last_name, u.email,
                u.is_active, u.last_login, u.created_at,
                r.role_name, r.role_description,
-               DATABASE() as current_db
+               DATABASE() as current_db,
+               t.team_name, t.team_id AS user_team_id, t.team_color
         FROM users u
         INNER JOIN roles r ON u.role_id = r.role_id
+        LEFT JOIN team_members tm ON tm.user_id = u.user_id
+        LEFT JOIN teams t ON t.team_id = tm.team_id AND t.is_active = TRUE
         ORDER BY u.created_at DESC
     `;
 

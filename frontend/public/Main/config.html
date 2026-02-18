@@ -69,7 +69,7 @@
         <button class="sn-item" data-section="sms">SMS</button>
         <button class="sn-item" data-section="notificaciones">Notificaciones</button>
         <button class="sn-item" data-section="usuarios">Usuarios</button>
-        <button class="sn-item" data-section="inquilinos">Inquilinos</button>
+        <button class="sn-item" data-section="equipos">Equipos e Inquilinos</button>
       </nav>
     </aside>
 
@@ -486,232 +486,225 @@
 </div>
 
 
-<!-- SEC: Inquilinos -->
-<section class="set-section" id="sec-inquilinos" aria-labelledby="sec-inquilinos-h">
-  <h1 class="page-h1" id="sec-inquilinos-h">Inquilinos</h1>
+<!-- SEC: Equipos e Inquilinos -->
+<section class="set-section" id="sec-equipos" aria-labelledby="sec-equipos-h">
+  <h1 class="page-h1" id="sec-equipos-h">Equipos e Inquilinos</h1>
+  <p style="color:#888;font-size:14px;margin-bottom:24px;">Gestiona los equipos de tu organización y los usuarios (inquilinos) que pertenecen a cada uno.</p>
 
-  <!-- Métricas -->
-  <div class="t-metrics">
-    <div class="t-card">
-      <div class="t-card-top">
-        <span class="t-card-icon"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
-        <span class="t-card-label">Documentos</span>
+  <div class="equipos-layout">
+    <!-- PANEL IZQUIERDO: Lista de Equipos -->
+    <div class="equipos-panel equipos-panel--left">
+      <div class="equipos-panel-header">
+        <h2 class="equipos-panel-title">Equipos</h2>
+        <button class="btn-soft" id="eq-newBtn" style="font-size:13px;padding:6px 14px;">
+          <span>＋</span> Nuevo Equipo
+        </button>
       </div>
-      <div class="t-card-num" id="tm-docs">0</div>
-    </div>
-    <div class="t-card">
-      <div class="t-card-top">
-        <span class="t-card-icon"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span>
-        <span class="t-card-label">Plantillas</span>
+      <div id="eq-list" class="eq-list">
+        <div class="eq-empty" id="eq-empty">No hay equipos creados</div>
       </div>
-      <div class="t-card-num" id="tm-templates">0</div>
     </div>
-    <div class="t-card">
-      <div class="t-card-top">
-        <span class="t-card-icon"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
-        <span class="t-card-label">Usuarios</span>
-      </div>
-      <div class="t-card-num" id="tm-users">0</div>
-    </div>
-    <div class="t-card">
-      <div class="t-card-top">
-        <span class="t-card-icon"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><line x1="8" y1="6" x2="8" y2="6.01"/><line x1="16" y1="6" x2="16" y2="6.01"/><line x1="12" y1="6" x2="12" y2="6.01"/><line x1="8" y1="10" x2="8" y2="10.01"/><line x1="16" y1="10" x2="16" y2="10.01"/><line x1="12" y1="10" x2="12" y2="10.01"/><line x1="8" y1="14" x2="8" y2="14.01"/><line x1="16" y1="14" x2="16" y2="14.01"/><line x1="12" y1="14" x2="12" y2="14.01"/></svg></span>
-        <span class="t-card-label">Cuentas</span>
-      </div>
-      <div class="t-card-num" id="tm-tenants">0</div>
-    </div>
-  </div>
 
-  <!-- Encabezado + botón -->
-  <div class="t-head-row">
-    <h2 class="sub-h2">Cuentas de inquilino</h2>
-    <button class="btn-soft add-tenant-btn" id="tNewBtn">
-      <span class="plus">＋</span> NUEVO INQUILINO
-    </button>
-  </div>
+    <!-- PANEL DERECHO: Inquilinos del equipo seleccionado -->
+    <div class="equipos-panel equipos-panel--right" id="eq-right-panel">
+      <div id="eq-right-empty" class="eq-right-placeholder">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <p>Selecciona un equipo para ver sus inquilinos</p>
+      </div>
 
-  <!-- Tabla / lista -->
-  <div class="tenant-table">
-    <div class="tt-head">
-      <div class="tt-col name">Nombre</div>
-      <div class="tt-col actions">Acciones</div>
-    </div>
-    <div class="tt-body" id="tenantList">
-      <!-- filas renderizadas por JS -->
+      <div id="eq-right-content" style="display:none;">
+        <div class="equipos-panel-header">
+          <h2 class="equipos-panel-title" id="eq-team-title">Inquilinos</h2>
+        </div>
+
+        <!-- Buscador de usuarios -->
+        <div class="eq-search-wrap" id="eq-add-section">
+          <div style="position:relative;">
+            <input type="text" id="eq-user-search" class="ct-input" placeholder="Buscar usuario por nombre o correo..." autocomplete="off" style="width:100%;padding-right:48px;" />
+            <button id="eq-search-btn" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:#2a0d31;color:#fff;border:none;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:12px;">Buscar</button>
+          </div>
+          <div id="eq-search-results" class="eq-search-results" style="display:none;"></div>
+        </div>
+
+        <!-- Lista de inquilinos -->
+        <div id="eq-members-list" class="eq-members-list">
+          <!-- renderizado por JS -->
+        </div>
+        <div id="eq-members-empty" class="eq-empty" style="display:none;">Este equipo no tiene inquilinos aún</div>
+      </div>
     </div>
   </div>
 </section>
 
-<!-- MODAL: Nuevo inquilino -->
-<div class="modal" id="tenantCreateModal" aria-hidden="true">
+<!-- MODAL: Nuevo Equipo -->
+<div class="modal" id="eq-createModal" aria-hidden="true">
   <div class="modal-content create-modal compact">
     <header class="modal-header compact">
-      <h2>Nuevo inquilino</h2>
-      <button class="close-btn" data-close="tc">×</button>
+      <h2>Nuevo Equipo</h2>
+      <button class="close-btn" id="eq-closeCreate">×</button>
     </header>
     <div class="modal-body create-body compact">
-      <form id="tCreateForm">
+      <form id="eq-createForm">
         <div class="field">
-          <label for="tc-name">Nombre</label>
-          <input id="tc-name" type="text" class="ct-input pill-xl" placeholder="Ej: Pki Team" required />
+          <label for="eq-name">Nombre del equipo</label>
+          <input id="eq-name" type="text" class="ct-input pill-xl" placeholder="Ej: PKI Team, Incolmotos..." required />
         </div>
-        <div class="grid-2">
-          <div class="field">
-            <label for="tc-sub">Subdominio / Slug</label>
-            <input id="tc-sub" type="text" class="ct-input" placeholder="pki-team" required />
-          </div>
-          <div class="field">
-            <label for="tc-email">Correo contacto</label>
-            <input id="tc-email" type="email" class="ct-input" placeholder="admin@equipo.com" />
-          </div>
-        </div>
-        <div class="grid-2">
-          <div class="field">
-            <label for="tc-lang">Idioma</label>
-            <div class="select-wrap">
-              <select id="tc-lang" class="select-pill">
-                <option value="es" selected>Español</option>
-                <option value="en">English</option>
-                <option value="pt">Português</option>
-              </select>
-              <span class="select-arrow">▾</span>
-            </div>
-          </div>
-          <div class="field">
-            <label for="tc-tz">Zona horaria</label>
-            <div class="select-wrap">
-              <select id="tc-tz" class="select-pill">
-                <option value="America/Bogota">(GMT-05:00) Bogotá</option>
-                <option value="America/Mexico_City">(GMT-06:00) CDMX</option>
-                <option value="UTC">UTC</option>
-              </select>
-              <span class="select-arrow">▾</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="prefs">
-          <label class="pref">
-            <span>Heredar almacenamiento de la cuenta</span>
-            <label class="switch">
-              <input type="checkbox" id="tc-inherit-storage" checked>
-              <span class="slider"></span>
-            </label>
-          </label>
-          <label class="pref">
-            <span>Heredar branding (logo, colores)</span>
-            <label class="switch">
-              <input type="checkbox" id="tc-inherit-brand" checked>
-              <span class="slider"></span>
-            </label>
-          </label>
+        <div class="field">
+          <label for="eq-desc">Descripción (opcional)</label>
+          <input id="eq-desc" type="text" class="ct-input" placeholder="Descripción breve del equipo" />
         </div>
       </form>
     </div>
     <footer class="modal-footer create-footer compact">
-      <button class="cta-create" id="tc-create">CREAR</button>
+      <button class="cta-create" id="eq-createBtn">CREAR EQUIPO</button>
     </footer>
   </div>
 </div>
 
-<!-- MODAL: Editar inquilino -->
-<div class="modal" id="tenantEditModal" aria-hidden="true">
+<!-- MODAL: Editar Equipo -->
+<div class="modal" id="eq-editModal" aria-hidden="true">
   <div class="modal-content create-modal compact">
     <header class="modal-header compact">
-      <h2>Editar inquilino</h2>
-      <button class="close-btn" data-close="te">×</button>
+      <h2>Editar Equipo</h2>
+      <button class="close-btn" id="eq-closeEdit">×</button>
     </header>
     <div class="modal-body create-body compact">
-      <form id="tEditForm">
-        <input type="hidden" id="te-id">
+      <form id="eq-editForm">
+        <input type="hidden" id="eq-edit-id" />
         <div class="field">
-          <label for="te-name">Nombre</label>
-          <input id="te-name" type="text" class="ct-input pill-xl" required />
+          <label for="eq-edit-name">Nombre del equipo</label>
+          <input id="eq-edit-name" type="text" class="ct-input pill-xl" required />
         </div>
-        <div class="grid-2">
-          <div class="field">
-            <label for="te-sub">Subdominio / Slug</label>
-            <input id="te-sub" type="text" class="ct-input" required />
-          </div>
-          <div class="field">
-            <label for="te-email">Correo contacto</label>
-            <input id="te-email" type="email" class="ct-input" />
-          </div>
-        </div>
-        <div class="grid-2">
-          <div class="field">
-            <label for="te-lang">Idioma</label>
-            <div class="select-wrap">
-              <select id="te-lang" class="select-pill">
-                <option value="es">Español</option>
-                <option value="en">English</option>
-                <option value="pt">Português</option>
-              </select>
-              <span class="select-arrow">▾</span>
-            </div>
-          </div>
-          <div class="field">
-            <label for="te-tz">Zona horaria</label>
-            <div class="select-wrap">
-              <select id="te-tz" class="select-pill">
-                <option value="America/Bogota">(GMT-05:00) Bogotá</option>
-                <option value="America/Mexico_City">(GMT-06:00) CDMX</option>
-                <option value="UTC">UTC</option>
-              </select>
-              <span class="select-arrow">▾</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="prefs">
-          <label class="pref">
-            <span>Heredar almacenamiento de la cuenta</span>
-            <label class="switch">
-              <input type="checkbox" id="te-inherit-storage">
-              <span class="slider"></span>
-            </label>
-          </label>
-          <label class="pref">
-            <span>Heredar branding (logo, colores)</span>
-            <label class="switch">
-              <input type="checkbox" id="te-inherit-brand">
-              <span class="slider"></span>
-            </label>
-          </label>
+        <div class="field">
+          <label for="eq-edit-desc">Descripción</label>
+          <input id="eq-edit-desc" type="text" class="ct-input" />
         </div>
       </form>
     </div>
     <footer class="modal-footer create-footer compact">
-      <button class="cta-create" id="te-save">GUARDAR</button>
+      <button class="cta-create" id="eq-editSaveBtn">GUARDAR CAMBIOS</button>
     </footer>
   </div>
 </div>
 
-<!-- MODAL: Logotipo -->
-<div class="modal" id="tenantLogoModal" aria-hidden="true">
-  <div class="modal-content create-modal compact">
-    <header class="modal-header compact">
-      <h2>Cambiar logotipo</h2>
-      <button class="close-btn" data-close="tl">×</button>
-    </header>
-    <div class="modal-body create-body compact">
-      <div class="upload-inner">
-        <div class="upload-icon" aria-hidden="true"><svg style="width:32px;height:32px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
-        <p class="upload-title">Subir logotipo del inquilino</p>
-        <p class="upload-sub">
-          <button type="button" class="upload-link" id="tl-pick">Haz clic para subir</button>
-        </p>
-        <input id="tl-file" type="file" class="sr-only" accept=".png,.jpg,.jpeg,.svg" />
-        <div id="tl-preview" class="tenant-logo-preview" hidden>
-          <img alt="Preview"/>
-        </div>
-      </div>
-    </div>
-    <footer class="modal-footer create-footer compact">
-      <button class="cta-create" id="tl-save">GUARDAR</button>
-    </footer>
-  </div>
-</div>
+<style>
+.equipos-layout {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 24px;
+  align-items: start;
+  margin-top: 8px;
+}
+.equipos-panel {
+  background: #fff;
+  border: 1px solid #e9ecef;
+  border-radius: 16px;
+  overflow: hidden;
+}
+.equipos-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #f0f0f0;
+}
+.equipos-panel-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #2a0d31;
+  margin: 0;
+}
+.eq-list { padding: 8px; min-height: 120px; }
+.eq-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s;
+  gap: 8px;
+}
+.eq-item:hover { background: #f8f5ff; }
+.eq-item.is-active { background: #ede9f8; }
+.eq-item-info { flex: 1; min-width: 0; }
+.eq-item-name { font-weight: 600; font-size: 14px; color: #2a0d31; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.eq-item-meta { font-size: 12px; color: #888; margin-top: 2px; }
+.eq-item-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.eq-icon-btn {
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 7px;
+  cursor: pointer;
+  color: #888;
+  font-size: 13px;
+  transition: background 0.15s, color 0.15s;
+}
+.eq-icon-btn:hover { background: #fee; color: #c0392b; }
+.eq-icon-btn.edit:hover { background: #eef; color: #2a0d31; }
+.eq-empty { padding: 32px 20px; text-align: center; color: #aaa; font-size: 14px; }
+.eq-right-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 60px 20px; color: #bbb; font-size: 14px; }
+.eq-search-wrap { padding: 16px 20px; border-bottom: 1px solid #f0f0f0; }
+.eq-search-results {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0; right: 0;
+  background: #fff;
+  border: 1px solid #e0d6f8;
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(42,13,49,0.1);
+  z-index: 100;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.eq-search-result-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+  border-bottom: 1px solid #f5f5f5;
+}
+.eq-search-result-item:last-child { border-bottom: none; }
+.eq-search-result-item:hover { background: #f8f5ff; }
+.eq-search-avatar { width: 32px; height: 32px; border-radius: 50%; background: #ede9f8; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; color: #2a0d31; flex-shrink: 0; }
+.eq-search-name { font-weight: 600; font-size: 13px; color: #1f2937; }
+.eq-search-email { font-size: 12px; color: #888; }
+.eq-search-team { font-size: 11px; color: #c0392b; font-weight: 600; }
+.eq-members-list { padding: 8px 12px; }
+.eq-member-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 10px;
+  border-radius: 10px;
+  transition: background 0.15s;
+}
+.eq-member-row:hover { background: #fafafa; }
+.eq-member-avatar { width: 36px; height: 36px; border-radius: 50%; background: #ede9f8; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; color: #2a0d31; flex-shrink: 0; overflow: hidden; }
+.eq-member-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.eq-member-info { flex: 1; min-width: 0; }
+.eq-member-name { font-weight: 600; font-size: 13px; color: #1f2937; }
+.eq-member-email { font-size: 12px; color: #888; }
+.eq-member-role { font-size: 11px; background: #ede9f8; color: #2a0d31; padding: 2px 8px; border-radius: 20px; font-weight: 600; text-transform: uppercase; flex-shrink: 0; }
+.eq-member-remove {
+  background: none;
+  border: none;
+  color: #ccc;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 16px;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+.eq-member-remove:hover { background: #fee; color: #c0392b; }
+@media (max-width: 768px) {
+  .equipos-layout { grid-template-columns: 1fr; }
+}
+</style>
 
 
 

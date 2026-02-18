@@ -174,7 +174,17 @@ function createUserRow(user) {
     tr.dataset.userId = user.user_id;
 
     const tdName = document.createElement('td');
-    tdName.textContent = `${user.first_name} ${user.last_name}`;
+    tdName.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;';
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = `${user.first_name} ${user.last_name}`;
+    tdName.appendChild(nameSpan);
+    if (user.team_name) {
+        const teamBadge = document.createElement('span');
+        teamBadge.style.cssText = `display:inline-block;background:#ede9f8;color:#2a0d31;font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;white-space:nowrap;`;
+        teamBadge.textContent = user.team_name;
+        teamBadge.title = 'Equipo: ' + user.team_name;
+        tdName.appendChild(teamBadge);
+    }
     tr.appendChild(tdName);
 
     const tdEmail = document.createElement('td');

@@ -930,15 +930,9 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ============================
-// Inquilinos — API real
+// Equipos e Inquilinos
 // ============================
 (function () {
-  const tListEl  = document.getElementById('tenantList');
-  const mDocs    = document.getElementById('tm-docs');
-  const mTemplates = document.getElementById('tm-templates');
-  const mUsers   = document.getElementById('tm-users');
-  const mTenants = document.getElementById('tm-tenants');
-
   function escapeHtml(s) {
     return (s || '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
@@ -952,230 +946,316 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   function showModal(mod) { mod?.classList.add('show'); mod?.setAttribute('aria-hidden','false'); }
   function hideModal(mod) { mod?.classList.remove('show'); mod?.setAttribute('aria-hidden','true'); }
-
-  // -------- Cargar métricas
-  async function loadMetrics() {
-    try {
-      const res  = await authFetch('/api/tenants/metrics');
-      const json = await res.json();
-      if (json.ok) {
-        if (mDocs)      mDocs.textContent      = json.data.docs;
-        if (mTemplates) mTemplates.textContent = json.data.templates;
-        if (mUsers)     mUsers.textContent     = json.data.users;
-        if (mTenants)   mTenants.textContent   = json.data.tenants;
-      }
-    } catch (e) { console.warn('[Tenants] métricas:', e); }
+  function showToast(msg, ok = true) {
+    const t = document.createElement('div');
+    t.style.cssText = `position:fixed;bottom:24px;right:24px;z-index:9999;background:${ok?'#2a0d31':'#c0392b'};color:#fff;padding:12px 20px;border-radius:10px;font-size:14px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,0.18);animation:slideUp .3s ease`;
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 3500);
   }
 
-  // -------- Cargar y renderizar lista
-  async function loadAndRender() {
+  // Estado
+  let selectedTeamId = null;
+  let searchTimeout = null;
+
+  // Elementos
+  const eqList       = document.getElementById('eq-list');
+  const eqEmpty      = document.getElementById('eq-empty');
+  const eqRightEmpty = document.getElementById('eq-right-empty');
+  const eqRightCont  = document.getElementById('eq-right-content');
+  const eqTeamTitle  = document.getElementById('eq-team-title');
+  const eqMembersList= document.getElementById('eq-members-list');
+  const eqMembersEmpty=document.getElementById('eq-members-empty');
+  const eqSearchInput= document.getElementById('eq-user-search');
+  const eqSearchRes  = document.getElementById('eq-search-results');
+  const createModal  = document.getElementById('eq-createModal');
+  const editModal    = document.getElementById('eq-editModal');
+
+  if (!eqList) return; // Sección no presente
+
+  // -------- Cargar equipos
+  async function loadTeams() {
     try {
-      const res  = await authFetch('/api/tenants');
+      const res = await authFetch('/api/teams');
       const json = await res.json();
       if (!json.ok) return;
-      renderList(json.data);
-    } catch (e) { console.warn('[Tenants] load:', e); }
+      renderTeamList(json.data);
+    } catch(e) { console.warn('[Equipos] load:', e); }
   }
 
-  function renderList(tenants) {
-    if (!tListEl) return;
-    tListEl.innerHTML = '';
-    if (tenants.length === 0) {
-      tListEl.innerHTML = '<div style="padding:16px;color:#9ca3af;font-size:14px;">No hay inquilinos. Crea el primero.</div>';
+  function renderTeamList(teams) {
+    if (!eqList) return;
+    eqList.innerHTML = '';
+    if (!teams.length) {
+      eqEmpty && (eqEmpty.style.display = '');
       return;
     }
-    tenants.forEach((t) => {
-      const row = document.createElement('div');
-      row.className = 'tt-row';
-      row.innerHTML = `
-        <div class="tt-col name">${escapeHtml(t.tenant_name)}</div>
-        <div class="tt-col actions">
-          <button class="pill-action" data-action="logo" data-id="${t.tenant_id}">LOGOTIPO</button>
-          <button class="pill-action" data-action="edit" data-id="${t.tenant_id}">EDITAR</button>
-          <button class="pill-action" data-action="view" data-id="${t.tenant_id}" data-name="${escapeHtml(t.tenant_name)}">VISTA</button>
+    eqEmpty && (eqEmpty.style.display = 'none');
+    teams.forEach(t => {
+      const item = document.createElement('div');
+      item.className = 'eq-item' + (t.team_id === selectedTeamId ? ' is-active' : '');
+      item.dataset.teamId = t.team_id;
+      item.innerHTML = `
+        <div class="eq-item-info">
+          <div class="eq-item-name">${escapeHtml(t.team_name)}</div>
+          <div class="eq-item-meta">${t.member_count || 0} inquilino(s)</div>
+        </div>
+        <div class="eq-item-actions">
+          <button class="eq-icon-btn edit" data-action="edit" data-id="${t.team_id}" data-name="${escapeHtml(t.team_name)}" title="Editar">✏️</button>
+          <button class="eq-icon-btn" data-action="delete" data-id="${t.team_id}" data-name="${escapeHtml(t.team_name)}" title="Eliminar">🗑️</button>
         </div>
       `;
-      tListEl.appendChild(row);
+      item.addEventListener('click', (e) => {
+        if (e.target.closest('button[data-action]')) return;
+        selectTeam(t.team_id, t.team_name);
+      });
+      item.querySelector('[data-action="edit"]').addEventListener('click', (e) => {
+        e.stopPropagation();
+        openEditTeamModal(t.team_id, t.team_name, t.team_description);
+      });
+      item.querySelector('[data-action="delete"]').addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteTeam(t.team_id, t.team_name);
+      });
+      eqList.appendChild(item);
     });
   }
 
-  // -------- Modales CREAR
-  const btnNew      = document.getElementById('tNewBtn');
-  const createModal = document.getElementById('tenantCreateModal');
-  const createClose = createModal?.querySelector('[data-close="tc"]');
-  const createBtn   = document.getElementById('tc-create');
-
-  function openCreateModal() {
-    if (!createModal) return;
-    ['tc-name','tc-sub','tc-email'].forEach(id => { const el = document.getElementById(id); if(el) el.value=''; });
-    const lang = document.getElementById('tc-lang'); if(lang) lang.value='es';
-    const tz   = document.getElementById('tc-tz');   if(tz)   tz.value='America/Bogota';
-    const is   = document.getElementById('tc-inherit-storage'); if(is) is.checked=true;
-    const ib   = document.getElementById('tc-inherit-brand');   if(ib) ib.checked=true;
-    showModal(createModal);
-    setTimeout(() => document.getElementById('tc-name')?.focus(), 30);
+  async function selectTeam(teamId, teamName) {
+    selectedTeamId = teamId;
+    // Marcar activo
+    document.querySelectorAll('.eq-item').forEach(el => {
+      el.classList.toggle('is-active', parseInt(el.dataset.teamId) === teamId);
+    });
+    // Mostrar panel derecho
+    if (eqRightEmpty) eqRightEmpty.style.display = 'none';
+    if (eqRightCont)  eqRightCont.style.display = '';
+    if (eqTeamTitle)  eqTeamTitle.textContent = `Inquilinos — ${teamName}`;
+    await loadMembers(teamId);
   }
 
-  btnNew?.addEventListener('click', openCreateModal);
-  createClose?.addEventListener('click', () => hideModal(createModal));
+  async function loadMembers(teamId) {
+    if (!eqMembersList) return;
+    eqMembersList.innerHTML = '<div style="padding:16px;color:#aaa;font-size:14px;">Cargando...</div>';
+    try {
+      const res = await authFetch(`/api/teams/${teamId}`);
+      const json = await res.json();
+      if (!json.ok) { eqMembersList.innerHTML = ''; return; }
+      const members = json.data.members || [];
+      renderMembers(members, teamId);
+    } catch(e) { console.warn('[Equipos] members:', e); }
+  }
+
+  function renderMembers(members, teamId) {
+    if (!eqMembersList) return;
+    eqMembersList.innerHTML = '';
+    if (!members.length) {
+      if (eqMembersEmpty) eqMembersEmpty.style.display = '';
+      return;
+    }
+    if (eqMembersEmpty) eqMembersEmpty.style.display = 'none';
+    members.forEach(m => {
+      const initials = ((m.first_name||'')[0]||'') + ((m.last_name||'')[0]||'');
+      const row = document.createElement('div');
+      row.className = 'eq-member-row';
+      row.innerHTML = `
+        <div class="eq-member-avatar">
+          ${m.avatar_url ? `<img src="${escapeHtml(m.avatar_url)}" alt="">` : escapeHtml(initials.toUpperCase())}
+        </div>
+        <div class="eq-member-info">
+          <div class="eq-member-name">${escapeHtml(m.first_name)} ${escapeHtml(m.last_name)}</div>
+          <div class="eq-member-email">${escapeHtml(m.email)}</div>
+        </div>
+        <span class="eq-member-role">${m.role === 'owner' ? 'Dueño' : 'Inquilino'}</span>
+        ${m.role !== 'owner' ? `<button class="eq-member-remove" data-uid="${m.user_id}" title="Quitar del equipo">×</button>` : ''}
+      `;
+      const removeBtn = row.querySelector('.eq-member-remove');
+      if (removeBtn) {
+        removeBtn.addEventListener('click', () => removeMember(teamId, m.user_id, `${m.first_name} ${m.last_name}`));
+      }
+      eqMembersList.appendChild(row);
+    });
+  }
+
+  async function removeMember(teamId, userId, name) {
+    if (!confirm(`¿Quitar a ${name} del equipo? Sus documentos dejarán de compartirse.`)) return;
+    try {
+      const res = await authFetch(`/api/teams/${teamId}/members/${userId}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (json.ok) {
+        showToast(`${name} removido del equipo`);
+        await loadMembers(teamId);
+        await loadTeams();
+      } else { showToast(json.error || 'Error al remover', false); }
+    } catch(e) { showToast('Error de conexión', false); }
+  }
+
+  async function deleteTeam(teamId, name) {
+    if (!confirm(`¿Eliminar el equipo "${name}"? Todos los documentos dejarán de compartirse.`)) return;
+    try {
+      const res = await authFetch(`/api/teams/${teamId}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (json.ok) {
+        showToast('Equipo eliminado');
+        if (selectedTeamId === teamId) {
+          selectedTeamId = null;
+          if (eqRightEmpty) eqRightEmpty.style.display = '';
+          if (eqRightCont)  eqRightCont.style.display = 'none';
+        }
+        await loadTeams();
+      } else { showToast(json.error || 'Error al eliminar', false); }
+    } catch(e) { showToast('Error de conexión', false); }
+  }
+
+  // -------- Modal Nuevo Equipo
+  document.getElementById('eq-newBtn')?.addEventListener('click', () => {
+    document.getElementById('eq-name').value = '';
+    document.getElementById('eq-desc').value = '';
+    showModal(createModal);
+    setTimeout(() => document.getElementById('eq-name')?.focus(), 30);
+  });
+  document.getElementById('eq-closeCreate')?.addEventListener('click', () => hideModal(createModal));
   createModal?.addEventListener('click', (e) => { if(e.target===createModal) hideModal(createModal); });
 
-  createBtn?.addEventListener('click', async () => {
-    const name = document.getElementById('tc-name')?.value.trim();
-    const slug = document.getElementById('tc-sub')?.value.trim();
-    if (!name || !slug) { document.getElementById('tc-name')?.focus(); return; }
-    createBtn.disabled = true;
-    createBtn.textContent = 'Creando...';
+  document.getElementById('eq-createBtn')?.addEventListener('click', async () => {
+    const name = document.getElementById('eq-name')?.value.trim();
+    const desc = document.getElementById('eq-desc')?.value.trim();
+    if (!name) { document.getElementById('eq-name')?.focus(); return; }
+    const btn = document.getElementById('eq-createBtn');
+    btn.disabled = true; btn.textContent = 'Creando...';
     try {
-      const res = await authFetch('/api/tenants', {
+      const res = await authFetch('/api/teams', {
         method: 'POST',
-        body: JSON.stringify({
-          tenant_name: name,
-          tenant_slug: slug,
-          tenant_email: document.getElementById('tc-email')?.value.trim(),
-          lang:     document.getElementById('tc-lang')?.value,
-          timezone: document.getElementById('tc-tz')?.value,
-          inherit_storage: document.getElementById('tc-inherit-storage')?.checked,
-          inherit_brand:   document.getElementById('tc-inherit-brand')?.checked
-        })
+        body: JSON.stringify({ team_name: name, team_description: desc })
       });
       const json = await res.json();
       if (json.ok) {
         hideModal(createModal);
-        await loadMetrics();
-        await loadAndRender();
-      } else {
-        alert(json.error || 'Error al crear');
-      }
-    } catch(e) { alert('Error de conexión'); }
-    createBtn.disabled = false;
-    createBtn.textContent = 'Crear';
+        showToast('Equipo creado exitosamente');
+        await loadTeams();
+      } else { showToast(json.error || 'Error al crear', false); }
+    } catch(e) { showToast('Error de conexión', false); }
+    btn.disabled = false; btn.textContent = 'CREAR EQUIPO';
   });
 
-  // -------- Modal EDITAR
-  const editModal = document.getElementById('tenantEditModal');
-  const editClose = editModal?.querySelector('[data-close="te"]');
-  const editSave  = document.getElementById('te-save');
-  let editingTenantId = null;
+  // -------- Modal Editar Equipo
+  let editingTeamId = null;
 
-  async function openEditModal(tenantId) {
-    if (!editModal) return;
-    try {
-      const res  = await authFetch(`/api/tenants/${tenantId}`);
-      const json = await res.json();
-      if (!json.ok) { alert(json.error); return; }
-      const t = json.data;
-      editingTenantId = tenantId;
-      document.getElementById('te-id').value   = tenantId;
-      document.getElementById('te-name').value = t.tenant_name || '';
-      document.getElementById('te-sub').value  = t.tenant_slug || '';
-      document.getElementById('te-email').value= t.tenant_email || '';
-      const lang = document.getElementById('te-lang'); if(lang) lang.value = t.lang || 'es';
-      const tz   = document.getElementById('te-tz');   if(tz)   tz.value   = t.timezone || 'America/Bogota';
-      const is   = document.getElementById('te-inherit-storage'); if(is) is.checked = !!t.inherit_storage;
-      const ib   = document.getElementById('te-inherit-brand');   if(ib) ib.checked = !!t.inherit_brand;
-      showModal(editModal);
-      setTimeout(() => document.getElementById('te-name')?.focus(), 30);
-    } catch(e) { alert('Error al cargar datos'); }
+  function openEditTeamModal(teamId, name, desc) {
+    editingTeamId = teamId;
+    document.getElementById('eq-edit-id').value   = teamId;
+    document.getElementById('eq-edit-name').value = name || '';
+    document.getElementById('eq-edit-desc').value = desc || '';
+    showModal(editModal);
+    setTimeout(() => document.getElementById('eq-edit-name')?.focus(), 30);
   }
 
-  editClose?.addEventListener('click', () => hideModal(editModal));
+  document.getElementById('eq-closeEdit')?.addEventListener('click', () => hideModal(editModal));
   editModal?.addEventListener('click', (e) => { if(e.target===editModal) hideModal(editModal); });
 
-  editSave?.addEventListener('click', async () => {
-    if (!editingTenantId) return;
-    editSave.disabled = true;
-    editSave.textContent = 'Guardando...';
+  document.getElementById('eq-editSaveBtn')?.addEventListener('click', async () => {
+    if (!editingTeamId) return;
+    const name = document.getElementById('eq-edit-name')?.value.trim();
+    const desc = document.getElementById('eq-edit-desc')?.value.trim();
+    if (!name) { document.getElementById('eq-edit-name')?.focus(); return; }
+    const btn = document.getElementById('eq-editSaveBtn');
+    btn.disabled = true; btn.textContent = 'Guardando...';
     try {
-      const res = await authFetch(`/api/tenants/${editingTenantId}`, {
+      const res = await authFetch(`/api/teams/${editingTeamId}`, {
         method: 'PUT',
-        body: JSON.stringify({
-          tenant_name:     document.getElementById('te-name')?.value.trim(),
-          tenant_email:    document.getElementById('te-email')?.value.trim(),
-          lang:            document.getElementById('te-lang')?.value,
-          timezone:        document.getElementById('te-tz')?.value,
-          inherit_storage: document.getElementById('te-inherit-storage')?.checked,
-          inherit_brand:   document.getElementById('te-inherit-brand')?.checked
-        })
+        body: JSON.stringify({ team_name: name, team_description: desc })
       });
       const json = await res.json();
       if (json.ok) {
         hideModal(editModal);
-        await loadAndRender();
-      } else { alert(json.error || 'Error al guardar'); }
-    } catch(e) { alert('Error de conexión'); }
-    editSave.disabled = false;
-    editSave.textContent = 'Guardar';
+        showToast('Equipo actualizado');
+        await loadTeams();
+        if (selectedTeamId === editingTeamId && eqTeamTitle) {
+          eqTeamTitle.textContent = `Inquilinos — ${name}`;
+        }
+      } else { showToast(json.error || 'Error al guardar', false); }
+    } catch(e) { showToast('Error de conexión', false); }
+    btn.disabled = false; btn.textContent = 'GUARDAR CAMBIOS';
   });
 
-  // -------- Modal LOGO
-  const logoModal = document.getElementById('tenantLogoModal');
-  const logoClose = logoModal?.querySelector('[data-close="tl"]');
-  const logoPick  = document.getElementById('tl-pick');
-  const logoFile  = document.getElementById('tl-file');
-  const logoSave  = document.getElementById('tl-save');
-  const logoPrev  = document.getElementById('tl-preview')?.querySelector('img');
-  let currentLogoTenantId = null;
-  let currentLogoData     = null;
-
-  function openLogoModal(tenantId) {
-    if (!logoModal) return;
-    currentLogoTenantId = tenantId;
-    currentLogoData     = null;
-    if (logoPrev) logoPrev.removeAttribute('src');
-    document.getElementById('tl-preview').hidden = true;
-    showModal(logoModal);
-  }
-
-  logoClose?.addEventListener('click', () => hideModal(logoModal));
-  logoModal?.addEventListener('click', (e) => { if(e.target===logoModal) hideModal(logoModal); });
-  logoPick?.addEventListener('click', () => logoFile?.click());
-
-  logoFile?.addEventListener('change', (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      currentLogoData = reader.result;
-      if (logoPrev) { logoPrev.src = currentLogoData; document.getElementById('tl-preview').hidden = false; }
-    };
-    reader.readAsDataURL(file);
+  // -------- Buscador de usuarios
+  eqSearchInput?.addEventListener('input', () => {
+    clearTimeout(searchTimeout);
+    const q = eqSearchInput.value.trim();
+    if (q.length < 2) { eqSearchRes.style.display = 'none'; return; }
+    searchTimeout = setTimeout(() => searchUsers(q), 350);
   });
 
-  logoSave?.addEventListener('click', async () => {
-    if (!currentLogoTenantId || !currentLogoData) return;
-    logoSave.disabled = true;
-    try {
-      const res  = await authFetch(`/api/tenants/${currentLogoTenantId}/logo`, {
-        method: 'POST',
-        body: JSON.stringify({ logo_url: currentLogoData })
-      });
-      const json = await res.json();
-      if (json.ok) { hideModal(logoModal); }
-      else { alert(json.error || 'Error al guardar logo'); }
-    } catch(e) { alert('Error de conexión'); }
-    logoSave.disabled = false;
+  document.getElementById('eq-search-btn')?.addEventListener('click', () => {
+    const q = eqSearchInput?.value.trim();
+    if (q && q.length >= 2) searchUsers(q);
   });
 
-  // -------- Eventos de fila (LOGO / EDITAR / VISTA)
-  tListEl?.addEventListener('click', (e) => {
-    const btn = e.target.closest('button[data-action]');
-    if (!btn) return;
-    const id   = parseInt(btn.dataset.id);
-    const name = btn.dataset.name || '';
-    switch (btn.dataset.action) {
-      case 'logo': openLogoModal(id); break;
-      case 'edit': openEditModal(id); break;
-      case 'view':
-        // Navegar al baúl compartido del inquilino
-        window.location.href = `/baul-equipo.html?tenant_id=${id}&name=${encodeURIComponent(name)}`;
-        break;
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#eq-add-section')) {
+      if (eqSearchRes) eqSearchRes.style.display = 'none';
     }
   });
 
+  async function searchUsers(q) {
+    try {
+      const res = await authFetch(`/api/teams/members/search?q=${encodeURIComponent(q)}`);
+      const json = await res.json();
+      if (!json.ok || !eqSearchRes) return;
+      eqSearchRes.innerHTML = '';
+      if (!json.data.length) {
+        eqSearchRes.innerHTML = '<div style="padding:12px 16px;color:#aaa;font-size:13px;">No se encontraron usuarios</div>';
+        eqSearchRes.style.display = '';
+        return;
+      }
+      json.data.forEach(u => {
+        const initials = ((u.first_name||'')[0]||'') + ((u.last_name||'')[0]||'');
+        const item = document.createElement('div');
+        item.className = 'eq-search-result-item';
+        item.innerHTML = `
+          <div class="eq-search-avatar">${escapeHtml(initials.toUpperCase())}</div>
+          <div style="flex:1;min-width:0;">
+            <div class="eq-search-name">${escapeHtml(u.first_name)} ${escapeHtml(u.last_name)}</div>
+            <div class="eq-search-email">${escapeHtml(u.email)}</div>
+            ${u.current_team_name ? `<div class="eq-search-team">Ya en: ${escapeHtml(u.current_team_name)}</div>` : ''}
+          </div>
+          <button class="btn-soft" style="font-size:12px;padding:4px 12px;" ${u.current_team_id ? 'disabled title="Ya pertenece a un equipo"' : ''}>
+            ${u.current_team_id ? 'Asignado' : 'Agregar'}
+          </button>
+        `;
+        if (!u.current_team_id) {
+          item.querySelector('button').addEventListener('click', (e) => {
+            e.stopPropagation();
+            addMember(selectedTeamId, u.user_id, `${u.first_name} ${u.last_name}`);
+          });
+        }
+        eqSearchRes.appendChild(item);
+      });
+      eqSearchRes.style.display = '';
+    } catch(e) { console.warn('[Equipos] search:', e); }
+  }
+
+  async function addMember(teamId, userId, name) {
+    if (!teamId) { showToast('Selecciona un equipo primero', false); return; }
+    try {
+      const res = await authFetch(`/api/teams/${teamId}/members`, {
+        method: 'POST',
+        body: JSON.stringify({ user_id: userId })
+      });
+      const json = await res.json();
+      if (json.ok) {
+        showToast(`${name} agregado como inquilino`);
+        if (eqSearchRes) eqSearchRes.style.display = 'none';
+        if (eqSearchInput) eqSearchInput.value = '';
+        await loadMembers(teamId);
+        await loadTeams();
+      } else { showToast(json.error || 'Error al agregar', false); }
+    } catch(e) { showToast('Error de conexión', false); }
+  }
+
   // -------- Inicio
-  loadMetrics();
-  loadAndRender();
+  loadTeams();
+
 })();
 
 /* ============================
@@ -1198,9 +1278,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const userRole = currentUser.role_name;
   console.log('🔐 Aplicando permisos de configuración para:', userRole);
 
-  // Admin y Tenant Admin: solo pueden ver Perfil e Inquilinos
-  if (userRole === 'Admin' || userRole === 'Tenant Admin') {
-    const allowedSections = ['perfil', 'inquilinos'];
+  // Superadministrador: acceso a todo. Otros roles: solo Perfil
+  if (userRole !== 'Superadministrador') {
+    const allowedSections = ['perfil'];
     
     // Ocultar botones del sidebar que no están permitidos
     document.querySelectorAll('#settingsNav .sn-item').forEach(btn => {
