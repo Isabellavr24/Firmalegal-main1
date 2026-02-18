@@ -1351,16 +1351,21 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!dd.contains(e.target)) dd.removeAttribute('open');
   });
 
-  // Cerrar sesión (usa permissions.logout si existe; si no, limpia storage)
+  // Cerrar sesión
   document.addEventListener('click', async (e) => {
     if (!e.target.closest('#logoutBtn')) return;
-    try { if (window.permissions?.logout) await window.permissions.logout(); } catch {}
+    try {
+      // Llamar al backend para invalidar la cookie de sesión
+      await fetch('/api/logout', { method: 'POST', credentials: 'include' });
+    } catch {}
     try {
       localStorage.removeItem('auth_user');
       localStorage.removeItem('current_user');
       localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      localStorage.removeItem('currentUser');
     } catch {}
-    location.href = '/login.html';
+    location.href = '/public/Main/login.html';
   });
 
   // (Opcional) iniciales en el avatar si tienes permissions.js

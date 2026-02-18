@@ -778,14 +778,18 @@ document.addEventListener('click', async (e) => {
   const btn = e.target.closest('#logoutBtn');
   if (!btn) return;
 
-  try { await window.permissions?.logout?.(); } catch {}
+  try {
+    await fetch('/api/logout', { method: 'POST', credentials: 'include' });
+  } catch {}
   try {
     localStorage.removeItem('auth_user');
     localStorage.removeItem('current_user');
     localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    localStorage.removeItem('currentUser');
   } catch {}
 
-  location.href = './login.html';
+  location.href = '/public/Main/login.html';
 });
 
 // ====== CARGAR DATOS DEL USUARIO ======

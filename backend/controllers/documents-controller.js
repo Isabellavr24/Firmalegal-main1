@@ -300,14 +300,27 @@ router.get('/:id', requireAuth, async (req, res) => {
 
         const doc = results[0];
 
-        // Verificar permisos: debe ser el dueño
+        // Verificar permisos: dueño directo O miembro del equipo al que pertenece el documento
         if (doc.owner_id !== req.userId) {
-            console.log('❌ [DOCUMENTS] Acceso denegado');
-            return res.status(403).json({
-                ok: false,
-                success: false,
-                error: 'No tienes permiso para acceder a este documento'
-            });
+            let allowed = false;
+            if (doc.team_id) {
+                const teamRows = await new Promise((resolve, reject) => {
+                    db.query(
+                        `SELECT team_id FROM team_members WHERE user_id = ? AND team_id = ? LIMIT 1`,
+                        [req.userId, doc.team_id],
+                        (err, rows) => { if (err) reject(err); else resolve(rows); }
+                    );
+                });
+                allowed = teamRows.length > 0;
+            }
+            if (!allowed) {
+                console.log('❌ [DOCUMENTS] Acceso denegado');
+                return res.status(403).json({
+                    ok: false,
+                    success: false,
+                    error: 'No tienes permiso para acceder a este documento'
+                });
+            }
         }
 
         console.log(`✅ [DOCUMENTS] Documento encontrado: ${doc.title}`);
@@ -739,7 +752,7 @@ router.get('/:id/file', requireAuth, async (req, res) => {
         // Obtener información del documento
         const results = await new Promise((resolve, reject) => {
             db.query(
-                `SELECT d.document_id, d.file_path, d.file_name, d.file_type, d.owner_id
+                `SELECT d.document_id, d.file_path, d.file_name, d.file_type, d.owner_id, d.team_id
                  FROM documents d
                  WHERE d.document_id = ?`,
                 [documentId],
@@ -761,14 +774,27 @@ router.get('/:id/file', requireAuth, async (req, res) => {
 
         const doc = results[0];
 
-        // Verificar permisos: debe ser el dueño
+        // Verificar permisos: dueño directo O miembro del equipo al que pertenece el documento
         if (doc.owner_id !== req.userId) {
-            console.log('❌ [DOCUMENTS] Acceso denegado');
-            return res.status(403).json({
-                ok: false,
-                success: false,
-                error: 'No tienes permiso para acceder a este documento'
-            });
+            let allowed = false;
+            if (doc.team_id) {
+                const teamRows = await new Promise((resolve, reject) => {
+                    db.query(
+                        `SELECT team_id FROM team_members WHERE user_id = ? AND team_id = ? LIMIT 1`,
+                        [req.userId, doc.team_id],
+                        (err, rows) => { if (err) reject(err); else resolve(rows); }
+                    );
+                });
+                allowed = teamRows.length > 0;
+            }
+            if (!allowed) {
+                console.log('❌ [DOCUMENTS] Acceso denegado');
+                return res.status(403).json({
+                    ok: false,
+                    success: false,
+                    error: 'No tienes permiso para acceder a este documento'
+                });
+            }
         }
 
         // Construir ruta completa del archivo

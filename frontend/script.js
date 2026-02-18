@@ -423,7 +423,12 @@ async function loadActiveDocuments() {
 
     if (json.success && json.data && json.data.length > 0) {
       // ✅ FILTRAR solo documentos del index (sin carpeta)
-      const indexDocs = json.data.filter(doc => !doc.folder_id || doc.folder_id === null);
+      let indexDocs = json.data.filter(doc => !doc.folder_id || doc.folder_id === null);
+
+      // ✅ "Mis Plantillas": solo documentos propios del usuario
+      if (currentFilter === 'mine') {
+        indexDocs = indexDocs.filter(doc => doc.owner_id === user.user_id);
+      }
       
       console.log(`✅ [API] ${indexDocs.length} documentos activos en el index`);
 
@@ -554,7 +559,7 @@ async function loadSharedDocuments() {
               </svg>
               <div>
                 <h3 class="title">${f.name}</h3>
-                <div class="meta"><p class="owner">${f.owner_name || ''}${f.team_name ? ` <span style="display:inline-block;font-size:10px;font-weight:700;padding:1px 7px;border-radius:10px;background:${f.team_color||'#2a0d31'}22;color:${f.team_color||'#2a0d31'};margin-left:4px;">${f.team_name}</span>` : ''}</p></div>
+                <div class="meta"><p class="owner">${f.owner_name || ''}</p></div>
               </div>
             </a>`;
           foldersGrid.appendChild(folderCard);
@@ -577,17 +582,6 @@ async function loadSharedDocuments() {
             folderName: doc.folder_name || null,
             documentType: doc.document_type || 'normal'
           });
-
-          // Badge del equipo
-          const badgeName = doc.team_name || doc.tenant_name;
-          const badgeColor = doc.team_color || doc.tenant_color || '#2a0d31';
-          if (badgeName) {
-            const badge = document.createElement('span');
-            badge.style.cssText = `display:inline-block; font-size:11px; font-weight:600; padding:2px 8px; border-radius:6px; background:${badgeColor}22; color:${badgeColor}; margin-top:4px;`;
-            badge.textContent = badgeName;
-            const meta = card.querySelector('.meta');
-            if (meta) meta.appendChild(badge);
-          }
 
           grid.appendChild(card);
         });
@@ -1109,13 +1103,17 @@ toggles.forEach(btn => btn.addEventListener('click', () => {
 document.addEventListener('click', async (e) => {
   const btn = e.target.closest('#logoutBtn');
   if (!btn) return;
-  try { await window.permissions?.logout?.(); } catch {}
+  try {
+    await fetch('/api/logout', { method: 'POST', credentials: 'include' });
+  } catch {}
   try {
     localStorage.removeItem('auth_user');
     localStorage.removeItem('current_user');
     localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    localStorage.removeItem('currentUser');
   } catch {}
-  location.href = '/login.html';
+  location.href = '/public/Main/login.html';
 });
 
 // ====== Init ======

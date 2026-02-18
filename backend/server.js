@@ -1312,7 +1312,7 @@ app.get('/api/users', (req, res) => {
         INNER JOIN roles r ON u.role_id = r.role_id
         LEFT JOIN team_members tm ON tm.user_id = u.user_id
         LEFT JOIN teams t ON t.team_id = tm.team_id AND t.is_active = TRUE
-        ORDER BY u.created_at DESC
+        ORDER BY FIELD(r.role_name, 'Superadministrador') DESC, u.created_at DESC
     `;
 
     db.query(query, (err, results) => {
@@ -1479,14 +1479,14 @@ app.post('/api/users', async (req, res) => {
             if (emailConfig) {
                 result = await mailerDynamic.sendEmailWithUserConfig(emailConfig, {
                     to: email,
-                    subject: '🎉 Bienvenido/a a FirmaLegal Online — Tus credenciales de acceso',
+                    subject: 'Bienvenido/a a FirmaLegal Online — Tus credenciales de acceso',
                     text: emailText,
                     html: emailHtml
                 });
             } else {
                 result = await mailer.sendEmail({
                     to: email,
-                    subject: '🎉 Bienvenido/a a FirmaLegal Online — Tus credenciales de acceso',
+                    subject: 'Bienvenido/a a FirmaLegal Online — Tus credenciales de acceso',
                     text: emailText,
                     html: emailHtml
                 });

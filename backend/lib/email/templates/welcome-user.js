@@ -38,7 +38,7 @@ module.exports = function welcomeUserTemplate({ firstName, lastName, email, pass
 
             <div class="credentials-card">
                 <div class="credentials-header">
-                    <p>🔐 Tus credenciales de acceso</p>
+                    <p>Tus credenciales de acceso</p>
                 </div>
                 <div class="credentials-body">
                     <table width="100%" cellpadding="0" cellspacing="0" border="0">
