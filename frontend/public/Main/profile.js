@@ -1,5 +1,25 @@
 // profile.js - Gestión del perfil de usuario
 
+// Modal de notificación (reemplaza alert())
+function showNotify(title, message, isError) {
+    const modal = document.getElementById('notify-modal');
+    const iconEl = document.getElementById('notify-icon');
+    const titleEl = document.getElementById('notify-title');
+    const msgEl = document.getElementById('notify-msg');
+    const okBtn = document.getElementById('notify-ok');
+    if (!modal) { alert(message); return; }
+
+    iconEl.textContent = isError ? '✕' : '✓';
+    iconEl.style.color = isError ? '#c41e56' : '#2b9348';
+    titleEl.textContent = title;
+    msgEl.textContent = message;
+    modal.style.display = 'flex';
+
+    const close = () => { modal.style.display = 'none'; okBtn.removeEventListener('click', close); };
+    okBtn.addEventListener('click', close);
+    modal.addEventListener('click', (e) => { if (e.target === modal) close(); }, { once: true });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     console.log('👤 Módulo de perfil cargado');
     
@@ -107,7 +127,7 @@ async function handleProfileUpdate() {
 
     // Validaciones básicas
     if (!firstName || !lastName || !email) {
-        alert('Por favor completa todos los campos');
+        showNotify('Campos requeridos', 'Por favor completa todos los campos.', true);
         return;
     }
 
@@ -121,7 +141,7 @@ async function handleProfileUpdate() {
         
         if (!roleId) {
             console.error('❌ No se encontró role_id');
-            alert('Error: No se pudo determinar el rol del usuario');
+            showNotify('Error', 'No se pudo determinar el rol del usuario.', true);
             return;
         }
 
@@ -146,28 +166,31 @@ async function handleProfileUpdate() {
 
         if (data.success) {
             console.log('✅ Perfil actualizado exitosamente');
-            
-            // Actualizar localStorage con los nuevos datos
-            const updatedUser = {
-                ...currentUser,
-                first_name: firstName,
-                last_name: lastName,
-                email: email,
-                role_id: roleId
-            };
-            localStorage.setItem('user', JSON.stringify(updatedUser));
-            localStorage.setItem('currentUser', JSON.stringify(updatedUser));
-            
-            alert('Perfil actualizado correctamente');
-            
+
+            if (data.emailPending) {
+                showNotify('Correo pendiente de verificación', data.message, false);
+            } else {
+                // Actualizar localStorage con los nuevos datos
+                const updatedUser = {
+                    ...currentUser,
+                    first_name: firstName,
+                    last_name: lastName,
+                    email: email,
+                    role_id: roleId
+                };
+                localStorage.setItem('user', JSON.stringify(updatedUser));
+                localStorage.setItem('currentUser', JSON.stringify(updatedUser));
+                showNotify('Perfil actualizado', 'Tu perfil ha sido actualizado correctamente.', false);
+            }
+
             // Recargar datos
             await loadUserProfile();
         } else {
-            alert(data.message || 'Error al actualizar perfil');
+            showNotify('Error', data.message || 'Error al actualizar perfil', true);
         }
     } catch (error) {
         console.error('❌ Error:', error);
-        alert('Error de conexión al actualizar perfil');
+        showNotify('Error de conexión', 'No se pudo conectar con el servidor. Intenta de nuevo.', true);
     } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = 'ACTUALIZAR';
@@ -210,13 +233,13 @@ function setupAvatarUpload() {
 
         // Validar tipo de archivo
         if (!file.type.startsWith('image/')) {
-            alert('Por favor selecciona un archivo de imagen válido');
+            showNotify('Formato inválido', 'Por favor selecciona un archivo de imagen válido.', true);
             return;
         }
 
         // Validar tamaño (5MB máximo)
         if (file.size > 5 * 1024 * 1024) {
-            alert('La imagen es demasiado grande. Máximo 5MB');
+            showNotify('Imagen demasiado grande', 'El archivo supera el límite de 5MB.', true);
             return;
         }
 
@@ -238,7 +261,7 @@ function setupAvatarUpload() {
     // Evento de eliminar avatar
     if (removeBtn) {
         removeBtn.addEventListener('click', async () => {
-            if (confirm('¿Estás seguro de que deseas eliminar tu avatar?')) {
+            if (window.confirm('¿Estás seguro de que deseas eliminar tu avatar?')) {
                 await deleteAvatar();
             }
         });
@@ -268,23 +291,23 @@ async function uploadAvatar(file) {
 
         if (data.success) {
             console.log('✅ Avatar subido exitosamente:', data.avatarUrl);
-            
+
             // Actualizar localStorage
             currentUser.avatar_url = data.avatarUrl;
             localStorage.setItem('user', JSON.stringify(currentUser));
             localStorage.setItem('currentUser', JSON.stringify(currentUser));
-            
+
             // Actualizar todos los avatares en la página
             window.permissions.updateAllAvatars();
-            
-            alert('Avatar actualizado correctamente');
+
+            showNotify('Foto actualizada', 'Tu foto de perfil ha sido actualizada correctamente.', false);
         } else {
             console.error('❌ Error al subir avatar:', data.message);
-            alert(data.message || 'Error al subir avatar');
+            showNotify('Error', data.message || 'No se pudo subir la imagen.', true);
         }
     } catch (error) {
         console.error('❌ Error de conexión:', error);
-        alert('Error de conexión al subir avatar');
+        showNotify('Error de conexión', 'No se pudo conectar con el servidor. Intenta de nuevo.', true);
     }
 }
 
@@ -303,34 +326,34 @@ async function deleteAvatar() {
 
         if (data.success) {
             console.log('✅ Avatar eliminado exitosamente');
-            
+
             // Actualizar localStorage
             currentUser.avatar_url = null;
             localStorage.setItem('user', JSON.stringify(currentUser));
             localStorage.setItem('currentUser', JSON.stringify(currentUser));
-            
+
             // Limpiar preview
             const previewWrap = document.getElementById('sigPreviewWrap');
             const previewImg = document.getElementById('sigPreview');
             const removeBtn = document.getElementById('sigRemove');
             const fileInput = document.getElementById('sigFile');
-            
+
             if (previewImg) previewImg.src = '';
             if (previewWrap) previewWrap.hidden = true;
             if (removeBtn) removeBtn.disabled = true;
             if (fileInput) fileInput.value = '';
-            
+
             // Actualizar todos los avatares en la página
             window.permissions.updateAllAvatars();
-            
-            alert('Avatar eliminado correctamente');
+
+            showNotify('Foto eliminada', 'Tu foto de perfil ha sido eliminada correctamente.', false);
         } else {
             console.error('❌ Error al eliminar avatar:', data.message);
-            alert(data.message || 'Error al eliminar avatar');
+            showNotify('Error', data.message || 'No se pudo eliminar la foto.', true);
         }
     } catch (error) {
         console.error('❌ Error de conexión:', error);
-        alert('Error de conexión al eliminar avatar');
+        showNotify('Error de conexión', 'No se pudo conectar con el servidor. Intenta de nuevo.', true);
     }
 }
 
@@ -356,21 +379,36 @@ function loadExistingAvatar() {
 
 function setupViLinkButton() {
     const btn = document.getElementById('vi-link-btn');
-    if (!btn) return;
+    const modal = document.getElementById('vi-confirm-modal');
+    const cancelBtn = document.getElementById('vi-confirm-cancel');
+    const okBtn = document.getElementById('vi-confirm-ok');
+    if (!btn || !modal) return;
 
-    btn.addEventListener('click', async () => {
+    // Abrir modal al pulsar el botón
+    btn.addEventListener('click', () => {
+        modal.style.display = 'flex';
+    });
+
+    // Cerrar modal con Cancelar o clic en backdrop
+    cancelBtn.addEventListener('click', () => {
+        modal.style.display = 'none';
+    });
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.style.display = 'none';
+    });
+
+    // Confirmar y enviar solicitud
+    okBtn.addEventListener('click', async () => {
+        modal.style.display = 'none';
+
         const currentUser = window.permissions.getCurrentUser();
         if (!currentUser) return;
 
         const fullName = `${currentUser.first_name || ''} ${currentUser.last_name || ''}`.trim();
         const email = currentUser.email;
         const userId = currentUser.user_id;
-
-        if (!confirm(`¿Deseas solicitar la vinculación de tu cuenta con el sistema de Validación de Identidad?\n\nSe enviará un correo al equipo de FirmaLegal con tus datos para que gestionen la vinculación.`)) {
-            return;
-        }
-
         const statusEl = document.getElementById('vi-link-status');
+
         btn.disabled = true;
         btn.textContent = 'Enviando solicitud...';
         if (statusEl) statusEl.style.display = 'none';

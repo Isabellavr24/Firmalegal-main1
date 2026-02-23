@@ -1100,10 +1100,16 @@ console.log('✅ Rutas de email registradas exitosamente');
 app.post('/api/integration/request-link', async (req, res) => {
     console.log('\n🔗 [INTEGRATION] POST /api/integration/request-link');
 
-    // Verificar sesión
-    const sessionUser = req.session?.user;
-    if (!sessionUser) {
-        return res.status(401).json({ success: false, message: 'Sesión no encontrada' });
+    // Verificar JWT desde cookie
+    const jwt = require('jsonwebtoken');
+    const token = req.cookies?.auth_token;
+    if (!token) {
+        return res.status(401).json({ success: false, message: 'No autenticado' });
+    }
+    try {
+        jwt.verify(token, process.env.JWT_SECRET);
+    } catch (e) {
+        return res.status(401).json({ success: false, message: 'Sesión expirada' });
     }
 
     const { userId, fullName, email } = req.body;
@@ -1113,22 +1119,20 @@ app.post('/api/integration/request-link', async (req, res) => {
     }
 
     const adminEmail = 'firmalegalonline@pkiservices.co';
-    const subject = `Solicitud de vinculación con Validación de Identidad — ${fullName}`;
+    const subject = `Nueva solicitud de vinculación — ${fullName}`;
 
     const text = `
-Solicitud de vinculación con el sistema de Validación de Identidad
+Buenas,
 
-Usuario: ${fullName}
-Email: ${email}
-ID de usuario FirmaLegal: ${userId}
+El usuario ${fullName} ha solicitado que su cuenta de FirmaLegal Online sea vinculada con el sistema de Validación de Identidad.
 
-El usuario ha solicitado que su cuenta de FirmaLegal sea vinculada con su perfil en el sistema de Validación de Identidad (VI).
+Datos del usuario:
+- Nombre: ${fullName}
+- Correo electrónico: ${email}
 
-Pasos para gestionar la vinculación:
-1. Ingresar al panel de administración de Validación de Identidad
-2. Buscar al usuario por email o nombre
-3. Crear la vinculación con el user_id indicado arriba
-4. Notificar al usuario cuando la vinculación esté completada
+Para completar la vinculación, ingresa al panel de administración de Validación de Identidad, busca al usuario por su nombre o correo electrónico y aprueba la vinculación.
+
+Una vez aprobada, el usuario podrá usar su identidad verificada al momento de firmar documentos.
 
 Solicitud generada automáticamente desde FirmaLegal Online.
     `.trim();
@@ -1143,42 +1147,36 @@ Solicitud generada automáticamente desde FirmaLegal Online.
         .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
         .header { background: #2b0e31; color: white; padding: 30px; text-align: center; }
         .header h1 { margin: 0; font-size: 22px; }
-        .content { padding: 30px; }
-        .info-card { background: #f8f9fa; border-left: 4px solid #2b0e31; padding: 20px; border-radius: 6px; margin: 20px 0; }
-        .info-card p { margin: 8px 0; font-size: 14px; color: #333; }
+        .content { padding: 30px; color: #333; font-size: 15px; line-height: 1.6; }
+        .info-card { background: #f8f9fa; border-left: 4px solid #2b0e31; padding: 20px; border-radius: 6px; margin: 24px 0; }
+        .info-card p { margin: 6px 0; font-size: 14px; }
         .info-card strong { color: #2b0e31; }
-        .steps { background: #e8f5e9; border-left: 4px solid #2e7d32; padding: 20px; border-radius: 6px; margin: 20px 0; }
-        .steps h4 { color: #1b5e20; margin: 0 0 12px; }
-        .steps ol { margin: 0; padding-left: 20px; color: #333; font-size: 14px; }
-        .steps li { margin: 8px 0; }
+        .action-box { background: #fef9ec; border-left: 4px solid #f0a500; padding: 20px; border-radius: 6px; margin: 24px 0; font-size: 14px; }
+        .action-box p { margin: 6px 0; }
         .footer { background: #f9f9f9; padding: 20px; text-align: center; color: #999; font-size: 12px; border-top: 1px solid #e0e0e0; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>&#128279; Solicitud de Vinculaci&#243;n — Validaci&#243;n de Identidad</h1>
+            <h1>Nueva solicitud de vinculaci&#243;n</h1>
         </div>
         <div class="content">
-            <p>Se ha recibido una nueva solicitud de vinculaci&#243;n desde <strong>FirmaLegal Online</strong>.</p>
+            <p>Buenas,</p>
+            <p>El siguiente usuario ha solicitado que su cuenta de <strong>FirmaLegal Online</strong> sea vinculada con el sistema de Validaci&#243;n de Identidad:</p>
 
             <div class="info-card">
-                <p><strong>&#128100; Usuario:</strong> ${fullName}</p>
-                <p><strong>&#128231; Email:</strong> ${email}</p>
-                <p><strong>&#128273; ID FirmaLegal:</strong> ${userId}</p>
+                <p><strong>Nombre:</strong> ${fullName}</p>
+                <p><strong>Correo electr&#243;nico:</strong> ${email}</p>
             </div>
 
-            <div class="steps">
-                <h4>Pasos para gestionar la vinculaci&#243;n:</h4>
-                <ol>
-                    <li>Ingresar al panel de administraci&#243;n de Validaci&#243;n de Identidad</li>
-                    <li>Buscar al usuario por email o nombre</li>
-                    <li>Crear la vinculaci&#243;n con el <strong>user_id ${userId}</strong> indicado</li>
-                    <li>Notificar al usuario cuando la vinculaci&#243;n est&#233; completada</li>
-                </ol>
+            <div class="action-box">
+                <p><strong>&#128221; ¿Qu&#233; hacer?</strong></p>
+                <p>Ingresa al panel de administraci&#243;n de Validaci&#243;n de Identidad, busca a este usuario por su nombre o correo y aprueba la vinculaci&#243;n.</p>
+                <p>Una vez aprobada, el usuario podr&#225; usar su identidad verificada al momento de firmar documentos.</p>
             </div>
 
-            <p style="color: #666; font-size: 13px;">Solicitud generada autom&#225;ticamente desde FirmaLegal Online.</p>
+            <p style="color: #666; font-size: 13px; margin-top: 30px;">Este mensaje fue generado autom&#225;ticamente por FirmaLegal Online.</p>
         </div>
         <div class="footer">
             <p>&#169; ${new Date().getFullYear()} PKI Services S.A.S. — FirmaLegal Online</p>
@@ -1719,6 +1717,69 @@ app.get('/api/users/search', (req, res) => {
     });
 });
 
+// Confirmar cambio de correo electrónico via token (debe ir ANTES de /api/users/:id)
+app.get('/api/users/verify-email', async (req, res) => {
+    const { token } = req.query;
+    if (!token) {
+        return res.status(400).send('<h2>Enlace inválido o caducado.</h2>');
+    }
+
+    try {
+        const [rows] = await new Promise((resolve, reject) => {
+            db.query(
+                'SELECT user_id, pending_email FROM users WHERE email_verification_token = ?',
+                [token],
+                (err, results) => { if (err) reject(err); else resolve([results]); }
+            );
+        });
+
+        if (!rows || rows.length === 0) {
+            return res.status(400).send(`
+                <!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+                <title>Enlace inválido - FirmaLegal Online</title>
+                <style>body{font-family:Arial,sans-serif;text-align:center;padding:60px 20px;background:#f5f5f5;}
+                .box{max-width:480px;margin:0 auto;background:white;border-radius:12px;padding:40px;box-shadow:0 4px 12px rgba(0,0,0,0.1);}
+                h2{color:#c41e56;}p{color:#555;}a{color:#c41e56;}</style>
+                </head><body><div class="box">
+                <h2>Enlace inválido o caducado</h2>
+                <p>Este enlace de verificación no es válido o ya fue utilizado.</p>
+                <p><a href="/">Volver a FirmaLegal Online</a></p>
+                </div></body></html>
+            `);
+        }
+
+        const { user_id, pending_email } = rows[0];
+
+        await new Promise((resolve, reject) => {
+            db.query(
+                'UPDATE users SET email = ?, pending_email = NULL, email_verification_token = NULL WHERE user_id = ?',
+                [pending_email, user_id],
+                (err, results) => { if (err) reject(err); else resolve(results); }
+            );
+        });
+
+        console.log(`✅ Email verificado y actualizado para user_id=${user_id}: ${pending_email}`);
+
+        return res.send(`
+            <!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+            <title>Correo confirmado - FirmaLegal Online</title>
+            <style>body{font-family:Arial,sans-serif;text-align:center;padding:60px 20px;background:#f5f5f5;}
+            .box{max-width:480px;margin:0 auto;background:white;border-radius:12px;padding:40px;box-shadow:0 4px 12px rgba(0,0,0,0.1);}
+            h2{color:#2b0e31;}p{color:#555;}a{display:inline-block;margin-top:20px;background:#c41e56;color:white;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:700;}</style>
+            </head><body><div class="box">
+            <h2>&#10003; Correo electrónico confirmado</h2>
+            <p>Tu nuevo correo electrónico <strong>${pending_email}</strong> ha sido confirmado correctamente.</p>
+            <p>Ya puedes iniciar sesión con tu nueva dirección.</p>
+            <a href="/">Ir a FirmaLegal Online</a>
+            </div></body></html>
+        `);
+
+    } catch (error) {
+        console.error('❌ Error al verificar email:', error);
+        return res.status(500).send('<h2>Error interno. Inténtalo de nuevo más tarde.</h2>');
+    }
+});
+
 // Obtener perfil de un usuario específico
 app.get('/api/users/:id', (req, res) => {
     const userId = req.params.id;
@@ -1836,19 +1897,30 @@ app.put('/api/users/:id', async (req, res) => {
             });
         }
 
-        // Verificar si el email ya existe (excepto el usuario actual)
-        const [existing] = await new Promise((resolve, reject) => {
-            db.query('SELECT email FROM users WHERE email = ? AND user_id != ?', [email, userId], (err, results) => {
+        // Obtener datos actuales del usuario (email actual + nombre)
+        const [currentUserData] = await new Promise((resolve, reject) => {
+            db.query('SELECT email, first_name, last_name FROM users WHERE user_id = ?', [userId], (err, results) => {
                 if (err) reject(err);
                 else resolve([results]);
             });
         });
+        const currentEmail = currentUserData[0]?.email;
+        const emailChanged = currentEmail && email.toLowerCase() !== currentEmail.toLowerCase();
 
-        if (existing.length > 0) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'El email ya está registrado por otro usuario' 
+        // Si el email cambió, verificar que no esté en uso por otro usuario
+        if (emailChanged) {
+            const [existing] = await new Promise((resolve, reject) => {
+                db.query('SELECT email FROM users WHERE email = ? AND user_id != ?', [email, userId], (err, results) => {
+                    if (err) reject(err);
+                    else resolve([results]);
+                });
             });
+            if (existing.length > 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'El email ya está registrado por otro usuario'
+                });
+            }
         }
 
         // Verificar que el rol existe
@@ -1860,37 +1932,62 @@ app.put('/api/users/:id', async (req, res) => {
         });
 
         if (roleResult.length === 0) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'Rol no válido' 
+            return res.status(400).json({
+                success: false,
+                message: 'Rol no válido'
             });
         }
 
-        // Actualizar usuario
+        // Actualizar usuario (sin cambiar email todavía si cambió)
         if (password) {
-            // Si se proporciona contraseña, actualizarla también
             const passwordHash = await bcrypt.hash(password, 10);
             await new Promise((resolve, reject) => {
                 db.query(
-                    'UPDATE users SET first_name = ?, last_name = ?, email = ?, password_hash = ?, role_id = ? WHERE user_id = ?',
-                    [firstName, lastName, email, passwordHash, roleId, userId],
-                    (err, results) => {
-                        if (err) reject(err);
-                        else resolve(results);
-                    }
+                    'UPDATE users SET first_name = ?, last_name = ?, password_hash = ?, role_id = ? WHERE user_id = ?',
+                    [firstName, lastName, passwordHash, roleId, userId],
+                    (err, results) => { if (err) reject(err); else resolve(results); }
                 );
             });
         } else {
-            // Sin cambiar contraseña
             await new Promise((resolve, reject) => {
                 db.query(
-                    'UPDATE users SET first_name = ?, last_name = ?, email = ?, role_id = ? WHERE user_id = ?',
-                    [firstName, lastName, email, roleId, userId],
-                    (err, results) => {
-                        if (err) reject(err);
-                        else resolve(results);
-                    }
+                    'UPDATE users SET first_name = ?, last_name = ?, role_id = ? WHERE user_id = ?',
+                    [firstName, lastName, roleId, userId],
+                    (err, results) => { if (err) reject(err); else resolve(results); }
                 );
+            });
+        }
+
+        // Si el email cambió, guardar pending_email y enviar verificación
+        if (emailChanged) {
+            const crypto = require('crypto');
+            const token = crypto.randomBytes(48).toString('hex');
+            const APP_URL = process.env.APP_URL || 'https://firmalegalonline.com';
+            const verificationUrl = `${APP_URL}/api/users/verify-email?token=${token}`;
+
+            await new Promise((resolve, reject) => {
+                db.query(
+                    'UPDATE users SET pending_email = ?, email_verification_token = ? WHERE user_id = ?',
+                    [email, token, userId],
+                    (err, results) => { if (err) reject(err); else resolve(results); }
+                );
+            });
+
+            const mailer = require('./lib/email/mailer');
+            const recipientName = `${firstName} ${lastName}`.trim();
+            const emailVerificationTemplate = require('./lib/email/templates/email-verification');
+            await mailer.sendEmail({
+                to: email,
+                subject: 'Confirma tu nuevo correo electrónico — FirmaLegal Online',
+                text: `Hola ${recipientName},\n\nHemos recibido una solicitud para cambiar tu correo a ${email}.\n\nConfirma el cambio entrando a este enlace (válido 24 horas):\n${verificationUrl}\n\nSi no solicitaste este cambio, ignora este mensaje.\n\nFirmaLegal Online`,
+                html: emailVerificationTemplate({ recipientName, newEmail: email, verificationUrl, appUrl: APP_URL })
+            });
+
+            console.log('✅ Usuario actualizado. Email de verificación enviado a:', email);
+            return res.json({
+                success: true,
+                message: 'Perfil actualizado. Te enviamos un correo a la nueva dirección para confirmar el cambio de email.',
+                emailPending: true
             });
         }
 

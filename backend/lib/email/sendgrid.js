@@ -7,6 +7,8 @@
 
 const sgMail = require('@sendgrid/mail');
 
+let _configured = false;
+
 /**
  * Configurar SendGrid con API Key
  * @param {string} apiKey - SendGrid API Key
@@ -17,6 +19,7 @@ function configureSendGrid(apiKey) {
     }
 
     sgMail.setApiKey(apiKey);
+    _configured = true;
     console.log('✅ SendGrid configurado correctamente');
 }
 
@@ -119,11 +122,7 @@ async function sendBatchEmails(emails) {
  * @returns {boolean}
  */
 function isConfigured() {
-    try {
-        return sgMail.apiKey !== null && sgMail.apiKey !== undefined;
-    } catch {
-        return false;
-    }
+    return _configured;
 }
 
 module.exports = {
