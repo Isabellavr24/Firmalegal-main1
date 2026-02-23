@@ -18,7 +18,10 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.ssl_ import create_urllib3_context
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+# Zona horaria Colombia (UTC-5)
+TZ_COLOMBIA = timezone(timedelta(hours=-5))
 from typing import Optional, Dict, List
 from pypdf import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas as reportlab_canvas
@@ -221,9 +224,9 @@ class PDFSigner:
             except:
                 pass
 
-            # Timestamp actual
-            now = datetime.now()
-            timestamp_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+            # Timestamp actual en hora Colombia (UTC-5)
+            now = datetime.now(TZ_COLOMBIA)
+            timestamp_iso = now.strftime("%Y-%m-%dT%H:%M:%S-05:00")
             timestamp_local = now.strftime("%d/%m/%Y %H:%M:%S")
 
             return {
@@ -238,13 +241,13 @@ class PDFSigner:
         except Exception as e:
             logger.warning(f"Error extrayendo datos del certificado: {e}")
             # Datos por defecto si falla la extracción
-            now = datetime.now()
+            now = datetime.now(TZ_COLOMBIA)
             return {
                 'subject_common_name': 'Firmante',
                 'email': 'sin-email@ejemplo.com',
                 'issuer_common_name': 'Emisor',
                 'country': 'N/A',
-                'timestamp_iso': now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                'timestamp_iso': now.strftime("%Y-%m-%dT%H:%M:%S-05:00"),
                 'timestamp_local': now.strftime("%d/%m/%Y %H:%M:%S")
             }
 
@@ -551,7 +554,7 @@ class PDFSigner:
 
             # 7. Guardar información del timestamp
             self.last_timestamp_info = {
-                "time": datetime.utcnow().isoformat() + "Z",
+                "time": datetime.now(TZ_COLOMBIA).strftime("%Y-%m-%dT%H:%M:%S-05:00"),
                 "source": self.tsa_url,
                 "reason": reason,
                 "location": location,

@@ -1091,6 +1091,175 @@ app.post('/api/email/signature-completed', async (req, res) => {
 
 console.log('✅ Rutas de email registradas exitosamente');
 
+// =============================================
+// INTEGRACIÓN CON VALIDACIÓN DE IDENTIDAD
+// =============================================
+
+// Endpoint para que un usuario solicite vinculación con Validación de Identidad
+// Envía un email a firmalegalonline@pkiservices.co para que el admin gestione la vinculación
+app.post('/api/integration/request-link', async (req, res) => {
+    console.log('\n🔗 [INTEGRATION] POST /api/integration/request-link');
+
+    // Verificar sesión
+    const sessionUser = req.session?.user;
+    if (!sessionUser) {
+        return res.status(401).json({ success: false, message: 'Sesión no encontrada' });
+    }
+
+    const { userId, fullName, email } = req.body;
+
+    if (!userId || !fullName || !email) {
+        return res.status(400).json({ success: false, message: 'Faltan campos requeridos' });
+    }
+
+    const adminEmail = 'firmalegalonline@pkiservices.co';
+    const subject = `Solicitud de vinculación con Validación de Identidad — ${fullName}`;
+
+    const text = `
+Solicitud de vinculación con el sistema de Validación de Identidad
+
+Usuario: ${fullName}
+Email: ${email}
+ID de usuario FirmaLegal: ${userId}
+
+El usuario ha solicitado que su cuenta de FirmaLegal sea vinculada con su perfil en el sistema de Validación de Identidad (VI).
+
+Pasos para gestionar la vinculación:
+1. Ingresar al panel de administración de Validación de Identidad
+2. Buscar al usuario por email o nombre
+3. Crear la vinculación con el user_id indicado arriba
+4. Notificar al usuario cuando la vinculación esté completada
+
+Solicitud generada automáticamente desde FirmaLegal Online.
+    `.trim();
+
+    const html = `
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <style>
+        body { font-family: Arial, sans-serif; background: #f5f5f5; margin: 0; padding: 30px 20px; }
+        .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .header { background: #2b0e31; color: white; padding: 30px; text-align: center; }
+        .header h1 { margin: 0; font-size: 22px; }
+        .content { padding: 30px; }
+        .info-card { background: #f8f9fa; border-left: 4px solid #2b0e31; padding: 20px; border-radius: 6px; margin: 20px 0; }
+        .info-card p { margin: 8px 0; font-size: 14px; color: #333; }
+        .info-card strong { color: #2b0e31; }
+        .steps { background: #e8f5e9; border-left: 4px solid #2e7d32; padding: 20px; border-radius: 6px; margin: 20px 0; }
+        .steps h4 { color: #1b5e20; margin: 0 0 12px; }
+        .steps ol { margin: 0; padding-left: 20px; color: #333; font-size: 14px; }
+        .steps li { margin: 8px 0; }
+        .footer { background: #f9f9f9; padding: 20px; text-align: center; color: #999; font-size: 12px; border-top: 1px solid #e0e0e0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>&#128279; Solicitud de Vinculaci&#243;n — Validaci&#243;n de Identidad</h1>
+        </div>
+        <div class="content">
+            <p>Se ha recibido una nueva solicitud de vinculaci&#243;n desde <strong>FirmaLegal Online</strong>.</p>
+
+            <div class="info-card">
+                <p><strong>&#128100; Usuario:</strong> ${fullName}</p>
+                <p><strong>&#128231; Email:</strong> ${email}</p>
+                <p><strong>&#128273; ID FirmaLegal:</strong> ${userId}</p>
+            </div>
+
+            <div class="steps">
+                <h4>Pasos para gestionar la vinculaci&#243;n:</h4>
+                <ol>
+                    <li>Ingresar al panel de administraci&#243;n de Validaci&#243;n de Identidad</li>
+                    <li>Buscar al usuario por email o nombre</li>
+                    <li>Crear la vinculaci&#243;n con el <strong>user_id ${userId}</strong> indicado</li>
+                    <li>Notificar al usuario cuando la vinculaci&#243;n est&#233; completada</li>
+                </ol>
+            </div>
+
+            <p style="color: #666; font-size: 13px;">Solicitud generada autom&#225;ticamente desde FirmaLegal Online.</p>
+        </div>
+        <div class="footer">
+            <p>&#169; ${new Date().getFullYear()} PKI Services S.A.S. — FirmaLegal Online</p>
+        </div>
+    </div>
+</body>
+</html>
+    `.trim();
+
+    try {
+        // 1. Registrar solicitud directamente en Validación de Identidad
+        const VI_URL = process.env.VI_URL || 'http://validacion-identidad-app-1:3000';
+        const VI_API_KEY = process.env.INTERNAL_API_KEY || '';
+        let viRegistered = false;
+        let viError = null;
+
+        try {
+            const viBody = JSON.stringify({
+                firmalegal_user_id: userId,
+                firmalegal_email: email,
+                firmalegal_nombre: fullName
+            });
+            const viUrlParsed = new URL(`${VI_URL}/validacion/api/firmalegal/solicitar`);
+            const transport = viUrlParsed.protocol === 'https:' ? require('https') : require('http');
+
+            await new Promise((resolve) => {
+                const viReq = transport.request({
+                    hostname: viUrlParsed.hostname,
+                    port: viUrlParsed.port || (viUrlParsed.protocol === 'https:' ? 443 : 80),
+                    path: viUrlParsed.pathname,
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Internal-Api-Key': VI_API_KEY,
+                        'Content-Length': Buffer.byteLength(viBody)
+                    }
+                }, (r) => {
+                    let d = '';
+                    r.on('data', c => d += c);
+                    r.on('end', () => {
+                        if (r.statusCode === 201 || r.statusCode === 200) {
+                            viRegistered = true;
+                            console.log(`✅ [INTEGRATION] Solicitud registrada en VI para userId=${userId}`);
+                        } else {
+                            viError = `VI respondió ${r.statusCode}: ${d}`;
+                            console.warn(`⚠️ [INTEGRATION] ${viError}`);
+                        }
+                        resolve();
+                    });
+                });
+                viReq.on('error', (e) => { viError = e.message; resolve(); });
+                viReq.setTimeout(5000, () => { viError = 'timeout'; viReq.destroy(); resolve(); });
+                viReq.write(viBody);
+                viReq.end();
+            });
+        } catch (e) {
+            viError = e.message;
+            console.warn(`⚠️ [INTEGRATION] Error llamando a VI: ${e.message}`);
+        }
+
+        // 2. Enviar email de notificación al admin (en paralelo, no bloquea)
+        const emailResult = await mailer.sendEmail({ to: adminEmail, subject, text, html });
+        if (emailResult.success) {
+            console.log(`✅ [INTEGRATION] Email de notificación enviado para userId=${userId}`);
+        } else {
+            console.warn(`⚠️ [INTEGRATION] Email no enviado: ${emailResult.error}`);
+        }
+
+        // 3. Responder al usuario — éxito si al menos VI o email funcionó
+        if (viRegistered || emailResult.success) {
+            res.json({ success: true, message: 'Solicitud enviada correctamente. El equipo de FirmaLegal procesará tu vinculación pronto.' });
+        } else {
+            console.error(`❌ [INTEGRATION] Ni VI ni email funcionaron. VI: ${viError}`);
+            res.status(500).json({ success: false, message: 'Error al enviar la solicitud. Intenta de nuevo más tarde.' });
+        }
+    } catch (error) {
+        console.error('❌ [INTEGRATION] Error:', error);
+        res.status(500).json({ success: false, message: 'Error interno al procesar la solicitud.' });
+    }
+});
+
 // =========================================
 // MIDDLEWARE DE PERMISOS
 // =========================================
@@ -1510,6 +1679,44 @@ app.post('/api/users', async (req, res) => {
             message: 'Error al crear usuario'
         });
     }
+});
+
+// =============================================
+// BÚSQUEDA DE USUARIOS (Integración interna con Validación de Identidad)
+// Protegido por X-Internal-Api-Key
+// =============================================
+app.get('/api/users/search', (req, res) => {
+    const apiKey = req.headers['x-internal-api-key'];
+    const expectedKey = process.env.INTERNAL_API_KEY;
+
+    if (!expectedKey || apiKey !== expectedKey) {
+        console.warn('⚠️ [users/search] Acceso denegado — API key inválida');
+        return res.status(401).json({ success: false, message: 'No autorizado' });
+    }
+
+    const q = (req.query.q || '').trim();
+    if (!q || q.length < 2) {
+        return res.status(400).json({ success: false, message: 'El parámetro q debe tener al menos 2 caracteres' });
+    }
+
+    const like = `%${q}%`;
+    const query = `
+        SELECT u.user_id, u.first_name, u.last_name, u.email, u.is_active
+        FROM users u
+        WHERE u.is_active = 1
+          AND (u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ?)
+        ORDER BY u.first_name, u.last_name
+        LIMIT 20
+    `;
+
+    db.query(query, [like, like, like], (err, results) => {
+        if (err) {
+            console.error('❌ [users/search] Error:', err);
+            return res.status(500).json({ success: false, message: 'Error al buscar usuarios' });
+        }
+        console.log(`🔍 [users/search] "${q}" → ${results.length} resultados`);
+        res.json({ success: true, users: results });
+    });
 });
 
 // Obtener perfil de un usuario específico

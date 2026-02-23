@@ -19,9 +19,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Configurar formulario de perfil
     setupProfileForm();
-    
+
     // Configurar upload de avatar
     setupAvatarUpload();
+
+    // Configurar botón de vinculación con Validación de Identidad
+    setupViLinkButton();
 });
 
 // Cargar datos del perfil desde la API
@@ -345,4 +348,70 @@ function loadExistingAvatar() {
         if (removeBtn) removeBtn.disabled = false;
         console.log('✅ Avatar existente cargado');
     }
+}
+
+// =============================================
+// VINCULACIÓN CON VALIDACIÓN DE IDENTIDAD
+// =============================================
+
+function setupViLinkButton() {
+    const btn = document.getElementById('vi-link-btn');
+    if (!btn) return;
+
+    btn.addEventListener('click', async () => {
+        const currentUser = window.permissions.getCurrentUser();
+        if (!currentUser) return;
+
+        const fullName = `${currentUser.first_name || ''} ${currentUser.last_name || ''}`.trim();
+        const email = currentUser.email;
+        const userId = currentUser.user_id;
+
+        if (!confirm(`¿Deseas solicitar la vinculación de tu cuenta con el sistema de Validación de Identidad?\n\nSe enviará un correo al equipo de FirmaLegal con tus datos para que gestionen la vinculación.`)) {
+            return;
+        }
+
+        const statusEl = document.getElementById('vi-link-status');
+        btn.disabled = true;
+        btn.textContent = 'Enviando solicitud...';
+        if (statusEl) statusEl.style.display = 'none';
+
+        try {
+            const response = await fetch('/api/integration/request-link', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId, fullName, email })
+            });
+
+            const data = await response.json();
+
+            if (statusEl) {
+                statusEl.style.display = 'block';
+                if (data.success) {
+                    statusEl.style.background = '#e8f5e9';
+                    statusEl.style.color = '#1b5e20';
+                    statusEl.style.border = '1px solid #a5d6a7';
+                    statusEl.textContent = '✓ ' + data.message;
+                    btn.textContent = 'Solicitud enviada';
+                } else {
+                    statusEl.style.background = '#fce4ec';
+                    statusEl.style.color = '#b71c1c';
+                    statusEl.style.border = '1px solid #ef9a9a';
+                    statusEl.textContent = '✗ ' + (data.message || 'Error al enviar la solicitud');
+                    btn.disabled = false;
+                    btn.textContent = 'Solicitar vinculación';
+                }
+            }
+        } catch (error) {
+            console.error('❌ Error al solicitar vinculación:', error);
+            if (statusEl) {
+                statusEl.style.display = 'block';
+                statusEl.style.background = '#fce4ec';
+                statusEl.style.color = '#b71c1c';
+                statusEl.style.border = '1px solid #ef9a9a';
+                statusEl.textContent = '✗ Error de conexión. Intenta de nuevo.';
+            }
+            btn.disabled = false;
+            btn.textContent = 'Solicitar vinculación';
+        }
+    });
 }

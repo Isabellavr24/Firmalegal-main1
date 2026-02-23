@@ -107,30 +107,38 @@ module.exports = function signatureRequestBulkTemplate({ recipientName, document
             </div>
 
             <div class="legal-section">
-                <h4>\u{1F4DC} MARCO LEGAL</h4>
+                <h4>LA FIRMA ELECTR&#211;NICA</h4>
                 <p>
-                    El Decreto 2364 de 2012, que reglamenta el art\u00EDculo 7 de la Ley 527 de 1999, define la firma electr\u00F3nica como aquel m\u00E9todo implementado para identificar a una persona y su voluntad para un fin espec\u00EDfico, por ejemplo, para verificar la voluntad de adquirir derechos y obligaciones en un documento.
+                    Deber&#225; entenderse como un acuerdo de voluntades contenidas en un documento electr&#243;nico o mensaje de datos, y aceptaci&#243;n previa de verificaci&#243;n que deber&#225; hacerse con una contrase&#241;a, c&#243;digo o dato biom&#233;trico que permita la validaci&#243;n de identidad del firmante.
+                    <em>"Art&#237;culo 3&#186; Cumplimiento del Requisito de Firma. Cuando se exija la firma de una persona, ese requisito quedar&#225; cumplido en relaci&#243;n con un mensaje de datos si se utiliza una firma electr&#243;nica que, a la luz de todas las circunstancias del caso, incluido cualquier acuerdo aplicable, sea tan confiable como apropiada para los fines con los cuales se gener&#243; o comunic&#243; ese mensaje."</em>
                 </p>
+
+                <h4 style="margin-top: 20px;">&#128220; MARCO LEGAL</h4>
                 <p>
-                    Para que la firma electr\u00F3nica genere efectos legales, deber\u00E1 cumplir los mismos requisitos que tiene cualquier documento f\u00EDsico aplicando el Principio de Equivalencia Funcional para que los supuestos de la vida real sean iguales en la vida digital y generen id\u00E9nticos efectos.
+                    El Decreto 2364 de 2012, que reglamenta el art&#237;culo 7 de la Ley 527 de 1999, define la firma electr&#243;nica como aquel m&#233;todo implementado para identificar a una persona y su voluntad para un fin espec&#237;fico, por ejemplo, para verificar la voluntad de adquirir derechos y obligaciones en un contrato, documento o mensaje electr&#243;nico. Para que la firma electr&#243;nica genere efectos legales, deber&#225; cumplir los mismos requisitos que tiene cualquier contrato f&#237;sico aplicando el Principio de Equivalencia Funcional para que los supuestos de la vida real sean iguales en la vida digital y generen id&#233;nticos efectos.
+                </p>
+
+                <p style="margin-top: 20px;">
+                    <strong>&#9878;&#65039; CUMPLIMIENTO AL PRINCIPIO CONSTITUCIONAL DE LA BUENA FE</strong><br>
+                    PKI SERVICES S.A.S. debe dar cumplimiento al art&#237;culo 83 de la constituci&#243;n pol&#237;tica colombiana, sobre el principio de la buena fe: "Las actuaciones de los particulares y de las autoridades p&#250;blicas deber&#225;n ce&#241;irse a los postulados de buena fe, la cual se presumir&#225; en todas las gestiones que aqu&#233;llos adelanten ante &#233;stas."
                 </p>
                 <p style="margin-top: 20px;">
-                    <strong>\u2696\uFE0F CUMPLIMIENTO AL PRINCIPIO CONSTITUCIONAL DE LA BUENA FE</strong><br>
-                    PKI SERVICES S.A.S. debe dar cumplimiento al art\u00EDculo 83 de la constituci\u00F3n pol\u00EDtica colombiana, sobre el principio de la buena fe: "Las actuaciones de los particulares y de las autoridades p\u00FAblicas deber\u00E1n ce\u00F1irse a los postulados de buena fe, la cual se presumir\u00E1 en todas las gestiones que aqu\u00E9llos adelanten ante \u00E9stas."
+                    <strong>&#9888;&#65039; FALSEDAD EN DOCUMENTO PRIVADO</strong><br>
+                    Los solicitantes deben dar cumplimiento a la LEY 599 DE 2000, por la cual se expide el C&#243;digo Penal. Art&#237;culo 289. Falsedad en documento privado: "El que falsifique documento privado que pueda servir de prueba, incurrir&#225;, si lo usa, en prisi&#243;n de uno (1) a seis (6) a&#241;os."
                 </p>
                 <p style="margin-top: 20px;">
-                    <strong>\u26A0\uFE0F FALSEDAD EN DOCUMENTO PRIVADO</strong><br>
-                    Los solicitantes deben dar cumplimiento a la LEY 599 DE 2000, Art\u00EDculo 289: "El que falsifique documento privado que pueda servir de prueba, incurrir\u00E1, si lo usa, en prisi\u00F3n de uno (1) a seis (6) a\u00F1os."
+                    <strong>&#169; DERECHOS DE AUTOR</strong><br>
+                    Todo el contenido de los correos, comunicaciones y funcionalidad de las plataformas ofrecidas por PKI SERVICES, son de su propiedad de &#233;sta, de conformidad a lo dispuesto en el art&#237;culo 539 del C&#243;digo de Comercio, as&#237; como en el art&#237;culo 20 y concordantes de la Ley 23 de 1982.
                 </p>
                 <p style="margin-top: 20px;">
-                    <strong>\u{1F3DB}\uFE0F ACREDITACI\u00D3N ONAC</strong><br>
-                    PKI SERVICES en cumplimiento de la LEY 527 de 1999 y sus decretos reglamentarios, es una entidad acreditada por el ORGANISMO NACIONAL DE ACREDITACI\u00D3N DE COLOMBIA (ONAC).
+                    <strong>&#127963;&#65039; ACREDITACI&#211;N ONAC</strong><br>
+                    PKI SERVICES en cumplimiento de la LEY 527 de 1999 y sus decretos reglamentarios, es una entidad acreditada por el ORGANISMO NACIONAL DE ACREDITACI&#211;N DE COLOMBIA (ONAC).
                 </p>
                 <p>
-                    Para cualquier duda o inquietud sobre la plataforma de Firma, puede ponerse en contacto con nuestro servicio de atenci\u00F3n al cliente en:
+                    Para cualquier duda o inquietud sobre la plataforma de Firma, puede ponerse en contacto con nuestro servicio de atenci&#243;n al cliente en:
                     <br>
                     <a href="https://pkiservices.co/soporte/?wpsc-section=ticket-list" style="color: #2a0d31; font-weight: 600;">
-                        \u{1F517} Soporte PKI Services
+                        &#128279; Soporte PKI Services
                     </a>
                 </p>
             </div>
