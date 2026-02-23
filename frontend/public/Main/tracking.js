@@ -160,14 +160,38 @@ function createRecipientCard(recipient) {
   const displayName = recipient.name || recipient.email;
   const displayEmail = recipient.email;
 
+  // Bloque de Validación de Identidad
+  const showViBlock = recipient.status !== 'completed' && recipient.status !== 'rejected' && !recipient.vi_validated_at;
+  const viValidatedBadge = recipient.vi_validated_at
+    ? `<div style="margin-top:10px;display:flex;align-items:center;gap:6px;font-size:12px;color:#2b9348;font-weight:600;">
+         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+         Identidad verificada
+       </div>`
+    : '';
+
+  const viBlock = showViBlock
+    ? `<div class="vi-validation-block" style="margin-top:12px;border-top:1px solid #f0f0f0;padding-top:12px;">
+         <p style="font-size:12px;font-weight:700;color:#2a0d31;margin:0 0 6px;">Este correo no ha sido validado</p>
+         <button class="vi-start-btn" style="width:100%;padding:9px 14px;background:#2a0d31;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:0.5px;margin-bottom:6px;">
+           INICIAR VALIDACIÓN DE IDENTIDAD
+         </button>
+         <div style="text-align:center;">
+           <button class="vi-skip-btn" style="background:none;border:none;color:#999;font-size:11px;cursor:pointer;padding:0;text-decoration:underline;">
+             omitir validación
+           </button>
+         </div>
+       </div>`
+    : viValidatedBadge;
+
   card.innerHTML = `
-    <div class="recipient-info">
+    <div class="recipient-info" style="flex:1;">
       <div class="status-badge ${statusClass}">
         ${statusText}
       </div>
       <div class="recipient-emails">
         <p class="recipient-email">${displayEmail}</p>
         ${recipient.name && recipient.name !== recipient.email ? `<p class="recipient-name" style="font-size: 12px; color: #666; margin-top: 4px;">${recipient.name}</p>` : ''}
+        ${viBlock}
       </div>
     </div>
     <div class="recipient-actions">
@@ -191,6 +215,14 @@ function createRecipientCard(recipient) {
       </button>
     </div>
   `;
+
+  // Event listeners para botones de VI
+  const startBtn = card.querySelector('.vi-start-btn');
+  const skipBtn = card.querySelector('.vi-skip-btn');
+  if (startBtn) startBtn.addEventListener('click', () => handleViStart(recipient));
+  if (skipBtn) skipBtn.addEventListener('click', () => {
+    card.querySelector('.vi-validation-block').style.display = 'none';
+  });
 
   return card;
 }
@@ -2815,4 +2847,80 @@ function toggleAuditButton() {
   if (auditBtn) {
     auditBtn.style.display = documentId ? 'flex' : 'none';
   }
+}
+
+// ── INTEGRACIÓN VALIDACIÓN DE IDENTIDAD (FASE 2) ─────────────────────────────
+
+async function handleViStart(recipient) {
+  const user = JSON.parse(localStorage.getItem('currentUser') || localStorage.getItem('user') || '{}');
+  const ownerId = user.user_id || user.id;
+  const documentTitle = document.querySelector('.document-title')?.textContent?.trim()
+    || window.documentTitle || 'Documento para firma';
+
+  // Mostrar loading en el botón
+  const card = document.querySelector(`[data-recipient-id="${recipient.id}"]`);
+  const startBtn = card?.querySelector('.vi-start-btn');
+  if (startBtn) { startBtn.disabled = true; startBtn.textContent = 'Verificando...'; }
+
+  try {
+    // Llamar al backend para obtener la URL de VI
+    const resp = await fetch('/api/integration/vi-iniciar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        owner_user_id: ownerId,
+        signer_email: recipient.email,
+        signer_name: recipient.name || recipient.email,
+        document_title: documentTitle,
+        firma_token: recipient.token
+      })
+    });
+    const data = await resp.json();
+
+    if (data.success && data.validacion_url) {
+      // Abrir VI en nueva pestaña
+      window.open(data.validacion_url, '_blank');
+    } else if (data.needsVinculacion) {
+      // El owner no está vinculado → mostrar modal de solicitud
+      showViSolicitudModal();
+    } else {
+      showTrackingToast(data.message || 'No se pudo iniciar la validación', 'error');
+    }
+  } catch (err) {
+    console.error('Error iniciando VI:', err);
+    showTrackingToast('Error de conexión al iniciar validación', 'error');
+  } finally {
+    if (startBtn) { startBtn.disabled = false; startBtn.textContent = 'INICIAR VALIDACIÓN DE IDENTIDAD'; }
+  }
+}
+
+function showViSolicitudModal() {
+  // Reusar el flujo de solicitud de vinculación de config.html si estamos en el mismo dominio
+  // En tracking solo mostramos aviso de que el admin debe vincular primero
+  const modal = document.getElementById('vi-solicitud-modal');
+  if (modal) { modal.style.display = 'flex'; return; }
+
+  const m = document.createElement('div');
+  m.id = 'vi-solicitud-modal';
+  m.style.cssText = 'display:flex;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.45);align-items:center;justify-content:center;';
+  m.innerHTML = `
+    <div style="background:#fff;border-radius:16px;max-width:440px;width:90%;padding:36px 32px;box-shadow:0 8px 32px rgba(0,0,0,0.18);">
+      <h3 style="margin:0 0 12px;font-size:1.1rem;font-weight:800;color:#2a0d31;">Vinculación requerida</h3>
+      <p style="margin:0 0 20px;font-size:14px;color:#555;line-height:1.6;">
+        Para iniciar la validación de identidad, tu cuenta de FirmaLegal debe estar vinculada con el sistema de Validación de Identidad de PKI Services.<br><br>
+        Ve a <strong>Configuración → Perfil</strong> y usa el botón <strong>"Solicitar vinculación"</strong>. El equipo de FirmaLegal gestionará la vinculación y te notificará.
+      </p>
+      <div style="display:flex;gap:12px;justify-content:flex-end;">
+        <button onclick="document.getElementById('vi-solicitud-modal').style.display='none'"
+          style="padding:10px 24px;font-size:14px;font-weight:600;color:#666;background:none;border:1px solid #ddd;border-radius:8px;cursor:pointer;">
+          Cerrar
+        </button>
+        <a href="/config.html#perfil" style="display:inline-block;padding:10px 24px;font-size:14px;font-weight:700;background:#2a0d31;color:#fff;border-radius:8px;text-decoration:none;">
+          Ir a Configuración
+        </a>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+  m.addEventListener('click', (e) => { if (e.target === m) m.style.display = 'none'; });
 }

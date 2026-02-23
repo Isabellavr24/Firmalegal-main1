@@ -1095,6 +1095,66 @@ console.log('✅ Rutas de email registradas exitosamente');
 // INTEGRACIÓN CON VALIDACIÓN DE IDENTIDAD
 // =============================================
 
+// Endpoint Fase 2: inicia el flujo de validación de identidad para un firmante
+// Verifica si el owner está vinculado a VI y devuelve la URL de validación
+app.post('/api/integration/vi-iniciar', async (req, res) => {
+    console.log('\n🔐 [INTEGRATION] POST /api/integration/vi-iniciar');
+
+    const jwt = require('jsonwebtoken');
+    let jwtUser;
+    try {
+        jwtUser = jwt.verify(req.cookies?.auth_token, process.env.JWT_SECRET);
+    } catch {
+        return res.status(401).json({ success: false, message: 'Sesión no encontrada' });
+    }
+
+    const { signer_email, signer_name, document_title, firma_token } = req.body;
+    if (!signer_email || !firma_token) {
+        return res.status(400).json({ success: false, message: 'Faltan campos requeridos' });
+    }
+
+    const VI_URL = process.env.VI_URL || 'http://validacion-identidad-app-1:3000';
+    const VI_API_KEY = process.env.INTERNAL_API_KEY || '';
+    const owner_firmalegal_user_id = jwtUser.userId || jwtUser.id || jwtUser.user_id;
+
+    try {
+        const viUrlParsed = new URL(`${VI_URL}/validacion/api/firmalegal/iniciar-validacion`);
+        const transport = viUrlParsed.protocol === 'https:' ? require('https') : require('http');
+        const body = JSON.stringify({ owner_firmalegal_user_id, signer_email, signer_name, document_title, firma_token });
+
+        const viResp = await new Promise((resolve) => {
+            const r = transport.request({
+                hostname: viUrlParsed.hostname,
+                port: viUrlParsed.port || 80,
+                path: viUrlParsed.pathname,
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Internal-Api-Key': VI_API_KEY, 'Content-Length': Buffer.byteLength(body) }
+            }, (resp) => {
+                let data = '';
+                resp.on('data', d => data += d);
+                resp.on('end', () => { try { resolve({ status: resp.statusCode, body: JSON.parse(data) }); } catch { resolve({ status: resp.statusCode, body: {} }); } });
+            });
+            r.on('error', () => resolve({ status: 500, body: {} }));
+            r.write(body);
+            r.end();
+        });
+
+        if (viResp.status === 409) {
+            return res.json({ success: false, needsVinculacion: true, message: viResp.body.message });
+        }
+        if (!viResp.body.success) {
+            return res.status(400).json({ success: false, message: viResp.body.message || 'Error al iniciar validación' });
+        }
+
+        console.log('✅ [VI-INICIAR] URL de validación generada para:', signer_email);
+        return res.json({ success: true, validacion_url: viResp.body.validacion_url });
+
+    } catch (error) {
+        console.error('❌ [VI-INICIAR] Error:', error);
+        return res.status(500).json({ success: false, message: 'Error interno al iniciar validación' });
+    }
+});
+
 // Endpoint para que un usuario solicite vinculación con Validación de Identidad
 // Envía un email a firmalegalonline@pkiservices.co para que el admin gestione la vinculación
 app.post('/api/integration/request-link', async (req, res) => {
@@ -2139,6 +2199,116 @@ app.delete('/api/users/:id/avatar', async (req, res) => {
 // ENDPOINTS PÚBLICOS PARA FIRMA DE DOCUMENTOS
 // =============================================
 
+// ── INTEGRACIÓN VALIDACIÓN DE IDENTIDAD ─────────────────────────────────────
+
+// GET /api/public/vi-status/:token
+// Consulta si el firmante (identificado por su token de firma) ya fue validado
+// en VI, y si el dueño del documento está vinculado a VI.
+app.get('/api/public/vi-status/:token', async (req, res) => {
+    const { token } = req.params;
+    try {
+        // 1. Obtener datos del firmante y del dueño del documento
+        const [rows] = await new Promise((resolve, reject) => {
+            db.query(
+                `SELECT dr.recipient_id, dr.email, dr.vi_validated_at, d.owner_id
+                 FROM document_recipients dr
+                 INNER JOIN documents d ON dr.document_id = d.document_id
+                 WHERE dr.token = ?`,
+                [token],
+                (err, results) => { if (err) reject(err); else resolve([results]); }
+            );
+        });
+
+        if (!rows || rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Token no encontrado' });
+        }
+
+        const { email, vi_validated_at, owner_id } = rows[0];
+
+        // 2. Verificar si el dueño está vinculado a VI
+        const VI_URL = process.env.VI_URL || 'http://validacion-identidad-app-1:3000';
+        const VI_API_KEY = process.env.INTERNAL_API_KEY || '';
+        let ownerVinculado = false;
+
+        try {
+            const checkUrl = new URL(`${VI_URL}/validacion/api/firmalegal/check-vinculacion`);
+            const transport = checkUrl.protocol === 'https:' ? require('https') : require('http');
+            const checkResult = await new Promise((resolve) => {
+                const r = transport.request({
+                    hostname: checkUrl.hostname,
+                    port: checkUrl.port || 80,
+                    path: `${checkUrl.pathname}?firmalegal_user_id=${owner_id}`,
+                    method: 'GET',
+                    headers: { 'X-Internal-Api-Key': VI_API_KEY }
+                }, (resp) => {
+                    let data = '';
+                    resp.on('data', d => data += d);
+                    resp.on('end', () => {
+                        try { resolve(JSON.parse(data)); } catch { resolve({}); }
+                    });
+                });
+                r.on('error', () => resolve({}));
+                r.end();
+            });
+            ownerVinculado = checkResult.vinculado === true;
+        } catch (_) { ownerVinculado = false; }
+
+        return res.json({
+            success: true,
+            validated: !!vi_validated_at,
+            vi_validated_at: vi_validated_at || null,
+            ownerVinculado,
+            email
+        });
+
+    } catch (error) {
+        console.error('❌ [VI-STATUS] Error:', error);
+        res.status(500).json({ success: false, message: 'Error interno' });
+    }
+});
+
+// GET /api/public/vi-callback
+// VI redirige aquí tras una validación exitosa del firmante.
+// Marca vi_validated_at en la BD y redirige a public-sign.html
+app.get('/api/public/vi-callback', async (req, res) => {
+    const { token, vi_session } = req.query;
+    if (!token) return res.redirect('/');
+
+    try {
+        // Verificar que el token existe
+        const [rows] = await new Promise((resolve, reject) => {
+            db.query(
+                'SELECT recipient_id FROM document_recipients WHERE token = ?',
+                [token],
+                (err, results) => { if (err) reject(err); else resolve([results]); }
+            );
+        });
+
+        if (!rows || rows.length === 0) {
+            return res.redirect(`/public-sign.html?token=${token}`);
+        }
+
+        // Marcar como validado
+        await new Promise((resolve, reject) => {
+            db.query(
+                'UPDATE document_recipients SET vi_validated_at = NOW() WHERE token = ?',
+                [token],
+                (err, results) => { if (err) reject(err); else resolve(results); }
+            );
+        });
+
+        console.log(`✅ [VI-CALLBACK] Identidad validada para token=${token.substring(0, 8)}...`);
+        // Redirigir al firmante de vuelta a la firma con indicador de éxito
+        return res.redirect(`/public-sign.html?token=${token}&vi_ok=1`);
+
+    } catch (error) {
+        console.error('❌ [VI-CALLBACK] Error:', error);
+        return res.redirect(`/public-sign.html?token=${token}`);
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 // GET /api/public/document/:token - Obtener información del documento por token
 app.get('/api/public/document/:token', async (req, res) => {
     const { token } = req.params;
@@ -2566,6 +2736,7 @@ app.get('/api/public/document/:token', async (req, res) => {
             sentAt: recipient.sent_at,
             openedAt: recipient.opened_at,
             status: recipient.status,
+            viValidatedAt: recipient.vi_validated_at || null,
             hasPersonalizedPdf: hasCustomPdf,
             fields: fields || []
         };
