@@ -338,7 +338,7 @@
       }
       .canvas-wrap {
         max-width: 100%;
-        overflow: hidden;
+        overflow: visible;
       }
       .pdf-page-canvas {
         max-width: 100%;
@@ -989,12 +989,18 @@ async function loadPDF(pdfPath) {
     container.innerHTML = '';
     allPages = []; // ✅ Limpiar array de páginas
 
-    // ✅ Configuración igual a sign.js
-    const baseScale = 1.4;
+    // ✅ Configuración igual a sign.js (responsive en móvil)
     const dpr = window.devicePixelRatio || 1;
+    // Usar el ancho real del panel PDF (main.panel > pagesContainer)
+    const panelEl = container.closest('main') || container.parentElement;
+    const containerWidth = (panelEl ? panelEl.clientWidth : 0) || container.clientWidth || window.innerWidth;
 
     for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
       const page = await pdfDoc.getPage(pageNum);
+      // Calcular escala para que el PDF quepa en el ancho disponible en móvil
+      const naturalViewport = page.getViewport({ scale: 1 });
+      const maxWidth = Math.min(containerWidth - 16, 900);
+      const baseScale = Math.min(1.4, maxWidth / naturalViewport.width);
       const viewport = page.getViewport({ scale: baseScale });
 
       // ✅ Crear wrapper para la página con position relative (igual a sign.js)
@@ -1148,16 +1154,19 @@ function loadExistingFields(existingFields) {
 
     // Convertir campos del servidor al formato interno y renderizar
     // ✅ IMPORTANTE: Los campos vienen en coordenadas PDF reales, necesitamos convertirlas a viewport escalado
-    const VIEWPORT_SCALE = 1.4; // Debe coincidir con baseScale
-    
+    // Usar el scale real de cada página (puede diferir de 1.4 en móvil)
+
     interactiveFields.forEach((field, index) => {
       const hasPrefilledValue = field.value && field.value.trim() !== '';
+      const pageNum = field.page || 1;
+      const pageData = allPages.find(p => p.pageNum === pageNum);
+      const VIEWPORT_SCALE = pageData ? pageData.scale : 1.4;
 
       const fieldData = {
         id: `field-${Date.now()}-${index}`,
         field_id: field.field_id, // ✅ Guardar el field_id de la base de datos
         type: field.type,
-        page: field.page || 1,
+        page: pageNum,
         // Convertir de coordenadas PDF (reales) a coordenadas viewport (escaladas)
         x: parseFloat(field.x) * VIEWPORT_SCALE,
         y: parseFloat(field.y) * VIEWPORT_SCALE,

@@ -1580,13 +1580,13 @@ router.post('/:id/send', requireAuth, async (req, res) => {
         const VI_API_KEY = process.env.INTERNAL_API_KEY || '';
         let ownerVinculadoVI = false;
         try {
-            const checkUrl = new URL(`${VI_URL}/validacion/api/firmalegal/check-vinculacion`);
+            const checkUrl = new URL(`${VI_URL}/validacion/api/firmalegal/check-vinculacion/${req.userId}`);
             const transport = checkUrl.protocol === 'https:' ? require('https') : require('http');
             const checkResult = await new Promise((resolve) => {
                 const r = transport.request({
                     hostname: checkUrl.hostname,
                     port: checkUrl.port || 80,
-                    path: `${checkUrl.pathname}?firmalegal_user_id=${req.userId}`,
+                    path: checkUrl.pathname,
                     method: 'GET',
                     headers: { 'X-Internal-Api-Key': VI_API_KEY }
                 }, (resp) => {

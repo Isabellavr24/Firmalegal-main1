@@ -601,8 +601,8 @@
   <!-- Toast Container -->
   <div class="toast-container"></div>
 
-  <!-- Modal de Confirmación -->
-  <div id="confirmModal" class="modal" style="display:none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); z-index: 10002; align-items: center; justify-content: center;" aria-hidden="true">
+  <!-- Modal de Confirmación (envío masivo) -->
+  <div id="bulkConfirmModal" class="modal" style="display:none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); z-index: 10002; align-items: center; justify-content: center;" aria-hidden="true">
     <div class="modal-content" style="max-width: 450px; width: 90%; margin: 0; z-index: 10003; position: relative; animation: slideDown 0.3s ease;">
       <div class="modal-header" style="border-bottom: 1px solid #e5e7eb; padding-bottom: 16px;">
         <h3 style="font-size: 1.25rem; font-weight: 600; color: #111827; margin: 0;">Confirmar envío</h3>
@@ -659,15 +659,33 @@
     // MODAL DE CONFIRMACIÓN
     // =============================================
 
-    function showConfirmModal(message) {
+    // Global close function — must be defined outside Promise so onclick works
+    let _confirmModalResolve = null;
+
+    window.closeConfirmModal = function() {
+      const modal = document.getElementById('bulkConfirmModal');
+      if (modal) {
+        modal.style.display = 'none';
+        modal.setAttribute('aria-hidden', 'true');
+      }
+      if (_confirmModalResolve) {
+        _confirmModalResolve(false);
+        _confirmModalResolve = null;
+      }
+    };
+
+    function showBulkConfirmModal(message) {
       return new Promise((resolve) => {
-        const modal = document.getElementById('confirmModal');
+        const modal = document.getElementById('bulkConfirmModal');
         const messageEl = document.getElementById('confirmMessage');
         const confirmBtn = document.getElementById('confirmButton');
 
         messageEl.textContent = message;
         modal.style.display = 'flex';
         modal.setAttribute('aria-hidden', 'false');
+
+        // Store resolve so closeConfirmModal can call it
+        _confirmModalResolve = resolve;
 
         // Cleanup previous listeners by cloning
         const newConfirmBtn = confirmBtn.cloneNode(true);
@@ -680,15 +698,9 @@
         newConfirmBtn.addEventListener('click', () => {
           modal.style.display = 'none';
           modal.setAttribute('aria-hidden', 'true');
+          _confirmModalResolve = null;
           resolve(true);
         });
-
-        // Close function
-        window.closeConfirmModal = () => {
-          modal.style.display = 'none';
-          modal.setAttribute('aria-hidden', 'true');
-          resolve(false);
-        };
       });
     }
 
@@ -923,7 +935,7 @@
       }
 
       // Mostrar modal de confirmación
-      const confirmed = await showConfirmModal(`¿Estás seguro de enviar el documento a ${window.bulkRecipients.length} destinatarios?`);
+      const confirmed = await showBulkConfirmModal(`¿Estás seguro de enviar el documento a ${window.bulkRecipients.length} destinatarios?`);
       if (!confirmed) {
         return;
       }

@@ -1238,6 +1238,38 @@ app.post('/api/integration/vi-skip', async (req, res) => {
     }
 });
 
+// GET /api/integration/vi-link-status
+// Consulta si el usuario autenticado está vinculado a VI y devuelve el email de la cuenta VI vinculada
+app.get('/api/integration/vi-link-status', requireAuth, async (req, res) => {
+    const VI_URL = process.env.VI_URL || 'http://validacion-identidad-app-1:3000';
+    const VI_API_KEY = process.env.INTERNAL_API_KEY || '';
+    try {
+        const checkUrl = new URL(`${VI_URL}/validacion/api/firmalegal/check-vinculacion/${req.userId}`);
+        const transport = checkUrl.protocol === 'https:' ? require('https') : require('http');
+        const result = await new Promise((resolve) => {
+            const r = transport.request({
+                hostname: checkUrl.hostname,
+                port: checkUrl.port || 80,
+                path: checkUrl.pathname,
+                method: 'GET',
+                headers: { 'X-Internal-Api-Key': VI_API_KEY }
+            }, (resp) => {
+                let data = '';
+                resp.on('data', d => data += d);
+                resp.on('end', () => { try { resolve(JSON.parse(data)); } catch { resolve({}); } });
+            });
+            r.on('error', () => resolve({}));
+            r.end();
+        });
+        return res.json({
+            vinculado: result.vinculado === true,
+            validacion_user_id: result.validacion_user_id || null
+        });
+    } catch (err) {
+        return res.json({ vinculado: false, validacion_user_id: null });
+    }
+});
+
 // Endpoint para que un usuario solicite vinculación con Validación de Identidad
 // Envía un email a firmalegalonline@pkiservices.co para que el admin gestione la vinculación
 app.post('/api/integration/request-link', async (req, res) => {
@@ -2314,13 +2346,13 @@ app.get('/api/public/vi-status/:token', async (req, res) => {
         let ownerVinculado = false;
 
         try {
-            const checkUrl = new URL(`${VI_URL}/validacion/api/firmalegal/check-vinculacion`);
+            const checkUrl = new URL(`${VI_URL}/validacion/api/firmalegal/check-vinculacion/${owner_id}`);
             const transport = checkUrl.protocol === 'https:' ? require('https') : require('http');
             const checkResult = await new Promise((resolve) => {
                 const r = transport.request({
                     hostname: checkUrl.hostname,
                     port: checkUrl.port || 80,
-                    path: `${checkUrl.pathname}?firmalegal_user_id=${owner_id}`,
+                    path: checkUrl.pathname,
                     method: 'GET',
                     headers: { 'X-Internal-Api-Key': VI_API_KEY }
                 }, (resp) => {
@@ -2427,7 +2459,7 @@ async function insertarTrazabilidadVI(validacionId, documentFilePath, recipientT
     const VI_API_KEY = process.env.INTERNAL_API_KEY || '';
 
     // Descargar trazabilidad PDF de VI
-    const trazaUrl = new URL(`${VI_URL}/validacion/api/validaciones/${validacionId}/trazabilidad-pdf`);
+    const trazaUrl = new URL(`${VI_URL}/validacion/api/validaciones/${validacionId}/traza-pdf`);
     const transport = trazaUrl.protocol === 'https:' ? require('https') : require('http');
 
     const trazaBytes = await new Promise((resolve, reject) => {
@@ -4674,6 +4706,7 @@ app.get('/api/public/verify/:token', async (req, res) => {
 
         // Obtener fechas
         const fechaCreacion = new Date(document.created_at).toLocaleString('es-CO', {
+            timeZone: 'America/Bogota',
             year: 'numeric',
             month: '2-digit',
             day: '2-digit',
@@ -4690,6 +4723,7 @@ app.get('/api/public/verify/:token', async (req, res) => {
                 return new Date(current.completed_at) > new Date(latest.completed_at) ? current : latest;
             });
             fechaFirma = new Date(latestSignature.completed_at).toLocaleString('es-CO', {
+                timeZone: 'America/Bogota',
                 year: 'numeric',
                 month: '2-digit',
                 day: '2-digit',

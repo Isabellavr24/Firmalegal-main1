@@ -384,6 +384,30 @@ function setupViLinkButton() {
     const okBtn = document.getElementById('vi-confirm-ok');
     if (!btn || !modal) return;
 
+    // Consultar estado de vinculación al cargar
+    (async () => {
+        try {
+            const resp = await fetch('/api/integration/vi-link-status', { credentials: 'include' });
+            const data = await resp.json();
+            const statusEl = document.getElementById('vi-link-status');
+            if (data.vinculado) {
+                // Mostrar badge de vinculado y ocultar botón de solicitud
+                if (statusEl) {
+                    statusEl.style.display = 'block';
+                    statusEl.style.background = '#e8f5e9';
+                    statusEl.style.color = '#1b5e20';
+                    statusEl.style.border = '1px solid #a5d6a7';
+                    statusEl.style.borderRadius = '8px';
+                    statusEl.style.padding = '12px 16px';
+                    statusEl.style.fontSize = '14px';
+                    statusEl.innerHTML = `<strong style="font-size:15px;">✓ Cuenta vinculada con Validación de Identidad</strong><br>
+                        <span style="color:#2e7d32;font-size:13px;">Tu cuenta FirmaLegal está activa y conectada al sistema biométrico de PKI Services. Puedes iniciar procesos de firma con validación de identidad.</span>`;
+                }
+                btn.style.display = 'none';
+            }
+        } catch (_) { /* silenciar — si falla, se muestra el botón normal */ }
+    })();
+
     // Abrir modal al pulsar el botón
     btn.addEventListener('click', () => {
         modal.style.display = 'flex';
