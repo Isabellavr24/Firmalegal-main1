@@ -2871,7 +2871,7 @@ async function handleViStart(recipient) {
     // El redirect_token es el token de firma del firmante para que VI construya el redirect_url correcto.
     const documentTitle = document.querySelector('.document-title')?.textContent?.trim()
       || window.documentTitle || 'Documento para firma';
-    const VI_BASE = 'https://firmalegalonline.com/vi/desktop/crear-validacion.html';
+    const VI_BASE = '/validacion/desktop/crear-validacion.html';
     const params = new URLSearchParams({
       asunto: documentTitle,
       email: recipient.email,
