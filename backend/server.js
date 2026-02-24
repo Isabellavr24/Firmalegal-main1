@@ -2267,45 +2267,127 @@ app.get('/api/public/vi-status/:token', async (req, res) => {
     }
 });
 
-// GET /api/public/vi-callback
-// VI redirige aquí tras una validación exitosa del firmante.
-// Marca vi_validated_at en la BD y redirige a public-sign.html
-app.get('/api/public/vi-callback', async (req, res) => {
-    const { token, vi_session } = req.query;
-    if (!token) return res.redirect('/');
+// POST /api/public/vi-callback
+// Llamado server-to-server por VI cuando la validación es exitosa (fire-and-forget).
+// Marca vi_validated_at y descarga + inserta la trazabilidad al PDF del documento.
+app.post('/api/public/vi-callback', async (req, res) => {
+    const { token } = req.query;
+    const { vi_ok, validacion_id } = req.body || {};
+    if (!token) return res.status(400).json({ ok: false });
+
+    // Responder inmediatamente a VI (fire-and-forget — no bloquear)
+    res.json({ ok: true });
+
+    if (!vi_ok) return;
 
     try {
-        // Verificar que el token existe
-        const [rows] = await new Promise((resolve, reject) => {
+        // 1. Obtener datos del recipient y documento
+        const rows = await new Promise((resolve, reject) => {
             db.query(
-                'SELECT recipient_id FROM document_recipients WHERE token = ?',
-                [token],
-                (err, results) => { if (err) reject(err); else resolve([results]); }
-            );
-        });
-
-        if (!rows || rows.length === 0) {
-            return res.redirect(`/public-sign.html?token=${token}`);
-        }
-
-        // Marcar como validado
-        await new Promise((resolve, reject) => {
-            db.query(
-                'UPDATE document_recipients SET vi_validated_at = NOW() WHERE token = ?',
+                `SELECT dr.recipient_id, dr.document_id, dr.vi_validated_at,
+                        d.file_path, d.title
+                 FROM document_recipients dr
+                 INNER JOIN documents d ON dr.document_id = d.document_id
+                 WHERE dr.token = ?`,
                 [token],
                 (err, results) => { if (err) reject(err); else resolve(results); }
             );
         });
 
-        console.log(`✅ [VI-CALLBACK] Identidad validada para token=${token.substring(0, 8)}...`);
-        // Redirigir al firmante de vuelta a la firma con indicador de éxito
-        return res.redirect(`/public-sign.html?token=${token}&vi_ok=1`);
+        if (!rows || rows.length === 0) {
+            console.warn(`⚠️ [VI-CALLBACK] Token no encontrado: ${token.substring(0, 8)}...`);
+            return;
+        }
+
+        const recipient = rows[0];
+
+        // 2. Marcar vi_validated_at
+        await new Promise((resolve, reject) => {
+            db.query(
+                'UPDATE document_recipients SET vi_validated_at = NOW() WHERE token = ?',
+                [token],
+                (err) => { if (err) reject(err); else resolve(); }
+            );
+        });
+        console.log(`✅ [VI-CALLBACK] vi_validated_at marcado para token=${token.substring(0, 8)}...`);
+
+        // 3. Descargar e insertar trazabilidad VI al PDF del documento
+        if (validacion_id && recipient.file_path) {
+            try {
+                await insertarTrazabilidadVI(validacion_id, recipient.file_path, token);
+            } catch (e) {
+                console.error('⚠️ [VI-CALLBACK] Error insertando trazabilidad (no crítico):', e.message);
+            }
+        }
 
     } catch (error) {
-        console.error('❌ [VI-CALLBACK] Error:', error);
-        return res.redirect(`/public-sign.html?token=${token}`);
+        console.error('❌ [VI-CALLBACK POST] Error:', error.message);
     }
 });
+
+// GET /api/public/vi-callback
+// El browser del firmante llega aquí tras completar la validación en VI.
+// Solo redirige a public-sign.html para que el firmante pueda firmar.
+app.get('/api/public/vi-callback', async (req, res) => {
+    const { token } = req.query;
+    if (!token) return res.redirect('/');
+    return res.redirect(`/public-sign.html?token=${token}&vi_ok=1`);
+});
+
+// ── Helper: descargar trazabilidad de VI e insertarla al final del PDF ──────
+async function insertarTrazabilidadVI(validacionId, documentFilePath, recipientToken) {
+    const { PDFDocument } = require('pdf-lib');
+    const fs = require('fs');
+    const path = require('path');
+    const { resolveFromRoot } = require('./config/paths');
+    const VI_URL = process.env.VI_URL || 'http://validacion-identidad-app-1:3000';
+    const VI_API_KEY = process.env.INTERNAL_API_KEY || '';
+
+    // Descargar trazabilidad PDF de VI
+    const trazaUrl = new URL(`${VI_URL}/validacion/api/validaciones/${validacionId}/trazabilidad-pdf`);
+    const transport = trazaUrl.protocol === 'https:' ? require('https') : require('http');
+
+    const trazaBytes = await new Promise((resolve, reject) => {
+        const chunks = [];
+        const r = transport.request({
+            hostname: trazaUrl.hostname,
+            port: trazaUrl.port || 80,
+            path: trazaUrl.pathname,
+            method: 'GET',
+            headers: { 'X-Internal-Api-Key': VI_API_KEY }
+        }, (resp) => {
+            if (resp.statusCode !== 200) {
+                reject(new Error(`VI trazabilidad HTTP ${resp.statusCode}`));
+                return;
+            }
+            resp.on('data', d => chunks.push(d));
+            resp.on('end', () => resolve(Buffer.concat(chunks)));
+        });
+        r.on('error', reject);
+        r.end();
+    });
+
+    // Resolver ruta del documento original
+    const cleanPath = documentFilePath.replace(/^\/+/, '');
+    const docPath = resolveFromRoot(cleanPath);
+
+    if (!fs.existsSync(docPath)) {
+        throw new Error(`Documento no encontrado: ${docPath}`);
+    }
+
+    // Cargar ambos PDFs y fusionar
+    const docPdf = await PDFDocument.load(fs.readFileSync(docPath));
+    const trazaPdf = await PDFDocument.load(trazaBytes);
+
+    const trazaPageIndices = trazaPdf.getPageIndices();
+    const copiedPages = await docPdf.copyPages(trazaPdf, trazaPageIndices);
+    copiedPages.forEach(p => docPdf.addPage(p));
+
+    const mergedBytes = await docPdf.save();
+    fs.writeFileSync(docPath, mergedBytes);
+
+    console.log(`✅ [VI-TRAZA] Trazabilidad VI insertada en ${path.basename(docPath)} (${trazaPageIndices.length} pág.)`);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 

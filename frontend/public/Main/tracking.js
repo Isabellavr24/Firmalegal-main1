@@ -2852,41 +2852,33 @@ function toggleAuditButton() {
 // ── INTEGRACIÓN VALIDACIÓN DE IDENTIDAD (FASE 2) ─────────────────────────────
 
 async function handleViStart(recipient) {
-  const user = JSON.parse(localStorage.getItem('currentUser') || localStorage.getItem('user') || '{}');
-  const ownerId = user.user_id || user.id;
-  const documentTitle = document.querySelector('.document-title')?.textContent?.trim()
-    || window.documentTitle || 'Documento para firma';
-
-  // Mostrar loading en el botón
   const card = document.querySelector(`[data-recipient-id="${recipient.id}"]`);
   const startBtn = card?.querySelector('.vi-start-btn');
   if (startBtn) { startBtn.disabled = true; startBtn.textContent = 'Verificando...'; }
 
   try {
-    // Llamar al backend para obtener la URL de VI
-    const resp = await fetch('/api/integration/vi-iniciar', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({
-        owner_user_id: ownerId,
-        signer_email: recipient.email,
-        signer_name: recipient.name || recipient.email,
-        document_title: documentTitle,
-        firma_token: recipient.token
-      })
-    });
+    // Verificar si el owner está vinculado a VI
+    const resp = await fetch(`/api/public/vi-status/${recipient.token}`, { credentials: 'include' });
     const data = await resp.json();
 
-    if (data.success && data.validacion_url) {
-      // Abrir VI en nueva pestaña
-      window.open(data.validacion_url, '_blank');
-    } else if (data.needsVinculacion) {
-      // El owner no está vinculado → mostrar modal de solicitud
+    if (!data.ownerVinculado) {
       showViSolicitudModal();
-    } else {
-      showTrackingToast(data.message || 'No se pudo iniciar la validación', 'error');
+      return;
     }
+
+    // Redirigir al operador a VI para crear la solicitud de validación manualmente.
+    // El formulario se pre-llenará con asunto (título del documento) y email del firmante.
+    // El redirect_token es el token de firma del firmante para que VI construya el redirect_url correcto.
+    const documentTitle = document.querySelector('.document-title')?.textContent?.trim()
+      || window.documentTitle || 'Documento para firma';
+    const VI_BASE = 'https://firmalegalonline.com/vi/desktop/crear-validacion.html';
+    const params = new URLSearchParams({
+      asunto: documentTitle,
+      email: recipient.email,
+      redirect_token: recipient.token
+    });
+    window.open(`${VI_BASE}?${params.toString()}`, '_blank');
+
   } catch (err) {
     console.error('Error iniciando VI:', err);
     showTrackingToast('Error de conexión al iniciar validación', 'error');

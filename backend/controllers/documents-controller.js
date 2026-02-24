@@ -1575,7 +1575,33 @@ router.post('/:id/send', requireAuth, async (req, res) => {
         // Configurar SendGrid temporalmente para este envío
         sendgrid.configureSendGrid(apiKeyResults[0].sendgrid_api_key);
 
-        // 5. Insertar destinatarios y generar tokens
+        // 5. Verificar si el owner está vinculado a VI (solo una vez, aplica a todos los destinatarios)
+        const VI_URL = process.env.VI_URL || 'http://validacion-identidad-app-1:3000';
+        const VI_API_KEY = process.env.INTERNAL_API_KEY || '';
+        let ownerVinculadoVI = false;
+        try {
+            const checkUrl = new URL(`${VI_URL}/validacion/api/firmalegal/check-vinculacion`);
+            const transport = checkUrl.protocol === 'https:' ? require('https') : require('http');
+            const checkResult = await new Promise((resolve) => {
+                const r = transport.request({
+                    hostname: checkUrl.hostname,
+                    port: checkUrl.port || 80,
+                    path: `${checkUrl.pathname}?firmalegal_user_id=${req.userId}`,
+                    method: 'GET',
+                    headers: { 'X-Internal-Api-Key': VI_API_KEY }
+                }, (resp) => {
+                    let data = '';
+                    resp.on('data', d => data += d);
+                    resp.on('end', () => { try { resolve(JSON.parse(data)); } catch { resolve({}); } });
+                });
+                r.on('error', () => resolve({}));
+                r.end();
+            });
+            ownerVinculadoVI = checkResult.vinculado === true;
+        } catch (_) { ownerVinculadoVI = false; }
+        console.log(`   🔐 Owner vinculado a VI: ${ownerVinculadoVI}`);
+
+        // 6. Insertar destinatarios y generar tokens
         const insertedRecipients = [];
         const emailsToSend = [];
 
@@ -1648,6 +1674,35 @@ router.post('/:id/send', requireAuth, async (req, res) => {
                 roleId,
                 signingOrder
             });
+
+            // Si el owner está vinculado a VI, verificar si este email fue validado (máx 1 año)
+            if (ownerVinculadoVI) {
+                const oneYearAgo = new Date();
+                oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+                const viCheck = await new Promise((resolve, reject) => {
+                    db.query(
+                        `SELECT vi_validated_at FROM document_recipients
+                         WHERE email = ? AND vi_validated_at IS NOT NULL AND vi_validated_at >= ?
+                         ORDER BY vi_validated_at DESC LIMIT 1`,
+                        [recipient.email, oneYearAgo],
+                        (err, rows) => { if (err) reject(err); else resolve(rows); }
+                    );
+                });
+                if (viCheck.length === 0) {
+                    // Email NO validado en VI — no enviar email de firma, el operador verá el botón en tracking
+                    console.log(`   🔐 [VI] ${recipient.email} no validado — omitiendo email de firma`);
+                    continue;
+                }
+                // Email validado en VI — copiar vi_validated_at al nuevo recipient
+                await new Promise((resolve, reject) => {
+                    db.query(
+                        'UPDATE document_recipients SET vi_validated_at = ? WHERE recipient_id = ?',
+                        [viCheck[0].vi_validated_at, result.insertId],
+                        (err) => { if (err) reject(err); else resolve(); }
+                    );
+                });
+                console.log(`   ✅ [VI] ${recipient.email} validado — enviando email de firma`);
+            }
 
             // Preparar email
             const signatureUrl = `${req.protocol}://${req.get('host')}/public-sign.html?token=${token}`;
@@ -1872,8 +1927,8 @@ router.get('/:id/recipients', requireAuth, async (req, res) => {
         // Obtener destinatarios
         const recipients = await new Promise((resolve, reject) => {
             db.query(
-                `SELECT recipient_id as id, email, name, token, status, 
-                        sent_at, opened_at, completed_at, rejected_at
+                `SELECT recipient_id as id, email, name, token, status,
+                        sent_at, opened_at, completed_at, rejected_at, vi_validated_at
                  FROM document_recipients
                  WHERE document_id = ?
                  ORDER BY sent_at DESC`,
