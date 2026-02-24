@@ -182,11 +182,11 @@ function createRecipientCard(recipient) {
 
   // Botones a la derecha: VI cuando no verificado, normales cuando sí
   const actionsHtml = showViBlock
-    ? `<div class="recipient-actions" style="flex-direction:column;align-items:flex-end;gap:6px;min-width:160px;">
-         <button class="vi-start-btn recipient-btn" style="padding:8px 12px;background:#2a0d31;color:#fff;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:0.4px;white-space:nowrap;width:100%;">
-           INICIAR VALIDACIÓN
+    ? `<div class="recipient-actions" style="flex-direction:column;align-items:center;gap:8px;min-width:220px;">
+         <button class="vi-start-btn recipient-btn" style="padding:13px 20px;background:#2a0d31;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:0.5px;width:100%;text-align:center;">
+           INICIAR VALIDACIÓN DE IDENTIDAD
          </button>
-         <button class="vi-skip-btn" style="background:none;border:none;color:#aaa;font-size:11px;cursor:pointer;padding:0;text-decoration:underline;white-space:nowrap;text-align:right;width:100%;">
+         <button class="vi-skip-btn" style="background:none;border:none;color:#888;font-size:12px;cursor:pointer;padding:0;text-decoration:underline;width:100%;text-align:center;">
            omitir y enviar correo
          </button>
        </div>`
