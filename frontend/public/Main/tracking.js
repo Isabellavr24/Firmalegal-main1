@@ -170,48 +170,46 @@ function createRecipientCard(recipient) {
        </div>`
     : '';
 
-  const viBlock = showViBlock
-    ? `<div class="vi-validation-block" style="margin-top:12px;border-top:1px solid #f0f0f0;padding-top:12px;">
-         <p style="font-size:12px;font-weight:700;color:#c0392b;margin:0 0 6px;">Identidad no verificada — correo en espera</p>
-         <button class="vi-start-btn" style="width:100%;padding:9px 14px;background:#2a0d31;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:0.5px;margin-bottom:6px;">
-           INICIAR VALIDACIÓN DE IDENTIDAD
-         </button>
-         <div style="text-align:center;">
-           <button class="vi-skip-btn" style="background:none;border:none;color:#999;font-size:11px;cursor:pointer;padding:0;text-decoration:underline;">
-             omitir validación y enviar correo
-           </button>
-         </div>
-       </div>`
-    : viValidatedBadge;
-
-  // Cuando no está verificado, ocultar los botones de acción (COPIAR/VISTA/DESCARGAR)
-  const showActions = !showViBlock;
-  const actionsHtml = showActions ? `
-    <div class="recipient-actions">
-      <button class="recipient-btn copy" data-action="copy" data-id="${recipient.id}" data-token="${recipient.token || ''}" title="Copiar enlace de firma">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-        </svg>
-        COPIAR
-      </button>
-      <button class="recipient-btn view" data-action="view" data-id="${recipient.id}" data-status="${recipient.status || 'pending'}">
-        VISTA
-      </button>
-      <button class="recipient-btn download" data-action="download" data-id="${recipient.id}">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-          <polyline points="7 10 12 15 17 10"/>
-          <line x1="12" y1="15" x2="12" y2="3"/>
-        </svg>
-        DESCARGAR
-      </button>
-    </div>` : '';
-
-  // Cuando no está verificado, mostrar badge "NO VERIFICADO" en lugar del status normal
+  // Badge de estado
   const badgeHtml = showViBlock
     ? `<div class="status-badge" style="background:#fdecea;color:#c0392b;border:1px solid #f5c6cb;">NO VERIFICADO</div>`
     : `<div class="status-badge ${statusClass}">${statusText}</div>`;
+
+  // Texto informativo bajo el email cuando no verificado
+  const viInfoText = showViBlock
+    ? `<p style="font-size:11px;color:#c0392b;margin:3px 0 0;font-weight:600;">Identidad no verificada — correo en espera</p>`
+    : viValidatedBadge;
+
+  // Botones a la derecha: VI cuando no verificado, normales cuando sí
+  const actionsHtml = showViBlock
+    ? `<div class="recipient-actions" style="flex-direction:column;align-items:flex-end;gap:6px;min-width:160px;">
+         <button class="vi-start-btn recipient-btn" style="padding:8px 12px;background:#2a0d31;color:#fff;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:0.4px;white-space:nowrap;width:100%;">
+           INICIAR VALIDACIÓN
+         </button>
+         <button class="vi-skip-btn" style="background:none;border:none;color:#aaa;font-size:11px;cursor:pointer;padding:0;text-decoration:underline;white-space:nowrap;text-align:right;width:100%;">
+           omitir y enviar correo
+         </button>
+       </div>`
+    : `<div class="recipient-actions">
+         <button class="recipient-btn copy" data-action="copy" data-id="${recipient.id}" data-token="${recipient.token || ''}" title="Copiar enlace de firma">
+           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+             <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+           </svg>
+           COPIAR
+         </button>
+         <button class="recipient-btn view" data-action="view" data-id="${recipient.id}" data-status="${recipient.status || 'pending'}">
+           VISTA
+         </button>
+         <button class="recipient-btn download" data-action="download" data-id="${recipient.id}">
+           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+             <polyline points="7 10 12 15 17 10"/>
+             <line x1="12" y1="15" x2="12" y2="3"/>
+           </svg>
+           DESCARGAR
+         </button>
+       </div>`;
 
   card.innerHTML = `
     <div class="recipient-info" style="flex:1;">
@@ -219,7 +217,7 @@ function createRecipientCard(recipient) {
       <div class="recipient-emails">
         <p class="recipient-email">${displayEmail}</p>
         ${recipient.name && recipient.name !== recipient.email ? `<p class="recipient-name" style="font-size: 12px; color: #666; margin-top: 4px;">${recipient.name}</p>` : ''}
-        ${viBlock}
+        ${viInfoText}
       </div>
     </div>
     ${actionsHtml}
