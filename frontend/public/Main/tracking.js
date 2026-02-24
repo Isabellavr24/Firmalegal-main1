@@ -161,6 +161,7 @@ function createRecipientCard(recipient) {
   const displayEmail = recipient.email;
 
   // Bloque de Validación de Identidad
+  // Mostrar bloque VI cuando: no completado/rechazado Y no tiene vi_validated_at
   const showViBlock = recipient.status !== 'completed' && recipient.status !== 'rejected' && !recipient.vi_validated_at;
   const viValidatedBadge = recipient.vi_validated_at
     ? `<div style="margin-top:10px;display:flex;align-items:center;gap:6px;font-size:12px;color:#2b9348;font-weight:600;">
@@ -171,29 +172,21 @@ function createRecipientCard(recipient) {
 
   const viBlock = showViBlock
     ? `<div class="vi-validation-block" style="margin-top:12px;border-top:1px solid #f0f0f0;padding-top:12px;">
-         <p style="font-size:12px;font-weight:700;color:#2a0d31;margin:0 0 6px;">Este correo no ha sido validado</p>
+         <p style="font-size:12px;font-weight:700;color:#c0392b;margin:0 0 6px;">Identidad no verificada — correo en espera</p>
          <button class="vi-start-btn" style="width:100%;padding:9px 14px;background:#2a0d31;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:0.5px;margin-bottom:6px;">
            INICIAR VALIDACIÓN DE IDENTIDAD
          </button>
          <div style="text-align:center;">
            <button class="vi-skip-btn" style="background:none;border:none;color:#999;font-size:11px;cursor:pointer;padding:0;text-decoration:underline;">
-             omitir validación
+             omitir validación y enviar correo
            </button>
          </div>
        </div>`
     : viValidatedBadge;
 
-  card.innerHTML = `
-    <div class="recipient-info" style="flex:1;">
-      <div class="status-badge ${statusClass}">
-        ${statusText}
-      </div>
-      <div class="recipient-emails">
-        <p class="recipient-email">${displayEmail}</p>
-        ${recipient.name && recipient.name !== recipient.email ? `<p class="recipient-name" style="font-size: 12px; color: #666; margin-top: 4px;">${recipient.name}</p>` : ''}
-        ${viBlock}
-      </div>
-    </div>
+  // Cuando no está verificado, ocultar los botones de acción (COPIAR/VISTA/DESCARGAR)
+  const showActions = !showViBlock;
+  const actionsHtml = showActions ? `
     <div class="recipient-actions">
       <button class="recipient-btn copy" data-action="copy" data-id="${recipient.id}" data-token="${recipient.token || ''}" title="Copiar enlace de firma">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -213,16 +206,30 @@ function createRecipientCard(recipient) {
         </svg>
         DESCARGAR
       </button>
+    </div>` : '';
+
+  // Cuando no está verificado, mostrar badge "NO VERIFICADO" en lugar del status normal
+  const badgeHtml = showViBlock
+    ? `<div class="status-badge" style="background:#fdecea;color:#c0392b;border:1px solid #f5c6cb;">NO VERIFICADO</div>`
+    : `<div class="status-badge ${statusClass}">${statusText}</div>`;
+
+  card.innerHTML = `
+    <div class="recipient-info" style="flex:1;">
+      ${badgeHtml}
+      <div class="recipient-emails">
+        <p class="recipient-email">${displayEmail}</p>
+        ${recipient.name && recipient.name !== recipient.email ? `<p class="recipient-name" style="font-size: 12px; color: #666; margin-top: 4px;">${recipient.name}</p>` : ''}
+        ${viBlock}
+      </div>
     </div>
+    ${actionsHtml}
   `;
 
   // Event listeners para botones de VI
   const startBtn = card.querySelector('.vi-start-btn');
   const skipBtn = card.querySelector('.vi-skip-btn');
   if (startBtn) startBtn.addEventListener('click', () => handleViStart(recipient));
-  if (skipBtn) skipBtn.addEventListener('click', () => {
-    card.querySelector('.vi-validation-block').style.display = 'none';
-  });
+  if (skipBtn) skipBtn.addEventListener('click', () => handleViSkip(recipient, card));
 
   return card;
 }
@@ -2884,6 +2891,35 @@ async function handleViStart(recipient) {
     showTrackingToast('Error de conexión al iniciar validación', 'error');
   } finally {
     if (startBtn) { startBtn.disabled = false; startBtn.textContent = 'INICIAR VALIDACIÓN DE IDENTIDAD'; }
+  }
+}
+
+// Omitir validación VI: envía el email de firma directamente al firmante
+async function handleViSkip(recipient, card) {
+  const skipBtn = card.querySelector('.vi-skip-btn');
+  if (skipBtn) { skipBtn.disabled = true; skipBtn.textContent = 'Enviando...'; }
+
+  try {
+    const resp = await fetch(`/api/integration/vi-skip`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ recipient_token: recipient.token })
+    });
+    const data = await resp.json();
+    if (data.success) {
+      showTrackingToast('Correo de firma enviado correctamente', 'success');
+      // Recargar la tarjeta para mostrar estado actualizado
+      const docId = new URLSearchParams(window.location.search).get('id');
+      if (docId) loadRecipients(docId);
+    } else {
+      showTrackingToast(data.message || 'Error al enviar el correo', 'error');
+    }
+  } catch (err) {
+    console.error('Error omitiendo VI:', err);
+    showTrackingToast('Error de conexión', 'error');
+  } finally {
+    if (skipBtn) { skipBtn.disabled = false; skipBtn.textContent = 'omitir validación y enviar correo'; }
   }
 }
 

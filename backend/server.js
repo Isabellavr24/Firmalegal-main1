@@ -1155,6 +1155,89 @@ app.post('/api/integration/vi-iniciar', async (req, res) => {
     }
 });
 
+// POST /api/integration/vi-skip
+// El operador omite la validación VI y envía el email de firma directamente al firmante.
+app.post('/api/integration/vi-skip', async (req, res) => {
+    console.log('\n⏭️ [VI-SKIP] Omitir validación VI y enviar email de firma');
+    const jwt = require('jsonwebtoken');
+    let jwtUser;
+    try {
+        jwtUser = jwt.verify(req.cookies?.auth_token, process.env.JWT_SECRET);
+    } catch {
+        return res.status(401).json({ success: false, message: 'Sesión no encontrada' });
+    }
+
+    const { recipient_token } = req.body;
+    if (!recipient_token) return res.status(400).json({ success: false, message: 'Falta recipient_token' });
+
+    try {
+        // Obtener datos del recipient y documento
+        const rows = await new Promise((resolve, reject) => {
+            db.query(
+                `SELECT dr.recipient_id, dr.email, dr.name, dr.token,
+                        d.document_id, d.title,
+                        u.first_name, u.last_name, u.email as owner_email,
+                        ec.email_from as sender_email, ec.email_from_name as sender_name,
+                        ec.sendgrid_api_key
+                 FROM document_recipients dr
+                 INNER JOIN documents d ON dr.document_id = d.document_id
+                 INNER JOIN users u ON d.owner_id = u.user_id
+                 LEFT JOIN email_config ec ON u.user_id = ec.user_id
+                 WHERE dr.token = ? AND d.owner_id = ?`,
+                [recipient_token, jwtUser.userId || jwtUser.id],
+                (err, results) => { if (err) reject(err); else resolve(results); }
+            );
+        });
+
+        if (!rows || rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Destinatario no encontrado' });
+        }
+
+        const r = rows[0];
+        if (!r.sendgrid_api_key) {
+            return res.status(400).json({ success: false, message: 'Configura SendGrid antes de enviar' });
+        }
+
+        const sendgrid = require('./lib/email/sendgrid');
+        const signatureRequestTemplate = require('./lib/email/templates/signature-request-bulk');
+        sendgrid.configureSendGrid(r.sendgrid_api_key);
+
+        const signatureUrl = `${req.protocol}://${req.get('host')}/public-sign.html?token=${r.token}`;
+        const appUrl = `${req.protocol}://${req.get('host')}`;
+        const senderName = r.sender_name || `${r.first_name} ${r.last_name}`;
+        const fromEmail = r.sender_email || r.owner_email;
+
+        const htmlContent = signatureRequestTemplate({
+            recipientName: r.name || r.email,
+            documentTitle: r.title || 'Documento sin título',
+            senderName,
+            signatureUrl,
+            appUrl
+        });
+
+        const sendResult = await sendgrid.sendBatchEmails([{
+            to: r.email,
+            from: fromEmail,
+            fromName: `${senderName} (FirmaLegal)`,
+            replyTo: fromEmail,
+            subject: `Solicitud de firma: ${r.title || 'Documento'}`,
+            html: htmlContent,
+            text: `Firma tu documento aquí: ${signatureUrl}`
+        }]);
+
+        if (!sendResult.success) {
+            return res.status(500).json({ success: false, message: 'Error al enviar el email' });
+        }
+
+        console.log(`✅ [VI-SKIP] Email de firma enviado a ${r.email}`);
+        res.json({ success: true });
+
+    } catch (error) {
+        console.error('❌ [VI-SKIP] Error:', error.message);
+        res.status(500).json({ success: false, message: 'Error interno' });
+    }
+});
+
 // Endpoint para que un usuario solicite vinculación con Validación de Identidad
 // Envía un email a firmalegalonline@pkiservices.co para que el admin gestione la vinculación
 app.post('/api/integration/request-link', async (req, res) => {
