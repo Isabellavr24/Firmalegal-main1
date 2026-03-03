@@ -4,6 +4,7 @@
 
 // ====== VARIABLES GLOBALES ======
 let currentDocumentType = 'normal'; // ✅ Tipo de documento actual: 'normal' o 'pagare'
+let _viOwnerVinculado = null; // Cache: null=no consultado, true/false
 
 // ====== SISTEMA DE TOASTS ======
 const ToastManager = {
@@ -142,9 +143,259 @@ function renderRecipients(recipients) {
   emptyState.style.display = 'none';
   container.innerHTML = '';
 
-  recipients.forEach(recipient => {
-    const card = createRecipientCard(recipient);
-    container.appendChild(card);
+  // Separar firmante definitivo, viewers de pagaré y recipients normales
+  const finalSigner = recipients.find(r => r.is_final_signer === 1);
+  const viewers = recipients.filter(r => r.viewer_group_id && !r.is_final_signer);
+  const normals = recipients.filter(r => !r.viewer_group_id && !r.is_final_signer);
+
+  // ── Sección normal (documentos sin pagaré) ──
+  normals.forEach(recipient => {
+    container.appendChild(createRecipientCard(recipient));
+  });
+
+  // ── Sección de grupos de pagaré ──
+  if (viewers.length > 0 || finalSigner) {
+    // Agrupar viewers por viewer_group_id
+    const groups = {};
+    viewers.forEach(r => {
+      if (!groups[r.viewer_group_id]) groups[r.viewer_group_id] = [];
+      groups[r.viewer_group_id].push(r);
+    });
+
+    const groupIds = Object.keys(groups).sort((a, b) => parseInt(a) - parseInt(b));
+    const docId = getDocumentDataFromURL().id;
+
+    groupIds.forEach((groupId, idx) => {
+      const groupRecipients = groups[groupId];
+      const groupAllCompleted = groupRecipients.every(r => r.status === 'completed');
+      const finalSignerCompleted = finalSigner && finalSigner.status === 'completed';
+      const pagareFullyComplete = groupAllCompleted && finalSignerCompleted;
+
+      // ── Datos calculados ──────────────────────────────────────────────────
+      const allParticipants = [...groupRecipients, ...(finalSigner ? [finalSigner] : [])];
+      const participantEmails = allParticipants.map(r => r.email).filter(Boolean);
+      // ¿Al menos uno tiene trazabilidad VI embebida en el PDF?
+      const hasViValidation = allParticipants.some(r => r.vi_traza_path);
+
+      // ── Acordeón wrapper ──────────────────────────────────────────────────
+      // Restaurar estado previo si el DOM fue reconstruido por auto-refresh
+      const stateKey = `pagare-accordion-open-${groupId}`;
+      const wasOpen = sessionStorage.getItem(stateKey) === 'true';
+
+      const accordion = document.createElement('div');
+      accordion.style.cssText = `
+        margin: ${idx === 0 ? '16px' : '12px'} 0 0;
+        border: 1px solid #e9d5ff;
+        border-left: 4px solid #7c3aed;
+        border-radius: 10px;
+        overflow: hidden;
+      `;
+
+      // ── Cabecera (clickeable) ─────────────────────────────────────────────
+      const groupHeader = document.createElement('div');
+      groupHeader.style.cssText = `
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 10px 14px;
+        background: linear-gradient(90deg, #f5f3ff 0%, #ede9fe 100%);
+        cursor: pointer; user-select: none;
+      `;
+
+      const chevronId = `chev-pagare-${idx}`;
+      const previewId  = `prev-pagare-${idx}`;
+
+      // Texto resumen visible cuando está cerrado
+      const previewText = pagareFullyComplete
+        ? `Firmas de <em>${participantEmails.join(', ')}</em> · sellado PKI${hasViValidation ? ' · trazabilidad de validación de identidad' : ''}`
+        : `${participantEmails.length} participante${participantEmails.length !== 1 ? 's' : ''}: <em>${participantEmails.join(', ')}</em>`;
+
+      groupHeader.innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:4px;min-width:0;flex:1;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <svg width="18" height="18" viewBox="0 0 100 100" fill="none" stroke="#7c3aed" stroke-width="7">
+              <line x1="50" y1="8" x2="50" y2="85"/>
+              <rect x="28" y="85" width="44" height="8" rx="2" fill="#7c3aed" stroke="none"/>
+              <line x1="12" y1="20" x2="88" y2="20"/>
+              <circle cx="50" cy="20" r="4" fill="#7c3aed" stroke="none"/>
+              <line x1="20" y1="20" x2="16" y2="48"/>
+              <line x1="80" y1="20" x2="84" y2="48"/>
+              <path d="M8 48 Q16 60 24 48" fill="#7c3aed" stroke="none"/>
+              <path d="M76 48 Q84 60 92 48" fill="#7c3aed" stroke="none"/>
+            </svg>
+            <span style="font-weight:700;color:#5b21b6;font-size:14px;">Pagaré #${idx + 1}</span>
+            ${pagareFullyComplete
+              ? `<span style="background:#d1fae5;color:#065f46;border-radius:10px;padding:2px 10px;font-size:11px;font-weight:700;">COMPLETADO</span>`
+              : `<span style="background:#fef3c7;color:#92400e;border-radius:10px;padding:2px 10px;font-size:11px;font-weight:700;">EN PROCESO</span>`
+            }
+          </div>
+          <!-- Preview: visible solo cuando está cerrado -->
+          <div id="${previewId}" style="font-size:11px;color:#6b21a8;padding-left:28px;line-height:1.5;
+               transition:opacity 0.2s ease,max-height 0.25s ease;max-height:40px;opacity:1;overflow:hidden;">
+            ${previewText}
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-shrink:0;padding-left:10px;align-self:center;">
+          ${pagareFullyComplete && docId
+            ? `<button class="pagare-download-complete-btn" data-group-id="${groupId}" data-doc-id="${docId}"
+                 style="display:flex;align-items:center;gap:6px;background:linear-gradient(135deg,#5b21b6,#7c3aed);
+                        color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:12px;
+                        font-weight:700;cursor:pointer;letter-spacing:0.3px;">
+                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                   <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                 </svg>
+                 DESCARGAR PAGARÉ COMPLETO
+               </button>`
+            : ''
+          }
+          <svg id="${chevronId}" width="16" height="16" viewBox="0 0 24 24" fill="none"
+               stroke="#7c3aed" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+               style="flex-shrink:0;transition:transform 0.25s ease;transform:rotate(-90deg);">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </div>
+      `;
+      accordion.appendChild(groupHeader);
+
+      // ── Contenido colapsable ──────────────────────────────────────────────
+      const body = document.createElement('div');
+      body.style.cssText = `
+        padding: ${wasOpen ? '10px 10px 12px' : '0 10px'};
+        background: #fff;
+        overflow: hidden;
+        transition: max-height 0.3s ease, opacity 0.25s ease, padding 0.25s ease;
+        max-height: ${wasOpen ? '2000px' : '0'}; opacity: ${wasOpen ? '1' : '0'};
+      `;
+
+      // Cards de los viewers del grupo
+      groupRecipients.forEach(r => body.appendChild(createRecipientCard(r)));
+
+      // Si el pagaré está completo, firmante definitivo dentro del grupo
+      if (pagareFullyComplete && finalSigner) {
+        const divider = document.createElement('div');
+        divider.style.cssText = 'display:flex;align-items:center;gap:8px;margin:4px 0;padding:0 4px;';
+        divider.innerHTML = `
+          <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+          <span style="font-size:11px;color:#9333ea;font-weight:600;white-space:nowrap;">⚖️ Firmante Definitivo</span>
+          <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+        `;
+        body.appendChild(divider);
+        body.appendChild(createRecipientCard(finalSigner));
+      }
+
+      // Infobox cuando el pagaré está completo (dentro del cuerpo)
+      if (pagareFullyComplete) {
+        const viSuffix = hasViValidation
+          ? ', junto con el sellado PKI y la trazabilidad de validación de identidad de todos los participantes.'
+          : ', junto con el sellado PKI.';
+        const infoBox = document.createElement('div');
+        infoBox.style.cssText = `
+          margin: 6px 0 0; padding: 9px 12px;
+          background: #faf5ff; border: 1px solid #e9d5ff; border-radius: 8px;
+          font-size: 11px; color: #6b21a8; line-height: 1.5;
+          display: flex; align-items: flex-start; gap: 8px;
+        `;
+        infoBox.innerHTML = `
+          <svg style="flex-shrink:0;margin-top:1px;" width="14" height="14" viewBox="0 0 24 24" fill="none"
+               stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+            <polyline points="10 9 9 9 8 9"/>
+          </svg>
+          <span><strong>Pagaré completo:</strong> El documento consolidado incluye las firmas de
+          <em>${participantEmails.join(', ')}</em>${viSuffix}</span>
+        `;
+        body.appendChild(infoBox);
+      }
+
+      accordion.appendChild(body);
+      container.appendChild(accordion);
+
+      // ── Toggle acordeón ───────────────────────────────────────────────────
+      let open = wasOpen;
+      // Inicializar chevron y preview según estado restaurado
+      const chevInit = groupHeader.querySelector(`#${chevronId}`);
+      const prevInit = groupHeader.querySelector(`#${previewId}`);
+      if (chevInit) chevInit.style.transform = open ? 'rotate(0deg)' : 'rotate(-90deg)';
+      if (prevInit) { prevInit.style.maxHeight = open ? '0' : '40px'; prevInit.style.opacity = open ? '0' : '1'; }
+
+      groupHeader.addEventListener('click', (e) => {
+        // No disparar si se hace clic en el botón de descarga
+        if (e.target.closest('.pagare-download-complete-btn')) return;
+        open = !open;
+        // Persistir estado para sobrevivir al auto-refresh
+        sessionStorage.setItem(stateKey, String(open));
+
+        const chev    = groupHeader.querySelector(`#${chevronId}`);
+        const preview = groupHeader.querySelector(`#${previewId}`);
+        if (open) {
+          body.style.maxHeight = '2000px';
+          body.style.opacity = '1';
+          body.style.paddingTop = '10px';
+          body.style.paddingBottom = '12px';
+          if (chev) chev.style.transform = 'rotate(0deg)';
+          if (preview) { preview.style.maxHeight = '0'; preview.style.opacity = '0'; }
+        } else {
+          body.style.maxHeight = '0';
+          body.style.opacity = '0';
+          body.style.paddingTop = '0';
+          body.style.paddingBottom = '0';
+          if (chev) chev.style.transform = 'rotate(-90deg)';
+          if (preview) { preview.style.maxHeight = '40px'; preview.style.opacity = '1'; }
+        }
+      });
+    });
+
+    // Si el firmante definitivo aún no ha completado, mostrar su card suelta al final
+    if (finalSigner && finalSigner.status !== 'completed') {
+      const divider = document.createElement('div');
+      divider.style.cssText = 'display:flex;align-items:center;gap:8px;margin:16px 0 6px;padding:0 4px;';
+      divider.innerHTML = `
+        <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+        <span style="font-size:11px;color:#9333ea;font-weight:600;white-space:nowrap;">⚖️ Firmante Definitivo</span>
+        <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+      `;
+      container.appendChild(divider);
+      container.appendChild(createRecipientCard(finalSigner));
+    }
+  }
+
+  // Event listeners para botones de descarga completa
+  container.querySelectorAll('.pagare-download-complete-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const groupId = btn.dataset.groupId;
+      const dId = btn.dataset.docId;
+      const userStr = localStorage.getItem('currentUser');
+      if (!userStr) return;
+      const user = JSON.parse(userStr);
+      const url = `/api/documents/${dId}/pagares/${groupId}/download-complete?user_id=${user.user_id}`;
+      btn.disabled = true;
+      btn.textContent = 'Generando...';
+      try {
+        const resp = await fetch(url);
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          alert(err.message || 'Error al generar el pagaré completo');
+          return;
+        }
+        const blob = await resp.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        const cd = resp.headers.get('Content-Disposition') || '';
+        const fnMatch = cd.match(/filename="([^"]+)"/);
+        a.download = fnMatch ? fnMatch[1] : `Pagare_Completo_${dId}_${groupId}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+      } catch (e) {
+        alert('Error al descargar el pagaré completo');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> DESCARGAR PAGARÉ COMPLETO`;
+      }
+    });
   });
 }
 
@@ -161,8 +412,13 @@ function createRecipientCard(recipient) {
   const displayEmail = recipient.email;
 
   // Bloque de Validación de Identidad
-  // Mostrar bloque VI cuando: no completado/rechazado Y no tiene vi_validated_at
-  const showViBlock = recipient.status !== 'completed' && recipient.status !== 'rejected' && !recipient.vi_validated_at;
+  // Mostrar bloque VI cuando:
+  // - status 'pending': email en espera de validación VI (viewers y firmante definitivo pendiente)
+  // - is_final_signer=1 con status 'sent' y sin vi_validated_at: firmante definitivo que recibió
+  //   email antes del flujo VI (casos legacy) o cuyo correo ya se envió pero aún no verifica
+  const isFinalSignerUnverified = recipient.is_final_signer === 1 && !recipient.vi_validated_at
+    && (recipient.status === 'sent' || recipient.status === 'pending');
+  const showViBlock = (recipient.status === 'pending' && !recipient.vi_validated_at) || isFinalSignerUnverified;
   const viValidatedBadge = recipient.vi_validated_at
     ? `<div style="margin-top:10px;display:flex;align-items:center;gap:6px;font-size:12px;color:#2b9348;font-weight:600;">
          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
@@ -170,15 +426,22 @@ function createRecipientCard(recipient) {
        </div>`
     : '';
 
+  // Correo enviado pero identidad no verificada (casos anteriores al flujo VI)
+  const sentWithoutVi = recipient.status === 'sent' && !recipient.vi_validated_at;
+
   // Badge de estado
   const badgeHtml = showViBlock
     ? `<div class="status-badge" style="background:#fdecea;color:#c0392b;border:1px solid #f5c6cb;">NO VERIFICADO</div>`
-    : `<div class="status-badge ${statusClass}">${statusText}</div>`;
+    : sentWithoutVi
+      ? `<div class="status-badge" style="background:#fff3cd;color:#856404;border:1px solid #ffc107;">ENVIADO</div>`
+      : `<div class="status-badge ${statusClass}">${statusText}</div>`;
 
-  // Texto informativo bajo el email cuando no verificado
+  // Texto informativo bajo el email
   const viInfoText = showViBlock
     ? `<p style="font-size:11px;color:#c0392b;margin:3px 0 0;font-weight:600;">Identidad no verificada — correo en espera</p>`
-    : viValidatedBadge;
+    : sentWithoutVi
+      ? `<p style="font-size:11px;color:#856404;margin:3px 0 0;font-weight:600;">Correo enviado — identidad no verificada</p>`
+      : viValidatedBadge;
 
   // Botones a la derecha: VI cuando no verificado, normales cuando sí
   const actionsHtml = showViBlock
@@ -187,7 +450,7 @@ function createRecipientCard(recipient) {
            INICIAR VALIDACIÓN DE IDENTIDAD
          </button>
          <button class="vi-skip-btn" style="background:none;border:none;color:#888;font-size:12px;cursor:pointer;padding:0;text-decoration:underline;width:100%;text-align:center;">
-           omitir y enviar correo
+           omitir validación de identidad
          </button>
        </div>`
     : `<div class="recipient-actions">
@@ -585,30 +848,79 @@ function renderEmailTabWithRoles() {
           class="form-input role-email-input"
           data-role-id="${role.roleId}"
           placeholder="Correo electrónico"
-          style="
-            width: 100%;
-            border: 2px solid ${role.color};
-          "
+          style="width: 100%; border: 2px solid ${role.color};"
         />
+        <div class="vi-status-badge" data-role-id="${role.roleId}" style="display:none; margin-top:6px; font-size:12px; padding:5px 10px; border-radius:20px; display:none; align-items:center; gap:6px; width:fit-content;"></div>
       </div>
     </div>
   `).join('');
 
-  // Agregar event listeners para actualizar el preview del nombre
+  // Verificar si el owner está vinculado a VI (con cache)
+  async function getOwnerVinculado() {
+    if (_viOwnerVinculado !== null) return _viOwnerVinculado;
+    try {
+      const r = await fetch('/api/integration/vi-link-status');
+      _viOwnerVinculado = r.ok ? (await r.json()).vinculado === true : false;
+    } catch (_) { _viOwnerVinculado = false; }
+    return _viOwnerVinculado;
+  }
+
+  // Verificar VI de un email y actualizar badge
+  async function checkAndShowViBadge(email, roleId) {
+    const badge = document.querySelector(`.vi-status-badge[data-role-id="${roleId}"]`);
+    if (!badge) return;
+
+    const isValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    if (!email || !isValid) {
+      badge.style.display = 'none';
+      return;
+    }
+
+    const vinculado = await getOwnerVinculado();
+    if (!vinculado) return; // Owner no usa VI — no mostrar nada
+
+    badge.style.display = 'flex';
+    badge.innerHTML = `<span style="opacity:0.6">Verificando...</span>`;
+
+    try {
+      const resp = await fetch('/api/recipients/check-vi-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emails: [email.toLowerCase()] })
+      });
+      const data = await resp.json();
+      const verifiedAt = data.verified?.[email.toLowerCase()];
+
+      if (verifiedAt) {
+        const fecha = new Date(verifiedAt).toLocaleDateString('es-CO', { day:'2-digit', month:'short', year:'numeric' });
+        badge.style.cssText = 'display:flex; align-items:center; gap:6px; margin-top:6px; font-size:12px; padding:5px 10px; border-radius:20px; background:#d1fae5; color:#065f46; border:1px solid #6ee7b7; width:fit-content;';
+        badge.innerHTML = `<svg style="width:13px;height:13px;flex-shrink:0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Identidad verificada <span style="opacity:0.7">${fecha}</span>`;
+      } else {
+        badge.style.cssText = 'display:flex; align-items:center; gap:6px; margin-top:6px; font-size:12px; padding:5px 10px; border-radius:20px; background:#fff7ed; color:#92400e; border:1px solid #fcd34d; width:fit-content;';
+        badge.innerHTML = `<svg style="width:13px;height:13px;flex-shrink:0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Identidad no verificada`;
+      }
+    } catch (_) {
+      badge.style.display = 'none';
+    }
+  }
+
+  // Debounce helper
+  const debounceTimers = {};
+
+  // Event listeners para cada input
   const emailInputs = document.querySelectorAll('.role-email-input');
   emailInputs.forEach(input => {
     input.addEventListener('input', (e) => {
       const roleId = input.dataset.roleId;
-      const previewSpan = document.querySelector(`.recipient-name-preview[data-role-id="${roleId}"]`);
       const email = e.target.value.trim();
 
-      if (previewSpan) {
-        if (email) {
-          previewSpan.textContent = `(${email})`;
-        } else {
-          previewSpan.textContent = '';
-        }
-      }
+      // Preview del nombre
+      const previewSpan = document.querySelector(`.recipient-name-preview[data-role-id="${roleId}"]`);
+      if (previewSpan) previewSpan.textContent = email ? `(${email})` : '';
+
+      // Verificación VI con debounce
+      clearTimeout(debounceTimers[roleId]);
+      debounceTimers[roleId] = setTimeout(() => checkAndShowViBadge(email, roleId), 600);
     });
   });
 }
@@ -2417,122 +2729,11 @@ function handlePagareCsvUpload(file) {
   reader.onload = (e) => {
     const csvContent = e.target.result;
 
-    // Parsear CSV usando PapaParse
     Papa.parse(csvContent, {
       header: true,
       skipEmptyLines: true,
       complete: (results) => {
-        const rows = results.data;
-        console.log(`📊 CSV parseado: ${rows.length} filas`);
-
-        if (rows.length === 0) {
-          ToastManager.error('Error', 'El archivo CSV está vacío');
-          return;
-        }
-
-        // Validar que tenga al menos una columna de email firma
-        const hasEmailColumns = results.meta.fields.some(field => field.startsWith('email firma'));
-        if (!hasEmailColumns) {
-          ToastManager.error('Error', 'El CSV debe tener columnas "email firma 1", "email firma 2", etc.');
-          return;
-        }
-
-        // Procesar cada fila del CSV para crear pagarés individuales
-        const pagaresData = [];
-
-        rows.forEach((row, index) => {
-          // Extraer emails de firmantes
-          const firmantes = [];
-          let firmIndex = 1;
-          while (row[`email firma ${firmIndex}`]) {
-            const email = row[`email firma ${firmIndex}`].trim();
-            if (email) {
-              firmantes.push({
-                email: email,
-                partId: firmIndex,
-                roleName: `Firmante N${firmIndex}`
-              });
-            }
-            firmIndex++;
-          }
-
-          // Extraer campos de texto personalizados
-          const textFields = {};
-          Object.keys(row).forEach(key => {
-            // Ignorar columnas de emails
-            if (!key.startsWith('email firma')) {
-              const value = row[key];
-              if (value && value.trim()) {
-                textFields[key] = value.trim();
-              }
-            }
-          });
-
-          pagaresData.push({
-            rowIndex: index + 2, // +2 porque fila 1 es header
-            firmantes: firmantes,
-            textFields: textFields
-          });
-        });
-
-        // Guardar datos del CSV en variable global
-        window.pagareCsvData = pagaresData;
-
-        // Calcular estadísticas
-        const totalPagares = pagaresData.length;
-        const firmantesPromedio = pagaresData.length > 0 ? pagaresData[0].firmantes.length : 0;
-
-        // Calcular total de emails a enviar
-        const totalEmails = pagaresData.reduce((sum, pagare) => sum + pagare.firmantes.length, 0);
-
-        // Validar que todas las filas tengan el mismo número de firmantes
-        const firmantesConsistentes = pagaresData.every(p => p.firmantes.length === firmantesPromedio);
-
-        // Validar emails
-        const emailsValidos = pagaresData.every(p =>
-          p.firmantes.every(f => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email))
-        );
-
-        // Mostrar preview
-        document.getElementById('pagareCsvFileName').textContent = file.name;
-        document.getElementById('pagareCsvRowsCount').textContent = totalPagares;
-        document.getElementById('pagareFirmantesCount').textContent = firmantesPromedio;
-
-        // Mostrar validaciones
-        const validationEl = document.getElementById('pagareCsvValidation');
-        const validaciones = [];
-
-        if (emailsValidos) {
-          validaciones.push('✓ Todos los emails son válidos');
-        } else {
-          validaciones.push('⚠ Algunos emails no son válidos');
-        }
-
-        if (firmantesConsistentes) {
-          validaciones.push(`✓ Todos los pagarés tienen ${firmantesPromedio} firmante(s)`);
-        } else {
-          validaciones.push('⚠ Número inconsistente de firmantes entre filas');
-        }
-
-        // Validar campos de texto
-        const camposTexto = Object.keys(pagaresData[0]?.textFields || {}).length;
-        if (camposTexto > 0) {
-          validaciones.push(`✓ ${camposTexto} campo(s) de texto detectado(s)`);
-        }
-
-        // Mostrar total de emails a enviar
-        validaciones.push(`✓ Se enviarán ${totalEmails} email(s) en total`);
-
-        validationEl.innerHTML = validaciones.map(v =>
-          `<div style="margin-bottom: 4px;">${v}</div>`
-        ).join('');
-
-        // Ocultar zona de carga inicial y mostrar preview
-        document.getElementById('pagareCsvUploadZone').style.display = 'none';
-        document.getElementById('pagareCsvPreview').style.display = 'block';
-
-        ToastManager.success('CSV cargado', `${totalPagares} pagaré(s) detectado(s)`);
-        console.log('✅ Datos del CSV guardados:', pagaresData);
+        _processPagareCsvData(results, file.name).catch(err => console.error('Error procesando CSV pagaré:', err));
       },
       error: (error) => {
         console.error('❌ Error al parsear CSV:', error);
@@ -2542,6 +2743,169 @@ function handlePagareCsvUpload(file) {
   };
 
   reader.readAsText(file);
+}
+
+async function _processPagareCsvData(results, fileName) {
+  const rows = results.data;
+  console.log(`📊 CSV parseado: ${rows.length} filas`);
+
+  if (rows.length === 0) {
+    ToastManager.error('Error', 'El archivo CSV está vacío');
+    return;
+  }
+
+  const hasEmailColumns = results.meta.fields.some(field => field.startsWith('email firma'));
+  if (!hasEmailColumns) {
+    ToastManager.error('Error', 'El CSV debe tener columnas "email firma 1", "email firma 2", etc.');
+    return;
+  }
+
+  // Procesar cada fila del CSV
+  const pagaresData = [];
+  rows.forEach((row, index) => {
+    const firmantes = [];
+    let firmIndex = 1;
+    while (row[`email firma ${firmIndex}`]) {
+      const email = row[`email firma ${firmIndex}`].trim();
+      if (email) {
+        firmantes.push({ email, partId: firmIndex, roleName: `Firmante N${firmIndex}` });
+      }
+      firmIndex++;
+    }
+
+    const textFields = {};
+    Object.keys(row).forEach(key => {
+      if (!key.startsWith('email firma')) {
+        const value = row[key];
+        if (value && value.trim()) textFields[key] = value.trim();
+      }
+    });
+
+    pagaresData.push({ rowIndex: index + 2, firmantes, textFields });
+  });
+
+  window.pagareCsvData = pagaresData;
+
+  // Estadísticas
+  const totalPagares = pagaresData.length;
+  const firmantesPromedio = pagaresData.length > 0 ? pagaresData[0].firmantes.length : 0;
+  const totalEmails = pagaresData.reduce((sum, p) => sum + p.firmantes.length, 0);
+  const firmantesConsistentes = pagaresData.every(p => p.firmantes.length === firmantesPromedio);
+  const emailsValidos = pagaresData.every(p => p.firmantes.every(f => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email)));
+  const camposTexto = Object.keys(pagaresData[0]?.textFields || {}).length;
+
+  // Consultar estado VI
+  let ownerVinculadoVI = false;
+  let viVerified = {};
+  try {
+    const viResp = await fetch('/api/integration/vi-link-status');
+    if (viResp.ok) ownerVinculadoVI = (await viResp.json()).vinculado === true;
+  } catch (_) {}
+
+  if (ownerVinculadoVI) {
+    // Recopilar todos los emails únicos de firmantes
+    const allEmails = [...new Set(pagaresData.flatMap(p => p.firmantes.map(f => f.email)))];
+    try {
+      const checkResp = await fetch('/api/recipients/check-vi-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emails: allEmails })
+      });
+      if (checkResp.ok) viVerified = (await checkResp.json()).verified || {};
+    } catch (_) {}
+  }
+
+  // Mostrar preview básico
+  document.getElementById('pagareCsvFileName').textContent = fileName;
+  document.getElementById('pagareCsvRowsCount').textContent = totalPagares;
+  document.getElementById('pagareFirmantesCount').textContent = firmantesPromedio;
+
+  // Validaciones
+  const validationEl = document.getElementById('pagareCsvValidation');
+  const validaciones = [];
+  if (emailsValidos) validaciones.push('✓ Todos los emails son válidos');
+  else validaciones.push('⚠ Algunos emails no son válidos');
+  if (firmantesConsistentes) validaciones.push(`✓ Todos los pagarés tienen ${firmantesPromedio} firmante(s)`);
+  else validaciones.push('⚠ Número inconsistente de firmantes entre filas');
+  if (camposTexto > 0) validaciones.push(`✓ ${camposTexto} campo(s) de texto detectado(s)`);
+  validaciones.push(`✓ Se enviarán ${totalEmails} email(s) en total`);
+
+  // Resumen VI en validaciones
+  if (ownerVinculadoVI) {
+    const allEmailsList = [...new Set(pagaresData.flatMap(p => p.firmantes.map(f => f.email)))];
+    const verCount = allEmailsList.filter(e => !!viVerified[e.toLowerCase()]).length;
+    const noVerCount = allEmailsList.length - verCount;
+    if (verCount > 0) validaciones.push(`✓ ${verCount} email(s) con identidad ya verificada — firmarán sin traza VI`);
+    if (noVerCount > 0) validaciones.push(`⚠ ${noVerCount} email(s) sin verificar — generarán trazabilidad VI al firmar`);
+
+    // Solo los NO verificados generan traza VI al firmar → esa traza se incorpora al PDF sellado
+    // Los ya verificados omiten el proceso VI y no generan traza nueva
+    let totalTrazasPendientes = 0;
+    let pagaresConTrazas = 0;
+
+    pagaresData.forEach(p => {
+      const sinVer = p.firmantes.filter(f => !viVerified[f.email.toLowerCase()]).length;
+      if (sinVer > 0) { totalTrazasPendientes += sinVer; pagaresConTrazas++; }
+    });
+
+    if (totalTrazasPendientes > 0) {
+      validaciones.push(`⚠ ${totalTrazasPendientes} traza(s) VI se incorporarán al sello final (${pagaresConTrazas} pagaré(s) afectado(s))`);
+    }
+  }
+
+  validationEl.innerHTML = validaciones.map(v =>
+    `<div style="margin-bottom:4px;color:${v.startsWith('⚠') ? '#b45309' : '#16a34a'}">${v}</div>`
+  ).join('');
+
+  // Tabla VI por pagaré (solo si el owner está vinculado a VI)
+  const viTableEl = document.getElementById('pagareCsvViTable');
+  if (ownerVinculadoVI && pagaresData.length > 0) {
+    const thStyle = 'padding:6px 10px;text-align:left;font-size:11px;color:#555;border-bottom:2px solid #d1fae5;white-space:nowrap;background:#f0fdf4;';
+    const headerCols = `
+      <th style="${thStyle}">Pagaré</th>
+      ${Array.from({length: firmantesPromedio}, (_, i) =>
+        `<th style="${thStyle}color:#2b0e31;">Firmante ${i+1}</th>
+         <th style="${thStyle}color:#2b0e31;">ID Verificada</th>`
+      ).join('')}
+    `;
+    const bodyRows = pagaresData.map((pagare, i) => {
+      const bg = i % 2 === 0 ? '#fff' : '#f9fafb';
+      const firmCells = Array.from({length: firmantesPromedio}, (_, fi) => {
+        const f = pagare.firmantes[fi];
+        if (!f) return `<td style="padding:6px 10px;font-size:11px;">—</td><td style="padding:6px 10px;"></td>`;
+        const isVer = !!viVerified[f.email.toLowerCase()];
+        const badge = isVer
+          ? `<span style="display:inline-flex;align-items:center;gap:3px;background:#dcfce7;color:#16a34a;border:1px solid #86efac;border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700;">
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>VERIFICADO</span>`
+          : `<span style="display:inline-flex;align-items:center;gap:3px;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700;">
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>NO VERIF.</span>`;
+        return `<td style="padding:6px 10px;font-size:11px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${f.email}</td>
+                <td style="padding:6px 10px;">${badge}</td>`;
+      }).join('');
+      return `<tr style="background:${bg};">
+        <td style="padding:6px 10px;font-size:11px;font-weight:600;color:#374151;">Pagaré ${pagare.rowIndex - 1}</td>
+        ${firmCells}
+      </tr>`;
+    }).join('');
+
+    viTableEl.innerHTML = `
+      <div style="overflow-x:auto;border:1px solid #bbf7d0;border-radius:6px;margin-top:6px;">
+        <table style="width:100%;border-collapse:collapse;min-width:300px;">
+          <thead><tr>${headerCols}</tr></thead>
+          <tbody>${bodyRows}</tbody>
+        </table>
+      </div>`;
+    viTableEl.style.display = 'block';
+  } else {
+    viTableEl.style.display = 'none';
+    viTableEl.innerHTML = '';
+  }
+
+  document.getElementById('pagareCsvUploadZone').style.display = 'none';
+  document.getElementById('pagareCsvPreview').style.display = 'block';
+
+  ToastManager.success('CSV cargado', `${totalPagares} pagaré(s) detectado(s)`);
+  console.log('✅ Datos del CSV guardados:', pagaresData);
 }
 
 // Cargar template info cuando el modal de destinatarios ya está abierto y se cambia al tab "upload"
@@ -2586,6 +2950,47 @@ document.addEventListener('DOMContentLoaded', () => {
         input.value = '';
         input.click();
       }
+    });
+  }
+
+  // Verificación VI en tiempo real del firmante definitivo
+  const finalSignerEmailInput = document.getElementById('finalSignerEmail');
+  const finalSignerViBadge = document.getElementById('finalSignerViBadge');
+  if (finalSignerEmailInput && finalSignerViBadge) {
+    let finalSignerViTimeout = null;
+    finalSignerEmailInput.addEventListener('input', () => {
+      clearTimeout(finalSignerViTimeout);
+      const email = finalSignerEmailInput.value.trim().toLowerCase();
+      finalSignerViBadge.innerHTML = '';
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
+
+      finalSignerViBadge.innerHTML = `<span style="font-size:11px;color:#6b7280;">Verificando identidad...</span>`;
+
+      finalSignerViTimeout = setTimeout(async () => {
+        try {
+          const resp = await fetch('/api/recipients/check-vi-status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ emails: [email] })
+          });
+          if (!resp.ok) { finalSignerViBadge.innerHTML = ''; return; }
+          const data = await resp.json();
+          const isVerified = !!(data.verified && data.verified[email]);
+          if (isVerified) {
+            finalSignerViBadge.innerHTML = `
+              <span style="display:inline-flex;align-items:center;gap:4px;background:#dbeafe;color:#1d4ed8;border:1px solid #93c5fd;border-radius:10px;padding:3px 10px;font-size:11px;font-weight:700;">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+                IDENTIDAD YA VERIFICADA
+              </span>`;
+          } else {
+            finalSignerViBadge.innerHTML = `
+              <span style="display:inline-flex;align-items:center;gap:4px;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:10px;padding:3px 10px;font-size:11px;font-weight:700;">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                NO VERIFICADO — Generará trazabilidad VI al sellar
+              </span>`;
+          }
+        } catch (_) { finalSignerViBadge.innerHTML = ''; }
+      }, 600);
     });
   }
 });
@@ -2856,6 +3261,19 @@ function toggleAuditButton() {
 
 // ── INTEGRACIÓN VALIDACIÓN DE IDENTIDAD (FASE 2) ─────────────────────────────
 
+function showToastMsg(message, type) {
+  if (typeof ToastManager !== 'undefined') {
+    if (type === 'error') ToastManager.error('', message, 5000);
+    else ToastManager.success('', message, 5000);
+  } else {
+    const t = document.createElement('div');
+    t.textContent = message;
+    t.style.cssText = `position:fixed;bottom:24px;right:24px;z-index:9999;background:${type==='error'?'#c0392b':'#2a0d31'};color:#fff;padding:12px 20px;border-radius:10px;font-size:14px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,0.18);`;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 4000);
+  }
+}
+
 async function handleViStart(recipient) {
   const card = document.querySelector(`[data-recipient-id="${recipient.id}"]`);
   const startBtn = card?.querySelector('.vi-start-btn');
@@ -2886,7 +3304,7 @@ async function handleViStart(recipient) {
 
   } catch (err) {
     console.error('Error iniciando VI:', err);
-    showTrackingToast('Error de conexión al iniciar validación', 'error');
+    showToastMsg('Error de conexión al iniciar validación', 'error');
   } finally {
     if (startBtn) { startBtn.disabled = false; startBtn.textContent = 'INICIAR VALIDACIÓN DE IDENTIDAD'; }
   }
@@ -2906,18 +3324,18 @@ async function handleViSkip(recipient, card) {
     });
     const data = await resp.json();
     if (data.success) {
-      showTrackingToast('Correo de firma enviado correctamente', 'success');
-      // Recargar la tarjeta para mostrar estado actualizado
+      showToastMsg('Correo enviado. Identidad pendiente de verificación.', 'success');
+      // Recargar la tarjeta para mostrar botones normales (sin bloque VI)
       const docId = new URLSearchParams(window.location.search).get('id');
       if (docId) loadRecipients(docId);
     } else {
-      showTrackingToast(data.message || 'Error al enviar el correo', 'error');
+      showToastMsg(data.message || 'Error al omitir la validación', 'error');
     }
   } catch (err) {
     console.error('Error omitiendo VI:', err);
-    showTrackingToast('Error de conexión', 'error');
+    showToastMsg('Error de conexión', 'error');
   } finally {
-    if (skipBtn) { skipBtn.disabled = false; skipBtn.textContent = 'omitir validación y enviar correo'; }
+    if (skipBtn) { skipBtn.disabled = false; skipBtn.textContent = 'omitir validación de identidad'; }
   }
 }
 

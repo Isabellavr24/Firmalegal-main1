@@ -118,73 +118,71 @@ emailQueue.process(async (job) => {
         const plainText = `
 Estimado cliente,
 
-¡Buenas noticias! Ya está listo el documento para tu firma digital. Es un proceso fácil y seguro que consta de dos partes:
+Buenas noticias. Ya esta listo el documento para su firma digital. Es un proceso facil y seguro.
 
-[OK] Ya realizaste la validación de identidad biométrica de manera exitosa.
+Ya realizo la validacion de identidad biometrica de manera exitosa.
 
-Ahora debes proceder con la firma del documento.
+Ahora debe proceder con la firma del documento.
 
 DOCUMENTO A FIRMAR: ${documentTitle}
 
-ANTES DE HACER CLIC EN EL ENLACE, POR FAVOR TEN EN CUENTA LO SIGUIENTE:
+ANTES DE HACER CLIC EN EL ENLACE, POR FAVOR TENGA EN CUENTA LO SIGUIENTE:
 
-Al ingresar al sistema de firma digital, deberás buscar el recuadro designado para la firma. Allí podrás elegir entre TRES OPCIONES para completarla:
+Al ingresar al sistema de firma digital, debera buscar el recuadro designado para la firma. Alli podra elegir entre tres opciones para completarla:
 
 1. Firma tecleada:
-   Escribe tu nombre completo y se generará automáticamente una firma en estilo tipográfico.
+   Escriba su nombre completo y se generara automaticamente una firma en estilo tipografico.
 
-2. Firma manuscrita (gráfica):
-   Dibuja tu firma directamente en el recuadro usando el cursor o una pantalla táctil.
+2. Firma manuscrita (grafica):
+   Dibuje su firma directamente en el recuadro usando el cursor o una pantalla tactil.
 
-3. Cargar imagen de tu firma:
-   Si ya tienes tu firma escaneada, puedes subirla en formato JPG o PNG.
+3. Cargar imagen de su firma:
+   Si ya tiene su firma escaneada, puede subirla en formato JPG o PNG.
 
 ENLACE PARA FIRMAR EL DOCUMENTO:
 ${signatureUrl}
 
-¿Necesitas ayuda?
-Si tienes alguna pregunta o necesitas ayuda, no dudes en contactarnos. Estamos aquí para ayudarte en lo que necesites.
-
-¡Que tengas un buen día!
+Necesita ayuda?
+Si tiene alguna pregunta o necesita ayuda, no dude en contactarnos. Estamos aqui para ayudarle en lo que necesite.
 
 Atentamente,
 Isabella Vergara
 Firmalegalonline@pkiservices.co
 
-═══════════════════════════════════════════════════════════
+---
 
 MARCO LEGAL
 
 Ley 527 de 1999 y Decreto 2364 de 2012:
-El Decreto 2364 de 2012, que reglamenta el artículo 7 de la Ley 527 de 1999, define la firma electrónica como aquel método implementado para identificar a una persona y su voluntad para un fin específico, por ejemplo, para verificar la voluntad de adquirir derechos y obligaciones en un documento.
+El Decreto 2364 de 2012, que reglamenta el articulo 7 de la Ley 527 de 1999, define la firma electronica como aquel metodo implementado para identificar a una persona y su voluntad para un fin especifico, por ejemplo, para verificar la voluntad de adquirir derechos y obligaciones en un documento.
 
-Para que la firma electrónica genere efectos legales, deberá cumplir los mismos requisitos que tiene cualquier documento físico aplicando el Principio de Equivalencia Funcional para que los supuestos de la vida real sean iguales en la vida digital y generen idénticos efectos.
+Para que la firma electronica genere efectos legales, debera cumplir los mismos requisitos que tiene cualquier documento fisico aplicando el Principio de Equivalencia Funcional para que los supuestos de la vida real sean iguales en la vida digital y generen identicos efectos.
 
 CUMPLIMIENTO AL PRINCIPIO CONSTITUCIONAL DE LA BUENA FE
 
-PKI SERVICES S.A.S. debe dar cumplimiento al artículo 83 de la constitución política colombiana, sobre el principio de la buena fe: "Las actuaciones de los particulares y de las autoridades públicas deberán ceñirse a los postulados de buena fe, la cual se presumirá en todas las gestiones que aquéllos adelanten ante éstas."
+PKI SERVICES S.A.S. debe dar cumplimiento al articulo 83 de la constitucion politica colombiana, sobre el principio de la buena fe: "Las actuaciones de los particulares y de las autoridades publicas deberan cenirse a los postulados de buena fe, la cual se presumira en todas las gestiones que aquellos adelanten ante estas."
 
 FALSEDAD EN DOCUMENTO PRIVADO
 
-Los solicitantes deben dar cumplimiento a la LEY 599 DE 2000, Artículo 289: "El que falsifique documento privado que pueda servir de prueba, incurrirá, si lo usa, en prisión de uno (1) a seis (6) años."
+Los solicitantes deben dar cumplimiento a la LEY 599 DE 2000, Articulo 289: "El que falsifique documento privado que pueda servir de prueba, incurrira, si lo usa, en prision de uno (1) a seis (6) anos."
 
-ACREDITACIÓN ONAC
+ACREDITACION ONAC
 
-PKI SERVICES en cumplimiento de la LEY 527 de 1999 y sus decretos reglamentarios, es una entidad acreditada por el ORGANISMO NACIONAL DE ACREDITACIÓN DE COLOMBIA (ONAC).
+PKI SERVICES en cumplimiento de la LEY 527 de 1999 y sus decretos reglamentarios, es una entidad acreditada por el ORGANISMO NACIONAL DE ACREDITACION DE COLOMBIA (ONAC).
 
-Para cualquier duda o inquietud sobre la plataforma de Firma, puede ponerse en contacto con nuestro servicio de atención al cliente en:
+Para cualquier duda o inquietud sobre la plataforma de Firma, puede ponerse en contacto con nuestro servicio de atencion al cliente en:
 Soporte PKI Services: https://pkiservices.co/soporte/?wpsc-section=ticket-list
 
-═══════════════════════════════════════════════════════════
+---
 
 PKI SERVICES S.A.S.
-Plataforma de Firma Electrónica Certificada
+Plataforma de Firma Electronica Certificada
 
-Este mensaje y sus archivos adjuntos van dirigidos exclusivamente a su destinatario pudiendo contener información confidencial sometida a secreto profesional. No está permitida su reproducción o distribución sin la autorización expresa. Si usted no es el destinatario final por favor elimínelo e infórmenos por este mismo medio.
+Este mensaje y sus archivos adjuntos van dirigidos exclusivamente a su destinatario pudiendo contener informacion confidencial sometida a secreto profesional. No esta permitida su reproduccion o distribucion sin la autorizacion expresa. Si usted no es el destinatario final por favor eliminelo e informenos por este mismo medio.
 
-De acuerdo con la Ley Estatutaria 1581 de 2012 de Protección de Datos y normas concordantes, le informamos que nuestra entidad cuenta con política para el tratamiento de los datos personales almacenados en sus bases de datos.
+De acuerdo con la Ley Estatutaria 1581 de 2012 de Proteccion de Datos y normas concordantes, le informamos que nuestra entidad cuenta con politica para el tratamiento de los datos personales almacenados en sus bases de datos.
 
-© ${new Date().getFullYear()} PKI Services S.A.S. - Todos los derechos reservados
+(c) ${new Date().getFullYear()} PKI Services S.A.S. - Todos los derechos reservados
         `.trim();
 
         // 5. Enviar email usando SendGrid
@@ -198,20 +196,15 @@ De acuerdo con la Ley Estatutaria 1581 de 2012 de Protección de Datos y normas 
                 name: `${emailConfig.email_from_name} (FirmaLegal)`
             },
             replyTo: sender.email, // Permite responder directamente al remitente
-            subject: `Solicitud de firma: ${documentTitle}`,
+            subject: `Firma electronica requerida - ${documentTitle}`,
             text: plainText,
             html: htmlContent,
-            // Headers anti-spam optimizados para Gmail
+            // Headers
             headers: {
-                'X-Priority': '3',
-                'X-MSMail-Priority': 'Normal',
-                'Importance': 'normal',
-                'X-Mailer': 'FirmaLegal Online',
-                'List-Unsubscribe': `<${APP_URL}/unsubscribe?token=${token}>`,
-                'Precedence': 'bulk'
+                'X-Mailer': 'FirmaLegal Online'
             },
             // Categorías de SendGrid
-            categories: ['signature-request', 'legal-document', 'bulk-send'],
+            categories: ['signature-request', 'legal-document'],
             // Custom args para tracking
             customArgs: {
                 document_id: String(signatureDocumentId),

@@ -75,7 +75,7 @@ async function sendEmailWithUserConfig(userConfig, { to, subject, text, html }) 
  * @returns {Promise<Object>}
  */
 async function sendTestEmailWithConfig(userConfig, to) {
-    const subject = '✅ Prueba de Configuración - FirmaLegal Online';
+    const subject = 'Prueba de Configuracion - FirmaLegal Online';
 
     const text = `
 ¡Hola!
@@ -154,7 +154,7 @@ Equipo de FirmaLegal Online
  */
 async function sendSignatureRequestWithConfig(userConfig, { to, recipientName, documentTitle, senderName, documentId }) {
     const signatureUrl = `${APP_URL}/sign.html?document_id=${documentId}`;
-    const subject = `📝 Solicitud de firma: ${documentTitle}`;
+    const subject = `Solicitud de firma: ${documentTitle}`;
 
     const text = `
 Hola ${recipientName},
@@ -200,7 +200,7 @@ ${userConfig.email_from_name || 'FirmaLegal Online'}
  */
 async function sendSignatureCompletedWithConfig(userConfig, { to, recipientName, documentTitle, signerName, documentId }) {
     const documentUrl = `${APP_URL}/tracking.html?document_id=${documentId}`;
-    const subject = `✅ Documento firmado: ${documentTitle}`;
+    const subject = `Documento firmado: ${documentTitle}`;
 
     const text = `
 Hola ${recipientName},

@@ -67,7 +67,7 @@ class Paths:
         Obtener URL de verificación para QR code
         """
         base_url = Paths.APP_URL.rstrip('/')
-        return f"{base_url}/verify.html?id={document_id}"
+        return f"{base_url}/public/Main/verify.html?id={document_id}"
 
     @staticmethod
     def get_certificate_path(cert_path: Optional[str] = None) -> Path:

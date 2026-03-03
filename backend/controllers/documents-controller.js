@@ -1380,6 +1380,90 @@ router.delete('/:id/fields', requireAuth, async (req, res) => {
 });
 
 /**
+ * PUT /api/documents/:id/file
+ * Reemplazar el PDF de un documento (usado cuando se agregan páginas en el editor)
+ * Body: raw PDF bytes (Content-Type: application/octet-stream)
+ */
+router.put('/:id/file', requireAuth, async (req, res) => {
+    const documentId = parseInt(req.params.id);
+    console.log(`\n📄 [DOCUMENTS] PUT /api/documents/${documentId}/file`);
+
+    const db = req.app.locals.db;
+
+    try {
+        // Verificar que el documento existe y pertenece al usuario
+        const docRows = await new Promise((resolve, reject) => {
+            db.query(
+                'SELECT document_id, file_path FROM documents WHERE document_id = ? AND owner_id = ?',
+                [documentId, req.userId],
+                (err, rows) => err ? reject(err) : resolve(rows)
+            );
+        });
+
+        if (docRows.length === 0) {
+            return res.status(404).json({ ok: false, error: 'Documento no encontrado o sin permisos' });
+        }
+
+        const doc = docRows[0];
+
+        // Leer bytes del body (raw)
+        const chunks = [];
+        req.on('data', chunk => chunks.push(chunk));
+        await new Promise((resolve, reject) => {
+            req.on('end', resolve);
+            req.on('error', reject);
+        });
+        const pdfBuffer = Buffer.concat(chunks);
+
+        if (pdfBuffer.length === 0) {
+            return res.status(400).json({ ok: false, error: 'No se recibieron bytes del PDF' });
+        }
+
+        console.log(`   Recibidos: ${pdfBuffer.length} bytes`);
+
+        // Determinar directorio de uploads
+        const uploadDir = path.join(__dirname, '..', '..', 'uploads', 'documents');
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+
+        // Generar nuevo nombre de archivo para no sobreescribir el original
+        const newFileName = `${Date.now()}_merged_doc${documentId}.pdf`;
+        const newFilePath = path.join(uploadDir, newFileName);
+        const newFileRelPath = `/uploads/documents/${newFileName}`;
+
+        // Escribir archivo
+        fs.writeFileSync(newFilePath, pdfBuffer);
+        console.log(`   Archivo escrito: ${newFilePath}`);
+
+        // Actualizar file_path en BD
+        await new Promise((resolve, reject) => {
+            db.query(
+                'UPDATE documents SET file_path = ?, file_size = ? WHERE document_id = ?',
+                [newFileRelPath, pdfBuffer.length, documentId],
+                (err) => err ? reject(err) : resolve()
+            );
+        });
+
+        // Eliminar archivo anterior si es diferente
+        if (doc.file_path && doc.file_path !== newFileRelPath) {
+            const oldPath = path.join(__dirname, '..', '..', doc.file_path);
+            if (fs.existsSync(oldPath)) {
+                try { fs.unlinkSync(oldPath); } catch (_) {}
+            }
+        }
+
+        console.log(`   ✅ file_path actualizado: ${newFileRelPath}`);
+
+        res.json({ ok: true, success: true, file_path: newFileRelPath });
+
+    } catch (error) {
+        console.error('❌ [DOCUMENTS] Error al actualizar archivo:', error);
+        res.status(500).json({ ok: false, error: 'Error al actualizar archivo: ' + error.message });
+    }
+});
+
+/**
  * =============================================
  * ENDPOINT: ENVIAR DOCUMENTO A DESTINATARIOS
  * POST /api/documents/:id/send
@@ -1652,13 +1736,49 @@ router.post('/:id/send', requireAuth, async (req, res) => {
                 }
             }
 
+            // Si el owner está vinculado a VI, verificar antes de insertar
+            let viValidatedAt = null;
+            if (ownerVinculadoVI) {
+                const oneYearAgo = new Date();
+                oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+                const viCheck = await new Promise((resolve, reject) => {
+                    db.query(
+                        `SELECT vi_validated_at FROM document_recipients
+                         WHERE email = ? AND vi_validated_at IS NOT NULL AND vi_validated_at >= ?
+                         ORDER BY vi_validated_at DESC LIMIT 1`,
+                        [recipient.email, oneYearAgo],
+                        (err, rows) => { if (err) reject(err); else resolve(rows); }
+                    );
+                });
+                if (viCheck.length === 0) {
+                    // Email NO validado en VI — insertar como 'pending', el operador verá el botón en tracking
+                    console.log(`   🔐 [VI] ${recipient.email} no validado — insertando como pending`);
+                    await new Promise((resolve, reject) => {
+                        db.query(
+                            `INSERT INTO document_recipients
+                             (document_id, email, name, token, status, part_id, role_id, signing_order, can_sign_at)
+                             VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+                            [documentId, recipient.email, recipient.name || recipient.email, token, partId, roleId, signingOrder, canSignAt],
+                            (err, result) => {
+                                if (err) reject(err);
+                                else { insertedRecipients.push({ id: result.insertId, email: recipient.email, name: recipient.name || recipient.email, token, roleId, signingOrder }); resolve(); }
+                            }
+                        );
+                    });
+                    continue;
+                }
+                // Email validado en VI — guardar vi_validated_at para copiarlo al insertar
+                viValidatedAt = viCheck[0].vi_validated_at;
+                console.log(`   ✅ [VI] ${recipient.email} validado — enviando email de firma`);
+            }
+
             // 🔥 Insertar en la base de datos con part_id, role_id, signing_order y can_sign_at
             const result = await new Promise((resolve, reject) => {
                 db.query(
-                    `INSERT INTO document_recipients 
-                     (document_id, email, name, token, status, part_id, role_id, signing_order, can_sign_at)
-                     VALUES (?, ?, ?, ?, 'sent', ?, ?, ?, ?)`,
-                    [documentId, recipient.email, recipient.name || recipient.email, token, partId, roleId, signingOrder, canSignAt],
+                    `INSERT INTO document_recipients
+                     (document_id, email, name, token, status, part_id, role_id, signing_order, can_sign_at, vi_validated_at)
+                     VALUES (?, ?, ?, ?, 'sent', ?, ?, ?, ?, ?)`,
+                    [documentId, recipient.email, recipient.name || recipient.email, token, partId, roleId, signingOrder, canSignAt, viValidatedAt],
                     (err, result) => {
                         if (err) reject(err);
                         else resolve(result);
@@ -1674,35 +1794,6 @@ router.post('/:id/send', requireAuth, async (req, res) => {
                 roleId,
                 signingOrder
             });
-
-            // Si el owner está vinculado a VI, verificar si este email fue validado (máx 1 año)
-            if (ownerVinculadoVI) {
-                const oneYearAgo = new Date();
-                oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-                const viCheck = await new Promise((resolve, reject) => {
-                    db.query(
-                        `SELECT vi_validated_at FROM document_recipients
-                         WHERE email = ? AND vi_validated_at IS NOT NULL AND vi_validated_at >= ?
-                         ORDER BY vi_validated_at DESC LIMIT 1`,
-                        [recipient.email, oneYearAgo],
-                        (err, rows) => { if (err) reject(err); else resolve(rows); }
-                    );
-                });
-                if (viCheck.length === 0) {
-                    // Email NO validado en VI — no enviar email de firma, el operador verá el botón en tracking
-                    console.log(`   🔐 [VI] ${recipient.email} no validado — omitiendo email de firma`);
-                    continue;
-                }
-                // Email validado en VI — copiar vi_validated_at al nuevo recipient
-                await new Promise((resolve, reject) => {
-                    db.query(
-                        'UPDATE document_recipients SET vi_validated_at = ? WHERE recipient_id = ?',
-                        [viCheck[0].vi_validated_at, result.insertId],
-                        (err) => { if (err) reject(err); else resolve(); }
-                    );
-                });
-                console.log(`   ✅ [VI] ${recipient.email} validado — enviando email de firma`);
-            }
 
             // Preparar email
             const signatureUrl = `${req.protocol}://${req.get('host')}/public-sign.html?token=${token}`;
@@ -1925,13 +2016,19 @@ router.get('/:id/recipients', requireAuth, async (req, res) => {
         }
 
         // Obtener destinatarios
+        // COALESCE: si vi_validated_at está en document_recipients úsalo,
+        // si no, buscar en vi_verified_emails (para firmante definitivo que ya validó como dueño)
         const recipients = await new Promise((resolve, reject) => {
             db.query(
-                `SELECT recipient_id as id, email, name, token, status,
-                        sent_at, opened_at, completed_at, rejected_at, vi_validated_at
-                 FROM document_recipients
-                 WHERE document_id = ?
-                 ORDER BY sent_at DESC`,
+                `SELECT dr.recipient_id as id, dr.email, dr.name, dr.token, dr.status,
+                        dr.sent_at, dr.opened_at, dr.completed_at, dr.rejected_at,
+                        COALESCE(dr.vi_validated_at, vve.vi_validated_at) AS vi_validated_at,
+                        dr.vi_traza_path,
+                        dr.is_final_signer, dr.viewer_group_id
+                 FROM document_recipients dr
+                 LEFT JOIN vi_verified_emails vve ON vve.email COLLATE utf8mb4_0900_ai_ci = dr.email COLLATE utf8mb4_0900_ai_ci
+                 WHERE dr.document_id = ?
+                 ORDER BY dr.viewer_group_id ASC, dr.sent_at ASC`,
                 [documentId],
                 (err, results) => {
                     if (err) reject(err);
@@ -2514,7 +2611,7 @@ async function sendEmailsToViewerGroup(viewerGroupId, recipients, document, user
         for (const recipient of recipients) {
             const signUrl = `${APP_URL}/public-sign.html?token=${recipient.token}`;
 
-            const subject = `✍️ Firma requerida: ${document.name}`;
+            const subject = `Firma requerida: ${document.name}`;
 
             const html = `
 <!DOCTYPE html>
@@ -2757,11 +2854,11 @@ async function generateAndSendPagares(docId, document, viewerGroups, allFields, 
                 [customPdfPath, vg.viewerGroupId]
             );
 
-            // Actualizar custom_pdf_path en cada recipient de este viewer group
+            // Actualizar custom_pdf_path Y personal_pdf_path en cada recipient de este viewer group
             for (const recipient of vg.recipients) {
                 await db.promise().query(
-                    `UPDATE document_recipients SET custom_pdf_path = ? WHERE recipient_id = ?`,
-                    [customPdfPath, recipient.recipientId]
+                    `UPDATE document_recipients SET custom_pdf_path = ?, personal_pdf_path = ? WHERE recipient_id = ?`,
+                    [customPdfPath, customPdfPath, recipient.recipientId]
                 );
             }
 
@@ -2770,8 +2867,12 @@ async function generateAndSendPagares(docId, document, viewerGroups, allFields, 
             // Preparar emails para todos los recipients del grupo
             console.log(`   📧 Preparando emails para ${vg.recipients.length} recipient(s)...`);
 
-            // Preparar email para cada firmante del viewer group
+            // Preparar email para cada firmante del viewer group (omitir los que requieren VI primero)
             for (const recipient of vg.recipients) {
+                if (recipient.needsVI) {
+                    console.log(`   ⏸️ [VI] ${recipient.email} — email en espera (requiere validación de identidad)`);
+                    continue;
+                }
                 try {
                     const signatureUrl = `${process.env.APP_URL || 'http://localhost:3000'}/public-sign.html?token=${recipient.token}`;
                     const appUrl = process.env.APP_URL || 'http://localhost:3000';
@@ -2793,73 +2894,71 @@ async function generateAndSendPagares(docId, document, viewerGroups, allFields, 
                     const plainText = `
 Estimado cliente,
 
-¡Buenas noticias! Ya está listo el documento para tu firma digital. Es un proceso fácil y seguro que consta de dos partes:
+Buenas noticias. Ya esta listo el documento para su firma digital. Es un proceso facil y seguro.
 
-✅ Ya realizaste la validación de identidad biométrica de manera exitosa.
+Ya realizo la validacion de identidad biometrica de manera exitosa.
 
-Ahora debes proceder con la firma del documento.
+Ahora debe proceder con la firma del documento.
 
-DOCUMENTO A FIRMAR: ${document.title || 'Pagaré'}
+DOCUMENTO A FIRMAR: ${document.title || 'Pagare'}
 
-⚠️ ANTES DE HACER CLIC EN EL ENLACE, POR FAVOR TEN EN CUENTA LO SIGUIENTE:
+ANTES DE HACER CLIC EN EL ENLACE, POR FAVOR TENGA EN CUENTA LO SIGUIENTE:
 
-Al ingresar al sistema de firma digital, deberás buscar el recuadro designado para la firma. Allí podrás elegir entre TRES OPCIONES para completarla:
+Al ingresar al sistema de firma digital, debera buscar el recuadro designado para la firma. Alli podra elegir entre tres opciones para completarla:
 
 1. Firma tecleada:
-   Escribe tu nombre completo y se generará automáticamente una firma en estilo tipográfico.
+   Escriba su nombre completo y se generara automaticamente una firma en estilo tipografico.
 
-2. Firma manuscrita (gráfica):
-   Dibuja tu firma directamente en el recuadro usando el cursor o una pantalla táctil.
+2. Firma manuscrita (grafica):
+   Dibuje su firma directamente en el recuadro usando el cursor o una pantalla tactil.
 
-3. Cargar imagen de tu firma:
-   Si ya tienes tu firma escaneada, puedes subirla en formato JPG o PNG.
+3. Cargar imagen de su firma:
+   Si ya tiene su firma escaneada, puede subirla en formato JPG o PNG.
 
 ENLACE PARA FIRMAR EL DOCUMENTO:
 ${signatureUrl}
 
-💬 ¿Necesitas ayuda?
-Si tienes alguna pregunta o necesitas ayuda, no dudes en contactarnos. Estamos aquí para ayudarte en lo que necesites.
-
-¡Que tengas un buen día!
+Necesita ayuda?
+Si tiene alguna pregunta o necesita ayuda, no dude en contactarnos. Estamos aqui para ayudarle en lo que necesite.
 
 Atentamente,
 Isabella Vergara
-📧 Firmalegalonline@pkiservices.co
+Firmalegalonline@pkiservices.co
 
-═══════════════════════════════════════════════════════════
+---
 
-📜 MARCO LEGAL
+MARCO LEGAL
 
 Ley 527 de 1999 y Decreto 2364 de 2012:
-El Decreto 2364 de 2012, que reglamenta el artículo 7 de la Ley 527 de 1999, define la firma electrónica como aquel método implementado para identificar a una persona y su voluntad para un fin específico, por ejemplo, para verificar la voluntad de adquirir derechos y obligaciones en un documento.
+El Decreto 2364 de 2012, que reglamenta el articulo 7 de la Ley 527 de 1999, define la firma electronica como aquel metodo implementado para identificar a una persona y su voluntad para un fin especifico, por ejemplo, para verificar la voluntad de adquirir derechos y obligaciones en un documento.
 
-Para que la firma electrónica genere efectos legales, deberá cumplir los mismos requisitos que tiene cualquier documento físico aplicando el Principio de Equivalencia Funcional para que los supuestos de la vida real sean iguales en la vida digital y generen idénticos efectos.
+Para que la firma electronica genere efectos legales, debera cumplir los mismos requisitos que tiene cualquier documento fisico aplicando el Principio de Equivalencia Funcional para que los supuestos de la vida real sean iguales en la vida digital y generen identicos efectos.
 
-⚖️ CUMPLIMIENTO AL PRINCIPIO CONSTITUCIONAL DE LA BUENA FE
+CUMPLIMIENTO AL PRINCIPIO CONSTITUCIONAL DE LA BUENA FE
 
-PKI SERVICES S.A.S. debe dar cumplimiento al artículo 83 de la constitución política colombiana, sobre el principio de la buena fe: "Las actuaciones de los particulares y de las autoridades públicas deberán ceñirse a los postulados de buena fe, la cual se presumirá en todas las gestiones que aquéllos adelanten ante éstas."
+PKI SERVICES S.A.S. debe dar cumplimiento al articulo 83 de la constitucion politica colombiana, sobre el principio de la buena fe: "Las actuaciones de los particulares y de las autoridades publicas deberan cenirse a los postulados de buena fe, la cual se presumira en todas las gestiones que aquellos adelanten ante estas."
 
-⚠️ FALSEDAD EN DOCUMENTO PRIVADO
+FALSEDAD EN DOCUMENTO PRIVADO
 
-Los solicitantes deben dar cumplimiento a la LEY 599 DE 2000, Artículo 289: "El que falsifique documento privado que pueda servir de prueba, incurrirá, si lo usa, en prisión de uno (1) a seis (6) años."
+Los solicitantes deben dar cumplimiento a la LEY 599 DE 2000, Articulo 289: "El que falsifique documento privado que pueda servir de prueba, incurrira, si lo usa, en prision de uno (1) a seis (6) anos."
 
-🏛️ ACREDITACIÓN ONAC
+ACREDITACION ONAC
 
-PKI SERVICES en cumplimiento de la LEY 527 de 1999 y sus decretos reglamentarios, es una entidad acreditada por el ORGANISMO NACIONAL DE ACREDITACIÓN DE COLOMBIA (ONAC).
+PKI SERVICES en cumplimiento de la LEY 527 de 1999 y sus decretos reglamentarios, es una entidad acreditada por el ORGANISMO NACIONAL DE ACREDITACION DE COLOMBIA (ONAC).
 
-Para cualquier duda o inquietud sobre la plataforma de Firma, puede ponerse en contacto con nuestro servicio de atención al cliente en:
-🔗 Soporte PKI Services: https://pkiservices.co/soporte/?wpsc-section=ticket-list
+Para cualquier duda o inquietud sobre la plataforma de Firma, puede ponerse en contacto con nuestro servicio de atencion al cliente en:
+Soporte PKI Services: https://pkiservices.co/soporte/?wpsc-section=ticket-list
 
-═══════════════════════════════════════════════════════════
+---
 
 PKI SERVICES S.A.S.
-Plataforma de Firma Electrónica Certificada
+Plataforma de Firma Electronica Certificada
 
-Este mensaje y sus archivos adjuntos van dirigidos exclusivamente a su destinatario pudiendo contener información confidencial sometida a secreto profesional. No está permitida su reproducción o distribución sin la autorización expresa. Si usted no es el destinatario final por favor elimínelo e infórmenos por este mismo medio.
+Este mensaje y sus archivos adjuntos van dirigidos exclusivamente a su destinatario pudiendo contener informacion confidencial sometida a secreto profesional. No esta permitida su reproduccion o distribucion sin la autorizacion expresa. Si usted no es el destinatario final por favor eliminelo e informenos por este mismo medio.
 
-De acuerdo con la Ley Estatutaria 1581 de 2012 de Protección de Datos y normas concordantes, le informamos que nuestra entidad cuenta con política para el tratamiento de los datos personales almacenados en sus bases de datos.
+De acuerdo con la Ley Estatutaria 1581 de 2012 de Proteccion de Datos y normas concordantes, le informamos que nuestra entidad cuenta con politica para el tratamiento de los datos personales almacenados en sus bases de datos.
 
-© ${new Date().getFullYear()} PKI Services S.A.S. - Todos los derechos reservados
+(c) ${new Date().getFullYear()} PKI Services S.A.S. - Todos los derechos reservados
                     `.trim();
 
                     // Agregar a la lista de emails (mismo formato que documentos normales)
@@ -2868,17 +2967,12 @@ De acuerdo con la Ley Estatutaria 1581 de 2012 de Protección de Datos y normas 
                         from: fromEmail,
                         fromName: `${senderName} (FirmaLegal)`,
                         replyTo: fromEmail,
-                        subject: `Solicitud de firma: ${document.title || 'Pagaré'}`,
+                        subject: `Firma electronica requerida - ${document.title || 'Pagare'}`,
                         text: plainText,
                         html: htmlContent,
-                        // Headers anti-spam optimizados para Gmail
+                        // Headers
                         headers: {
-                            'X-Priority': '3',
-                            'X-MSMail-Priority': 'Normal',
-                            'Importance': 'normal',
-                            'X-Mailer': 'FirmaLegal Online',
-                            'List-Unsubscribe': `<${appUrl}/unsubscribe?token=${recipient.token}>`,
-                            'Precedence': 'bulk'
+                            'X-Mailer': 'FirmaLegal Online'
                         },
                         // Categorías de SendGrid
                         categories: ['signature-request', 'legal-document', 'pagare'],
@@ -3054,6 +3148,76 @@ router.post('/:docId/pagare/send-bulk', requireAuth, async (req, res) => {
             [docId]
         );
 
+        // ✅ Verificar vinculación VI del owner y pre-cargar emails verificados
+        const VI_URL = process.env.VI_URL || 'http://validacion-identidad-app-1:3000';
+        const VI_API_KEY = process.env.INTERNAL_API_KEY || '';
+        let ownerVinculadoVI = false;
+        const viVerifiedEmails = {}; // email.toLowerCase() → true si validado en el último año
+
+        try {
+            const ownerIdForVI = req.userId || document.owner_id;
+            const checkUrl = new URL(`${VI_URL}/validacion/api/firmalegal/check-vinculacion/${ownerIdForVI}`);
+            const transport = checkUrl.protocol === 'https:' ? require('https') : require('http');
+            const checkResult = await new Promise((resolve) => {
+                const r = transport.request({
+                    hostname: checkUrl.hostname,
+                    port: checkUrl.port || 80,
+                    path: checkUrl.pathname,
+                    method: 'GET',
+                    headers: { 'X-Internal-Api-Key': VI_API_KEY }
+                }, (resp) => {
+                    let data = '';
+                    resp.on('data', d => data += d);
+                    resp.on('end', () => { try { resolve(JSON.parse(data)); } catch { resolve({}); } });
+                });
+                r.on('error', () => resolve({}));
+                r.end();
+            });
+            ownerVinculadoVI = checkResult.vinculado === true;
+        } catch (_) { ownerVinculadoVI = false; }
+
+        console.log(`   🔐 [PAGARE] Owner vinculado a VI: ${ownerVinculadoVI}`);
+
+        if (ownerVinculadoVI) {
+            // Recopilar todos los emails únicos de firmantes del CSV
+            const allFirmanteEmails = [...new Set(
+                csvData.flatMap(p => (p.firmantes || []).map(f => f.email.toLowerCase()))
+            )];
+            // También verificar firmante definitivo
+            if (finalSignerEmail) allFirmanteEmails.push(finalSignerEmail.toLowerCase());
+
+            if (allFirmanteEmails.length > 0) {
+                const oneYearAgo = new Date();
+                oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+                const placeholdersVI = allFirmanteEmails.map(() => '?').join(',');
+
+                // 1. Consultar vi_verified_emails (registro persistente — fuente principal)
+                const [viRowsPersist] = await db.promise().query(
+                    `SELECT email, vi_validated_at FROM vi_verified_emails
+                     WHERE email IN (${placeholdersVI}) AND vi_validated_at >= ?`,
+                    [...allFirmanteEmails, oneYearAgo]
+                );
+                viRowsPersist.forEach(r => {
+                    viVerifiedEmails[r.email.toLowerCase()] = r.vi_validated_at || true;
+                });
+
+                // 2. Consultar document_recipients (complemento)
+                const [viRowsDR] = await db.promise().query(
+                    `SELECT email, MAX(vi_validated_at) as vi_validated_at
+                     FROM document_recipients
+                     WHERE email IN (${placeholdersVI})
+                       AND vi_validated_at IS NOT NULL AND vi_validated_at >= ?
+                     GROUP BY email`,
+                    [...allFirmanteEmails, oneYearAgo]
+                );
+                viRowsDR.forEach(r => {
+                    if (!viVerifiedEmails[r.email.toLowerCase()]) viVerifiedEmails[r.email.toLowerCase()] = r.vi_validated_at || true;
+                });
+
+                console.log(`   ✅ [VI] Emails verificados: ${Object.keys(viVerifiedEmails).join(', ') || 'ninguno'}`);
+            }
+        }
+
         // ✅ Configurar pagare_metadata (una sola vez por documento)
         console.log(`📝 Configurando metadata del pagaré...`);
         const finalSignerToken = crypto.randomBytes(32).toString('hex');
@@ -3113,23 +3277,57 @@ router.post('/:docId/pagare/send-bulk', requireAuth, async (req, res) => {
 
                 console.log(`      🔗 Mapeando partId ${firmante.partId} -> part_id real: ${realPartId}`);
 
+                // Determinar status: 'pending' si owner vinculado a VI y el firmante no está verificado
+                const firmanteVerificado = ownerVinculadoVI ? !!viVerifiedEmails[firmante.email.toLowerCase()] : true;
+                const firmanteStatus = (ownerVinculadoVI && !firmanteVerificado) ? 'pending' : 'sent';
+
+                // Si ya verificado, copiar vi_validated_at previo
+                let viValidatedAt = null;
+                if (ownerVinculadoVI && firmanteVerificado) {
+                    // El valor ya está en viVerifiedEmails si es un Date, sino buscarlo
+                    const cached = viVerifiedEmails[firmante.email.toLowerCase()];
+                    if (cached instanceof Date || (cached && typeof cached === 'object')) {
+                        viValidatedAt = cached;
+                    } else {
+                        const oneYearAgo = new Date();
+                        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+                        // Buscar en vi_verified_emails primero
+                        const [prevVIPersist] = await db.promise().query(
+                            `SELECT vi_validated_at FROM vi_verified_emails
+                             WHERE email = ? AND vi_validated_at >= ?`,
+                            [firmante.email.toLowerCase(), oneYearAgo]
+                        );
+                        if (prevVIPersist[0]?.vi_validated_at) {
+                            viValidatedAt = prevVIPersist[0].vi_validated_at;
+                        } else {
+                            const [prevVI] = await db.promise().query(
+                                `SELECT MAX(vi_validated_at) as vi_validated_at FROM document_recipients
+                                 WHERE email = ? AND vi_validated_at IS NOT NULL AND vi_validated_at >= ?`,
+                                [firmante.email, oneYearAgo]
+                            );
+                            viValidatedAt = prevVI[0]?.vi_validated_at || null;
+                        }
+                    }
+                }
+
                 // Crear recipient
                 const [recipientResult] = await db.promise().query(
                     `INSERT INTO document_recipients
-                     (document_id, email, name, viewer_group_id, part_id, status, token)
-                     VALUES (?, ?, ?, ?, ?, 'sent', ?)`,
-                    [docId, firmante.email, firmante.roleName, viewerGroupId, realPartId, token]
+                     (document_id, email, name, viewer_group_id, part_id, status, token, vi_validated_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [docId, firmante.email, firmante.roleName, viewerGroupId, realPartId, firmanteStatus, token, viValidatedAt]
                 );
 
                 const recipientId = recipientResult.insertId;
-                console.log(`      📧 Firmante creado: ${firmante.email} (${firmante.roleName}, part: ${firmante.partId})`);
+                console.log(`      📧 Firmante creado: ${firmante.email} (${firmante.roleName}, part: ${firmante.partId}, status: ${firmanteStatus})`);
 
                 recipientsCreated.push({
                     recipientId,
                     email: firmante.email,
                     name: firmante.roleName,
                     token,
-                    partId: firmante.partId
+                    partId: firmante.partId,
+                    needsVI: ownerVinculadoVI && !firmanteVerificado
                 });
 
                 // Los campos de firma ya están vinculados al recipient a través del part_id

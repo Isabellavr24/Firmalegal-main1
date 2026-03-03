@@ -295,24 +295,52 @@
       background: #d62839;
     }
 
-    /* Responsive */
+    /* Responsive modal firma */
     @media (max-width: 640px) {
+      /* Tabs horizontales en móvil: solo íconos */
       .signature-tabs {
-        flex-direction: column;
+        flex-direction: row !important;
+        gap: 4px;
       }
 
       .signature-tab {
-        border-bottom: none;
-        border-left: 3px solid transparent;
+        flex: 1;
+        padding: 10px 6px;
+        border-bottom: 3px solid transparent;
+        border-left: none !important;
+        font-size: 12px;
+        justify-content: center;
+      }
+
+      .signature-tab span {
+        display: none;
       }
 
       .signature-tab.active {
-        border-bottom: none;
-        border-left-color: #2b0e31;
+        border-bottom: 3px solid #2b0e31 !important;
+        border-left: none !important;
       }
 
       .font-selector {
-        grid-template-columns: 1fr;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      .font-option {
+        padding: 10px 8px;
+      }
+
+      .font-preview {
+        font-size: 22px;
+      }
+
+      .typed-preview {
+        padding: 16px;
+        min-height: 70px;
+      }
+
+      .typed-preview-text {
+        font-size: 28px;
       }
     }
 
@@ -336,30 +364,21 @@
         padding: 4px;
         overflow: visible;
       }
+      /* Anular sign.css: overflow:hidden corta los campos overlay */
       .canvas-wrap {
-        max-width: 100%;
-        overflow: visible;
-      }
-      .pdf-page-canvas {
-        max-width: 100%;
-        height: auto !important;
+        overflow: visible !important;
       }
       .page-overlay {
         width: 100% !important;
         height: 100% !important;
       }
       #sendBtn {
-        position: fixed !important;
-        bottom: 12px;
-        left: 12px;
-        right: 12px;
-        width: auto !important;
-        z-index: 90;
+        width: 100% !important;
         border-radius: 16px;
-        margin: 0 !important;
+        margin: 12px 0 !important;
       }
       #successMsg {
-        margin-bottom: 60px;
+        margin-bottom: 16px;
       }
     }
     @media (min-width: 768px) and (max-width: 1023px) {
@@ -818,6 +837,8 @@ async function loadDocument() {
     recipientPartId = currentDocument.recipientPartId; // 🔥 NUEVO: Guardar part_id del destinatario
     isFinalSigner = currentDocument.isFinalSigner || false; // 🔥 NUEVO: Flag de firmante definitivo
     window.isFinalSigner = isFinalSigner; // ✅ También asignar a window para acceso global
+    // 🔒 Bloquear descarga para TODOS los firmantes de pagaré (solo descargable desde tracking)
+    const isPagareViewer = currentDocument.documentType === 'pagare';
 
     console.log('📄 Documento cargado:', currentDocument);
     console.log('🔍 DEBUG - Status:', currentDocument.status);
@@ -848,55 +869,96 @@ async function loadDocument() {
           El documento ha sido firmado digitalmente con certificado PKI.<br>
           Los sellos de certificación están visibles en el PDF.
         </p>
-        <a href="${currentDocument.signedPdfUrl}"
-           download="documento_firmado.pdf"
-           style="
-             display: inline-block;
-             padding: 12px 24px;
-             background: #28a745;
-             color: white;
-             text-decoration: none;
-             border-radius: 8px;
-             font-weight: 600;
-             font-size: 14px;
-             margin-top: 8px;
-             box-shadow: 0 2px 8px rgba(40, 167, 69, 0.3);
-           ">
-          <svg style="width:16px;height:16px;vertical-align:middle;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Descargar PDF Firmado
-        </a>
+        ${isPagareViewer
+          ? `<div style="
+               display:inline-flex;align-items:center;gap:10px;
+               padding:12px 18px;background:#d1fae5;border:1px solid #6ee7b7;
+               border-radius:8px;font-size:13px;color:#065f46;margin-top:8px;">
+               <svg style="flex-shrink:0;width:18px;height:18px;" viewBox="0 0 24 24" fill="none" stroke="#065f46" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                 <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+               </svg>
+               <span>El pagaré firmado es custodiado por el beneficiario.<br>
+               <strong>No está disponible para descarga por los firmantes.</strong></span>
+             </div>`
+          : `<a href="${currentDocument.signedPdfUrl}"
+               download="documento_firmado.pdf"
+               style="
+                 display: inline-block;
+                 padding: 12px 24px;
+                 background: #28a745;
+                 color: white;
+                 text-decoration: none;
+                 border-radius: 8px;
+                 font-weight: 600;
+                 font-size: 14px;
+                 margin-top: 8px;
+                 box-shadow: 0 2px 8px rgba(40, 167, 69, 0.3);
+               ">
+              <svg style="width:16px;height:16px;vertical-align:middle;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Descargar PDF Firmado
+             </a>`
+        }
       `;
       successMsg.style.display = 'block';
       successMsg.style.opacity = '1';
 
-      // Cargar el PDF firmado en el visor
-      let signedPdfUrl = currentDocument.signedPdfUrl;
-      if (!signedPdfUrl.startsWith('http://') && !signedPdfUrl.startsWith('https://')) {
-        const origin = window.location.origin;
-        const path = signedPdfUrl.startsWith('/') ? signedPdfUrl.substring(1) : signedPdfUrl;
-        signedPdfUrl = `${origin}/${path}`;
+      // Cargar PDF en el visor:
+      // - Pagaré viewer: mostrar su propio PDF personal (sin datos de otros firmantes)
+      // - Resto: mostrar el PDF firmado final con sello PKI
+      let viewerPdfUrl;
+      if (isPagareViewer) {
+        // Usar pdfPath (PDF personal del viewer, sin información consolidada)
+        viewerPdfUrl = currentDocument.pdfPath;
+        console.log(`🔒 Pagaré viewer - cargando PDF personal: ${viewerPdfUrl}`);
+      } else {
+        viewerPdfUrl = currentDocument.signedPdfUrl;
+        console.log(`📄 URL del PDF firmado final: ${viewerPdfUrl}`);
       }
-      console.log(`📄 URL del PDF firmado final: ${signedPdfUrl}`);
-      await loadPDF(signedPdfUrl);
+      if (!viewerPdfUrl.startsWith('http://') && !viewerPdfUrl.startsWith('https://')) {
+        const origin = window.location.origin;
+        const path = viewerPdfUrl.startsWith('/') ? viewerPdfUrl.substring(1) : viewerPdfUrl;
+        viewerPdfUrl = `${origin}/${path}`;
+      }
+      await loadPDF(viewerPdfUrl);
 
     } else if (currentDocument.status === 'completed' && !currentDocument.signedPdfUrl) {
-      // Usuario ya firmó pero aún faltan otros destinatarios
-      console.log('✅ Ya firmaste - Esperando a otros destinatarios');
-
-      // Ocultar botón de enviar
+      // Usuario ya firmó pero el PDF no está disponible para él
       const sendBtn = document.getElementById('sendBtn');
       sendBtn.style.display = 'none';
 
-      // Mostrar mensaje de espera
       const successMsg = document.getElementById('successMsg');
-      successMsg.innerHTML = `
-        <div style="margin-bottom:12px;"><svg style="width:48px;height:48px;" viewBox="0 0 24 24" fill="none" stroke="#28a745" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
-        <p style="margin:0 0 8px; color:#155724; font-weight:700; font-size:18px;">¡Ya completaste tu firma!</p>
-        <p style="margin:0 0 16px; color:#155724; font-size:14px;">
-          Tu firma ha sido registrada correctamente.<br>
-          Esperando a que los demás destinatarios completen sus firmas.<br>
-          El documento final con sello PKI estará disponible cuando todos firmen.
-        </p>
-      `;
+      if (isPagareViewer) {
+        // Pagaré completado: nadie puede descargarlo desde aquí
+        console.log('✅ Pagaré completado - descarga bloqueada para firmante');
+        successMsg.innerHTML = `
+          <div style="margin-bottom:12px;"><svg style="width:48px;height:48px;" viewBox="0 0 24 24" fill="none" stroke="#28a745" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
+          <p style="margin:0 0 8px; color:#155724; font-weight:700; font-size:18px;">¡Pagaré firmado exitosamente!</p>
+          <p style="margin:0 0 16px; color:#155724; font-size:14px;">
+            Tu firma ha sido registrada y certificada digitalmente.<br>
+            El pagaré original es custodiado por el beneficiario.
+          </p>
+          <div style="
+            display:inline-flex;align-items:center;gap:10px;
+            padding:12px 18px;background:#d1fae5;border:1px solid #6ee7b7;
+            border-radius:8px;font-size:13px;color:#065f46;">
+            <svg style="flex-shrink:0;width:18px;height:18px;" viewBox="0 0 24 24" fill="none" stroke="#065f46" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+            <span>El pagaré firmado <strong>no está disponible para descarga</strong> por los firmantes.</span>
+          </div>
+        `;
+      } else {
+        // Documento normal: esperando a otros firmantes
+        console.log('✅ Ya firmaste - Esperando a otros destinatarios');
+        successMsg.innerHTML = `
+          <div style="margin-bottom:12px;"><svg style="width:48px;height:48px;" viewBox="0 0 24 24" fill="none" stroke="#28a745" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
+          <p style="margin:0 0 8px; color:#155724; font-weight:700; font-size:18px;">¡Ya completaste tu firma!</p>
+          <p style="margin:0 0 16px; color:#155724; font-size:14px;">
+            Tu firma ha sido registrada correctamente.<br>
+            Esperando a que los demás destinatarios completen sus firmas.<br>
+            El documento final con sello PKI estará disponible cuando todos firmen.
+          </p>
+        `;
+      }
       successMsg.style.display = 'block';
       successMsg.style.opacity = '1';
 
@@ -970,75 +1032,87 @@ async function waitForPdfJs() {
   console.log('✅ PDF.js cargado y configurado');
 }
 
+// Renderiza las páginas del pdfDoc ya cargado
+async function renderPDFPages() {
+  if (!pdfDoc) return;
+  const container = document.getElementById('pagesContainer');
+  container.innerHTML = '';
+  allPages = [];
+
+  const dpr = window.devicePixelRatio || 1;
+
+  // Leer el ancho del panel PDF (getBoundingClientRect respeta zoom de DevTools y viewport real)
+  const panelEl = document.getElementById('pdfViewer');
+  const panelStyle = panelEl ? window.getComputedStyle(panelEl) : null;
+  const paddingH = panelStyle ? parseFloat(panelStyle.paddingLeft) + parseFloat(panelStyle.paddingRight) : 40;
+  const panelRect = panelEl ? panelEl.getBoundingClientRect() : null;
+  let availableWidth = panelRect ? Math.max(0, panelRect.width - paddingH) : 0;
+  if (!availableWidth) availableWidth = window.innerWidth - 40;
+  availableWidth = Math.max(200, availableWidth);
+
+  console.log(`📐 Ancho disponible PDF: ${availableWidth}px (panelRect.width=${panelRect?.width?.toFixed(0)}px, paddingH=${paddingH}px)`);
+
+  for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+    const page = await pdfDoc.getPage(pageNum);
+    const naturalViewport = page.getViewport({ scale: 1 });
+    const maxWidth = Math.min(availableWidth, 900);
+    const baseScale = Math.max(0.3, Math.min(1.4, maxWidth / naturalViewport.width));
+    const viewport = page.getViewport({ scale: baseScale });
+
+    const pageWrapper = document.createElement('div');
+    pageWrapper.className = 'canvas-wrap';
+    // inline-block: el wrapper se auto-dimensiona al canvas, los position:absolute quedan alineados
+    pageWrapper.style.position = 'relative';
+    pageWrapper.style.display = 'inline-block';
+    pageWrapper.style.overflow = 'visible';
+    pageWrapper.style.marginBottom = '20px';
+    pageWrapper.dataset.pageNum = pageNum;
+
+    const canvas = document.createElement('canvas');
+    canvas.className = 'pdf-page-canvas';
+    canvas.width = viewport.width * dpr;
+    canvas.height = viewport.height * dpr;
+    // !important para ganar sobre sign.css que pone height:auto !important en móvil
+    canvas.style.setProperty('width', `${viewport.width}px`, 'important');
+    canvas.style.setProperty('height', `${viewport.height}px`, 'important');
+    canvas.style.display = 'block';
+
+    pageWrapper.appendChild(canvas);
+    container.appendChild(pageWrapper);
+
+    const context = canvas.getContext('2d');
+    context.scale(dpr, dpr);
+    await page.render({ canvasContext: context, viewport: viewport }).promise;
+
+    allPages.push({
+      pageNum: pageNum,
+      wrapper: pageWrapper,
+      canvas: canvas,
+      width: viewport.width,
+      height: viewport.height,
+      scale: baseScale
+    });
+
+    console.log(`✅ Página ${pageNum} renderizada (${viewport.width}x${viewport.height}, scale=${baseScale.toFixed(3)})`);
+  }
+}
+
 // Cargar y renderizar PDF
 async function loadPDF(pdfPath) {
   try {
     console.log(`📄 Intentando cargar PDF desde: ${pdfPath}`);
-    
-    // Verificar que PDF.js esté disponible
+
     if (!window.pdfjsLib) {
       throw new Error('PDF.js no está cargado');
     }
-    
+
     const loadingTask = window.pdfjsLib.getDocument(pdfPath);
     pdfDoc = await loadingTask.promise;
-    
+
     console.log(`✅ PDF cargado correctamente (${pdfDoc.numPages} página(s))`);
 
-    const container = document.getElementById('pagesContainer');
-    container.innerHTML = '';
-    allPages = []; // ✅ Limpiar array de páginas
+    await renderPDFPages();
 
-    // ✅ Configuración igual a sign.js (responsive en móvil)
-    const dpr = window.devicePixelRatio || 1;
-    // Usar el ancho real del panel PDF (main.panel > pagesContainer)
-    const panelEl = container.closest('main') || container.parentElement;
-    const containerWidth = (panelEl ? panelEl.clientWidth : 0) || container.clientWidth || window.innerWidth;
-
-    for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
-      const page = await pdfDoc.getPage(pageNum);
-      // Calcular escala para que el PDF quepa en el ancho disponible en móvil
-      const naturalViewport = page.getViewport({ scale: 1 });
-      const maxWidth = Math.min(containerWidth - 16, 900);
-      const baseScale = Math.min(1.4, maxWidth / naturalViewport.width);
-      const viewport = page.getViewport({ scale: baseScale });
-
-      // ✅ Crear wrapper para la página con position relative (igual a sign.js)
-      const pageWrapper = document.createElement('div');
-      pageWrapper.className = 'canvas-wrap';
-      pageWrapper.style.position = 'relative';
-      pageWrapper.style.marginBottom = '20px';
-      pageWrapper.style.display = 'inline-block';
-      pageWrapper.dataset.pageNum = pageNum;
-
-      const canvas = document.createElement('canvas');
-      canvas.className = 'pdf-page-canvas';
-      canvas.width = viewport.width * dpr;
-      canvas.height = viewport.height * dpr;
-      canvas.style.width = `${viewport.width}px`;
-      canvas.style.height = `${viewport.height}px`;
-
-      pageWrapper.appendChild(canvas);
-      container.appendChild(pageWrapper);
-
-      const context = canvas.getContext('2d');
-      context.scale(dpr, dpr);
-      await page.render({ canvasContext: context, viewport: viewport }).promise;
-
-      // ✅ Guardar referencia de la página
-      allPages.push({
-        pageNum: pageNum,
-        wrapper: pageWrapper,
-        canvas: canvas,
-        width: viewport.width,
-        height: viewport.height,
-        scale: baseScale
-      });
-
-      console.log(`✅ Página ${pageNum} renderizada (${viewport.width}x${viewport.height})`);
-    }
-
-    // 🔥 FIRMANTE DEFINITIVO: Los placeholders se renderizan individualmente por campo
     if (isFinalSigner) {
       console.log('🔒 Firmante definitivo detectado: Los placeholders se aplicarán sobre cada campo...');
     }
@@ -1047,6 +1121,29 @@ async function loadPDF(pdfPath) {
     showError('Error al cargar el archivo PDF.');
   }
 }
+
+// Re-renderizar páginas y campos al cambiar orientación / tamaño ventana
+// En móvil, el scroll hace que la barra del navegador aparezca/desaparezca cambiando
+// solo la altura del viewport — ignorar esos cambios para no re-renderizar ni saltar al inicio.
+let _rerenderTimer = null;
+let _lastInnerWidth = window.innerWidth;
+window.addEventListener('resize', () => {
+  const newWidth = window.innerWidth;
+  // Solo re-renderizar si cambió el ANCHO (cambio real de layout / rotación)
+  // Ignorar cambios solo de altura (barra navegador móvil apareciendo/desapareciendo)
+  if (newWidth === _lastInnerWidth) return;
+  _lastInnerWidth = newWidth;
+  clearTimeout(_rerenderTimer);
+  _rerenderTimer = setTimeout(async () => {
+    if (!pdfDoc || !currentDocument) return;
+    console.log('🔄 Re-renderizando PDF por cambio de tamaño...');
+    await renderPDFPages();
+    // Re-cargar campos si el documento tiene campos editables
+    if (currentDocument.fields && currentDocument.fields.length > 0 && currentDocument.status !== 'completed') {
+      loadExistingFields(currentDocument.fields);
+    }
+  }, 300);
+});
 
 // 🔥 NUEVA FUNCIÓN: Renderizar placeholder individual sobre un campo
 function renderPrivacyPlaceholder(pageData, fieldData, tipo) {
@@ -1162,9 +1259,11 @@ function loadExistingFields(existingFields) {
       const pageData = allPages.find(p => p.pageNum === pageNum);
       const VIEWPORT_SCALE = pageData ? pageData.scale : 1.4;
 
+      console.log(`🔍 Campo ${index+1}: raw x=${field.x} y=${field.y} w=${field.width} h=${field.height} | scale=${VIEWPORT_SCALE.toFixed(3)} | pageSize=${pageData?.width}x${pageData?.height}`);
+
       const fieldData = {
         id: `field-${Date.now()}-${index}`,
-        field_id: field.field_id, // ✅ Guardar el field_id de la base de datos
+        field_id: field.field_id,
         type: field.type,
         page: pageNum,
         // Convertir de coordenadas PDF (reales) a coordenadas viewport (escaladas)
@@ -1181,12 +1280,8 @@ function loadExistingFields(existingFields) {
       };
 
       fields.push(fieldData);
-      
-      if (field.value) {
-        console.log(`   ✓ Campo ${index + 1}: ${field.type} en página ${field.page} (field_id: ${field.field_id}) - Valor: "${field.value}"`);
-      } else {
-        console.log(`   ✓ Campo ${index + 1}: ${field.type} en página ${field.page} (field_id: ${field.field_id})`);
-      }
+
+      console.log(`   → posición CSS: left=${fieldData.x.toFixed(1)} top=${fieldData.y.toFixed(1)} w=${fieldData.w.toFixed(1)} h=${fieldData.h.toFixed(1)}`);
       
       // Renderizar el campo visualmente en el PDF
       renderFieldOnPage(fieldData);
@@ -1297,7 +1392,7 @@ function renderFieldOnPage(fieldData) {
     // Agregar al wrapper de la página
     pageData.wrapper.appendChild(fieldDiv);
 
-    console.log(`   ✓ Campo renderizado: ${fieldData.id} (${fieldData.type}) en página ${fieldData.page}`);
+    console.log(`   ✓ Campo renderizado: ${fieldData.id} (${fieldData.type}) en página ${fieldData.page} | wrapper=${pageData.wrapper.offsetWidth}x${pageData.wrapper.offsetHeight} | canvas=${pageData.canvas.style.width}x${pageData.canvas.style.height}`);
 
   } catch (error) {
     console.error('❌ Error al renderizar campo:', error);

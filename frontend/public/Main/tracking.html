@@ -559,6 +559,8 @@
                       </div>
                     </div>
                     <div id="pagareCsvValidation" style="font-size: 11px; color: #16a34a;"></div>
+                    <!-- Tabla de estado VI por firmante -->
+                    <div id="pagareCsvViTable" style="display:none; margin-top:10px;"></div>
                   </div>
                 </div>
               </div>
@@ -578,6 +580,7 @@
                   <div>
                     <label style="display: block; font-size: 13px; font-weight: 500; color: #374151; margin-bottom: 6px;">Email del firmante definitivo</label>
                     <input type="email" id="finalSignerEmail" placeholder="rector@universidad.edu" style="width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px;">
+                    <div id="finalSignerViBadge" style="margin-top:6px;min-height:20px;"></div>
                   </div>
                   <div>
                     <label style="display: block; font-size: 13px; font-weight: 500; color: #374151; margin-bottom: 6px;">Nombre del firmante definitivo</label>
@@ -766,7 +769,7 @@
     }
 
     // Procesar archivo
-    function handleBulkFile(file) {
+    async function handleBulkFile(file) {
       console.log('📂 Archivo seleccionado:', file.name);
 
       // Validar tamaño
@@ -788,7 +791,7 @@
           header: true,
           skipEmptyLines: true,
           complete: (results) => {
-            processBulkData(results.data);
+            processBulkData(results.data).catch(err => console.error('Error procesando CSV:', err));
           },
           error: (error) => {
             ToastManager.error('Error al leer CSV', error.message, 6000);
@@ -802,14 +805,14 @@
           const sheetName = workbook.SheetNames[0];
           const sheet = workbook.Sheets[sheetName];
           const jsonData = XLSX.utils.sheet_to_json(sheet);
-          processBulkData(jsonData);
+          processBulkData(jsonData).catch(err => console.error('Error procesando XLSX:', err));
         };
         reader.readAsArrayBuffer(file);
       }
     }
 
     // Validar y procesar datos
-    function processBulkData(data) {
+    async function processBulkData(data) {
       console.log('📊 Datos parseados:', data);
 
       const recipients = [];
@@ -900,19 +903,119 @@
       // Guardar destinatarios válidos
       window.bulkRecipients = recipients;
 
-      // Actualizar UI
+      // Detectar campos de texto únicos presentes en el CSV
+      const allFieldKeys = new Set();
+      recipients.forEach(r => {
+        if (r.fieldValues) Object.keys(r.fieldValues).forEach(k => allFieldKeys.add(k));
+      });
+      const fieldKeys = [...allFieldKeys];
+
+      // Consultar estado VI de todos los emails al backend
+      let viVerified = {};
+      let ownerVinculadoVI = false;
+      try {
+        const viResp = await fetch('/api/integration/vi-link-status');
+        if (viResp.ok) {
+          const viData = await viResp.json();
+          ownerVinculadoVI = viData.vinculado === true;
+        }
+      } catch (_) {}
+
+      if (ownerVinculadoVI) {
+        try {
+          const checkResp = await fetch('/api/recipients/check-vi-status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ emails: recipients.map(r => r.email) })
+          });
+          if (checkResp.ok) {
+            const checkData = await checkResp.json();
+            viVerified = checkData.verified || {};
+          }
+        } catch (_) {}
+      }
+
+      // Construir tabla de previsualización
+      const thStyle = 'padding:8px 12px;text-align:left;font-size:12px;color:#555;border-bottom:2px solid #e0e0e0;white-space:nowrap;';
+      const headerCells = `
+        ${ownerVinculadoVI ? `<th style="${thStyle}color:#2b0e31;">ID Verificada</th>` : ''}
+        <th style="${thStyle}">Parte</th>
+        <th style="${thStyle}">Email</th>
+        <th style="${thStyle}">Nombre</th>
+        ${fieldKeys.map(k => `<th style="${thStyle}color:#2b0e31;">${k}</th>`).join('')}
+      `;
+
+      const bodyRows = recipients.map((r, i) => {
+        const bg = i % 2 === 0 ? '#fff' : '#f9f9f9';
+        const isVerified = ownerVinculadoVI && !!viVerified[r.email.toLowerCase()];
+        const viBadge = ownerVinculadoVI
+          ? isVerified
+            ? `<td style="padding:7px 12px;"><span style="display:inline-flex;align-items:center;gap:4px;background:#e8f5e9;color:#2b9348;border:1px solid #a5d6a7;border-radius:12px;padding:3px 10px;font-size:11px;font-weight:700;">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+                VERIFICADO
+               </span></td>`
+            : `<td style="padding:7px 12px;"><span style="display:inline-flex;align-items:center;gap:4px;background:#fdecea;color:#c0392b;border:1px solid #f5c6cb;border-radius:12px;padding:3px 10px;font-size:11px;font-weight:700;">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                NO VERIFICADO
+               </span></td>`
+          : '';
+        const fieldCells = fieldKeys.map(k => `
+          <td style="padding:7px 12px;font-size:12px;color:#2b0e31;font-weight:600;">
+            ${r.fieldValues && r.fieldValues[k] ? r.fieldValues[k] : '<span style="color:#bbb">—</span>'}
+          </td>`).join('');
+        return `
+          <tr style="background:${bg};">
+            ${viBadge}
+            <td style="padding:7px 12px;font-size:12px;color:#666;">${r.parte || '—'}</td>
+            <td style="padding:7px 12px;font-size:12px;">${r.email}</td>
+            <td style="padding:7px 12px;font-size:12px;">${r.nombre || r.name || '—'}</td>
+            ${fieldCells}
+          </tr>`;
+      }).join('');
+
+      const verifiedCount = ownerVinculadoVI ? Object.keys(viVerified).length : null;
+      const pendingCount = ownerVinculadoVI ? recipients.length - (recipients.filter(r => !!viVerified[r.email.toLowerCase()]).length) : null;
+
       uploadZone.innerHTML = `
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#28a745" stroke-width="2">
-          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-          <polyline points="22 4 12 14.01 9 11.01"/>
-        </svg>
-        <p style="color: #28a745; font-weight: 600;"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="#28a745" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Archivo procesado correctamente</p>
-        <p style="color: #666; font-size: 14px; margin-top: 8px;">
-          ${recipients.length} destinatario${recipients.length > 1 ? 's' : ''} válido${recipients.length > 1 ? 's' : ''}
-        </p>
-        <button class="upload-btn" onclick="const input = document.getElementById('csvFileInput'); input.value = ''; input.click(); window.bulkRecipients = [];" style="margin-top: 12px;">
-          Cambiar archivo
-        </button>
+        <div style="text-align:left;">
+          <!-- Cabecera éxito -->
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#28a745" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              <div>
+                <div style="color:#28a745;font-weight:700;font-size:15px;">Archivo procesado correctamente</div>
+                <div style="color:#555;font-size:13px;margin-top:2px;">
+                  Se crearán <strong>${recipients.length}</strong> documento${recipients.length > 1 ? 's' : ''} personalizado${recipients.length > 1 ? 's' : ''}
+                  ${fieldKeys.length > 0 ? ` con <strong>${fieldKeys.length}</strong> campo${fieldKeys.length > 1 ? 's' : ''} rellenado${fieldKeys.length > 1 ? 's' : ''}` : ''}
+                </div>
+                ${ownerVinculadoVI ? `
+                <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap;">
+                  <span style="font-size:12px;background:#e8f5e9;color:#2b9348;border:1px solid #a5d6a7;border-radius:10px;padding:2px 10px;font-weight:600;">
+                    ✓ ${verifiedCount} verificado${verifiedCount !== 1 ? 's' : ''}
+                  </span>
+                  ${pendingCount > 0 ? `<span style="font-size:12px;background:#fdecea;color:#c0392b;border:1px solid #f5c6cb;border-radius:10px;padding:2px 10px;font-weight:600;">
+                    ✗ ${pendingCount} sin verificar — requerirán VI
+                  </span>` : ''}
+                </div>` : ''}
+              </div>
+            </div>
+            <button onclick="const input = document.getElementById('csvFileInput'); input.value = ''; input.click(); window.bulkRecipients = [];"
+              style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;background:#fff;border:2px solid #d0d0d0;border-radius:8px;font-size:13px;font-weight:600;color:#444;cursor:pointer;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              Cambiar archivo
+            </button>
+          </div>
+
+          <!-- Tabla de previsualización -->
+          <div style="overflow-x:auto;border:1px solid #e0e0e0;border-radius:8px;">
+            <table style="width:100%;border-collapse:collapse;min-width:400px;">
+              <thead style="background:#f5f5f5;">
+                <tr>${headerCells}</tr>
+              </thead>
+              <tbody>${bodyRows}</tbody>
+            </table>
+          </div>
+        </div>
       `;
 
       console.log(`✅ ${recipients.length} destinatarios válidos listos para enviar`);
@@ -1931,6 +2034,6 @@
   <!-- Cargar helper de autenticación PRIMERO -->
   <script src="/public/Main/auth-helper.js"></script>
   <!-- Luego el script de tracking -->
-  <script src="/public/Main/tracking.js"></script>
+  <script src="/public/Main/tracking.js?v=20260302g"></script>
 </body>
 </html>

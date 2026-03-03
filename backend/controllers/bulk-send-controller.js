@@ -181,37 +181,48 @@ function validateRecipients(data, documentParts = [], documentType = 'normal') {
         const isNormalType = documentType === 'normal';
 
         if (isNormalType) {
-            console.log('📋 Detectado formato con columna Parte + tipo NORMAL - extrayendo datos compartidos de la primera fila');
+            console.log('📋 Detectado formato con columna Parte + tipo NORMAL');
         } else {
             console.log('📋 Detectado formato con columna Parte + tipo PAGARE - extrayendo datos por fila individual');
         }
 
-        // 🔥 NUEVO: Extraer campos de texto COMPARTIDOS de la primera fila con datos (SOLO para tipo NORMAL)
+        // 🔥 Para tipo NORMAL: detectar si las filas tienen datos DISTINTOS entre sí.
+        // Si son distintos → PDFs individuales (igual que pagare).
+        // Si son iguales o solo hay una fila con datos → campos compartidos.
+        let hasDistinctRowData = false;
         let sharedFieldValues = {};
-        if (isNormalType) {
-            for (const row of data) {
-                const textFields = {};
-                Object.keys(row).forEach(key => {
-                    const keyNormalized = normalizeLabel(key);
-                    // Ignorar las columnas estándar
-                    if (keyNormalized !== 'parte' && keyNormalized !== 'email' && keyNormalized !== 'nombre' && keyNormalized !== 'name') {
-                        const value = (row[key] || '').toString().trim();
-                        if (value) {
-                            textFields[key] = value;
-                        }
-                    }
-                });
 
-                // Si encontramos campos de texto en esta fila, usarlos como compartidos
-                if (Object.keys(textFields).length > 0) {
-                    sharedFieldValues = textFields;
-                    console.log(`📝 Campos compartidos extraídos de primera fila con datos:`, textFields);
-                    break; // Usar solo la primera fila con datos
-                }
+        if (isNormalType) {
+            // Extraer campos extra (no estándar) de cada fila
+            const rowsWithData = data
+                .map(row => {
+                    const fields = {};
+                    Object.keys(row).forEach(key => {
+                        const kn = normalizeLabel(key);
+                        if (kn !== 'parte' && kn !== 'email' && kn !== 'nombre' && kn !== 'name') {
+                            const v = (row[key] || '').toString().trim();
+                            if (v) fields[key] = v;
+                        }
+                    });
+                    return fields;
+                })
+                .filter(f => Object.keys(f).length > 0);
+
+            if (rowsWithData.length > 1) {
+                // Comparar cada fila con la primera — si alguna difiere, son datos individuales
+                const firstJson = JSON.stringify(rowsWithData[0]);
+                hasDistinctRowData = rowsWithData.some(r => JSON.stringify(r) !== firstJson);
+            }
+
+            if (hasDistinctRowData) {
+                console.log('📋 [NORMAL] Filas con datos distintos detectadas → PDFs individuales por destinatario');
+            } else if (rowsWithData.length > 0) {
+                sharedFieldValues = rowsWithData[0];
+                console.log(`📝 Campos compartidos (todos iguales): ${JSON.stringify(sharedFieldValues)}`);
             }
         }
 
-        // Procesar cada fila de destinatarios (SIN extraer fieldValues por fila)
+        // Procesar cada fila de destinatarios
         data.forEach((row, index) => {
             const rowNum = index + 2;
             const parteName = getRowValue(row, ['Parte', 'parte']);
@@ -283,30 +294,26 @@ function validateRecipients(data, documentParts = [], documentType = 'normal') {
                 part_name: matchingPart.role_name
             };
 
-            // 🔥 Si es tipo PAGARE, extraer fieldValues individuales de CADA fila
-            if (!isNormalType) {
+            // Extraer fieldValues individuales para: pagare O normal con datos distintos por fila
+            if (!isNormalType || hasDistinctRowData) {
                 const rowFieldValues = {};
                 Object.keys(row).forEach(key => {
                     const keyNormalized = normalizeLabel(key);
-                    // Ignorar las columnas estándar
                     if (keyNormalized !== 'parte' && keyNormalized !== 'email' && keyNormalized !== 'nombre' && keyNormalized !== 'name') {
                         const value = (row[key] || '').toString().trim();
                         if (value) {
                             rowFieldValues[key] = value;
-                            console.log(`   📝 [PAGARE] Campo de fila ${rowNum} "${key}": "${value}"`);
+                            console.log(`   📝 Campo fila ${rowNum} "${key}": "${value}"`);
                         }
                     }
                 });
 
-                // Agregar campos de texto si existen
                 if (Object.keys(rowFieldValues).length > 0) {
                     recipient.fieldValues = rowFieldValues;
-                    console.log(`   ✅ [PAGARE] ${Object.keys(rowFieldValues).length} campos específicos para ${email}`);
+                    console.log(`   ✅ ${Object.keys(rowFieldValues).length} campos específicos para ${email}`);
                 }
             } else {
-                // Para tipo NORMAL, NO asignar fieldValues individuales - se manejarán como compartidos
-                // Los campos compartidos se aplicarán al PDF base para TODOS los destinatarios
-                console.log(`   ℹ️ [NORMAL] Sin fieldValues individuales - usará campos compartidos`);
+                console.log(`   ℹ️ [NORMAL] Sin campos distintos por fila - usará campos compartidos`);
             }
 
             validRecipients.push(recipient);
@@ -314,8 +321,8 @@ function validateRecipients(data, documentParts = [], documentType = 'normal') {
             console.log(`✅ Destinatario: ${email} → ${matchingPart.role_name} (part_id=${matchingPart.part_id})`);
         });
 
-        // 🔥 Retornar campos compartidos solo si es tipo NORMAL
-        return { validRecipients, errors, sharedFieldValues: isNormalType ? sharedFieldValues : null };
+        // Retornar campos compartidos solo si es NORMAL sin datos distintos por fila
+        return { validRecipients, errors, sharedFieldValues: (isNormalType && !hasDistinctRowData) ? sharedFieldValues : null };
 
     } else if (hasMultipleParts) {
         // Procesamiento con múltiples partes
@@ -936,182 +943,235 @@ router.post('/bulk-send', requireAuth, upload.single('file'), async (req, res) =
         }
         console.log(`📊 DEBUG - fieldLabelMapDebug:`, JSON.stringify(fieldLabelMapDebug, null, 2));
 
+        // Verificar si el owner está vinculado a VI (una sola vez, aplica a todos los destinatarios)
+        const VI_URL = process.env.VI_URL || 'http://validacion-identidad-app-1:3000';
+        const VI_API_KEY = process.env.INTERNAL_API_KEY || '';
+        let ownerVinculadoVI = false;
+        try {
+            const checkUrl = new URL(`${VI_URL}/validacion/api/firmalegal/check-vinculacion/${req.userId}`);
+            const transport = checkUrl.protocol === 'https:' ? require('https') : require('http');
+            const checkResult = await new Promise((resolve) => {
+                const r = transport.request({
+                    hostname: checkUrl.hostname,
+                    port: checkUrl.port || 80,
+                    path: checkUrl.pathname,
+                    method: 'GET',
+                    headers: { 'X-Internal-Api-Key': VI_API_KEY }
+                }, (resp) => {
+                    let data = '';
+                    resp.on('data', d => data += d);
+                    resp.on('end', () => { try { resolve(JSON.parse(data)); } catch { resolve({}); } });
+                });
+                r.on('error', () => resolve({}));
+                r.end();
+            });
+            ownerVinculadoVI = checkResult.vinculado === true;
+        } catch (_) { ownerVinculadoVI = false; }
+        console.log(`   🔐 [BULK-SEND] Owner vinculado a VI: ${ownerVinculadoVI}`);
+
         // Iniciar transacción para insertar destinatarios
         console.log(`💾 Insertando ${validRecipients.length} destinatarios en la base de datos...`);
 
         const insertedRecipients = [];
 
-        await new Promise((resolve, reject) => {
-            db.beginTransaction(async (err) => {
-                if (err) {
-                    return reject(err);
-                }
-
-                try {
-                    // Insertar cada destinatario
-                    for (const recipient of validRecipients) {
-                        const token = generateToken();
-
-                        // 🔥 NUEVO: Calcular role_id, signing_order y can_sign_at
-                        let roleId = null;
-                        let signingOrder = null;
-                        let canSignAt = null;
-
-                        if (recipient.part_id) {
-                            // Encontrar la parte correspondiente para obtener el order_position
-                            const part = documentParts.find(p => p.part_id === recipient.part_id);
-                            if (part) {
-                                signingOrder = part.order_position; // Usar order_position como signing_order
-
-                                // 🔥 Buscar si existe un role_id correspondiente en signer_roles
-                                // que coincida con el order_position de esta parte
-                                const matchingRole = roles.find(r => r.role_order === part.order_position);
-                                if (matchingRole) {
-                                    roleId = matchingRole.role_id;
-                                }
-
-                                // Si firma secuencial está activada:
-                                // - Solo el primer rol (order_position = 1) puede firmar inmediatamente
-                                // - Los demás esperan su turno (can_sign_at = NULL)
-                                if (signInOrder && part.order_position === 1) {
-                                    canSignAt = new Date();
-                                }
-
-                                console.log(`   📋 ${recipient.email} → Parte "${part.role_name}" (orden ${signingOrder}) → role_id ${roleId} → ${canSignAt ? 'PUEDE FIRMAR' : 'DEBE ESPERAR'}`);
-                            }
-                        }
-
-                        // 🔥 NUEVO: Generar PDF personalizado si tiene fieldValues (CSV personalizado)
-                        let customPdfPath = null;
-
-                        if (recipient.fieldValues && Object.keys(recipient.fieldValues).length > 0) {
-                            console.log(`\n📝 Generando PDF personalizado para ${recipient.email}...`);
-                            const personalizedPdfAbsPath = await prefillPDFWithRecipientData(
-                                db,
-                                signature_document_id,
-                                originalPdfPath,
-                                recipient.email,
-                                recipient.fieldValues,
-                                fieldLabelMap
-                            );
-
-                            if (personalizedPdfAbsPath) {
-                                // Convertir a ruta relativa para la BD
-                                customPdfPath = path.relative(path.resolve(__dirname, '../../'), personalizedPdfAbsPath).replace(/\\/g, '/');
-                                console.log(`   ✅ PDF personalizado: ${customPdfPath}`);
-                            }
-                        }
-
-                        const insertResult = await new Promise((res, rej) => {
-                            db.query(
-                                `INSERT INTO document_recipients
-                                 (document_id, email, name, token, custom_pdf_path, status, part_id, role_id, signing_order, can_sign_at)
-                                 VALUES (?, ?, ?, ?, ?, 'sent', ?, ?, ?, ?)`,
-                                [signature_document_id, recipient.email, recipient.name, token, customPdfPath, recipient.part_id, roleId, signingOrder, canSignAt],
-                                (err, result) => {
-                                    if (err) rej(err);
-                                    else res(result);
-                                }
-                            );
-                        });
-
-                        const recipientId = insertResult.insertId;
-
-                        insertedRecipients.push({
-                            id: recipientId,
-                            email: recipient.email,
-                            name: recipient.name,
-                            token: token,
-                            part_id: recipient.part_id,
-                            part_name: recipient.part_name,
-                            role_id: roleId,
-                            signing_order: signingOrder,
-                            custom_pdf_path: customPdfPath
-                        });
-
-                        // 🔥 NUEVO: Crear registros en field_values para los campos que debe firmar este destinatario
-                        if (recipient.part_id) {
-                            try {
-                                // Obtener los campos que corresponden a esta parte
-                                const fieldsForPart = await new Promise((res, rej) => {
-                                    db.query(
-                                        `SELECT field_id, field_type
-                                         FROM document_fields
-                                         WHERE document_id = ? AND part_id = ?`,
-                                        [signature_document_id, recipient.part_id],
-                                        (err, results) => {
-                                            if (err) rej(err);
-                                            else res(results || []);
-                                        }
-                                    );
-                                });
-
-                                // Crear un registro en field_values por cada campo
-                                if (fieldsForPart && fieldsForPart.length > 0) {
-                                    for (const field of fieldsForPart) {
-                                        // Mapear field_type a value_type correcto
-                                        let valueType = field.field_type;
-                                        if (field.field_type === 'signature' || field.field_type === 'seal') {
-                                            valueType = 'signature_image';
-                                        } else if (field.field_type === 'stamp') {
-                                            valueType = 'stamp_data';
-                                        }
-                                        // 'text' y 'date' permanecen igual
-
-                                        await new Promise((res, rej) => {
-                                            db.query(
-                                                `INSERT INTO field_values
-                                                 (field_id, recipient_id, value_type)
-                                                 VALUES (?, ?, ?)`,
-                                                [field.field_id, recipientId, valueType],
-                                                (err, result) => {
-                                                    if (err) rej(err);
-                                                    else res(result);
-                                                }
-                                            );
-                                        });
-                                    }
-                                    console.log(`   ✅ ${fieldsForPart.length} campos asignados a ${recipient.email}`);
-                                } else {
-                                    console.log(`   ℹ️ No hay campos asignados para la parte ${recipient.part_id} del destinatario ${recipient.email}`);
-                                }
-                            } catch (fieldError) {
-                                console.error(`   ⚠️ Error al asignar campos a ${recipient.email}:`, fieldError.message);
-                                // No lanzar el error para no detener el envío
-                            }
-                        }
-
-                        // ℹ️ NOTA: Los valores de campos de texto se manejan de dos formas:
-                        // 1. CSV con datos personalizados → Se escriben FIJOS en PDF personalizado (custom_pdf_path)
-                        // 2. Rellenar Manualmente → Se escriben FIJOS en PDF compartido (document_field_values + prefilPDFWithTemplateValues)
-                        //
-                        // ⚠️ IMPORTANTE: Los valores CSV NO se insertan en field_values porque ya están escritos FIJOS en el PDF
-                        // Esto previene duplicación de texto cuando el destinatario firma el documento
-
-                        if (recipient.fieldValues && Object.keys(recipient.fieldValues).length > 0) {
-                            console.log(`   ✅ Valores CSV escritos FIJOS en PDF personalizado (${Object.keys(recipient.fieldValues).length} campos)`);
-                        } else {
-                            console.log(`   ℹ️ Sin valores CSV específicos - destinatario usará PDF compartido con valores de "Rellenar Manualmente"`);
-                        }
-                    }
-
-                    // Commit de la transacción
-                    db.commit((err) => {
-                        if (err) {
-                            return db.rollback(() => {
-                                reject(err);
-                            });
-                        }
-                        resolve();
-                    });
-
-                } catch (error) {
-                    db.rollback(() => {
-                        reject(error);
-                    });
-                }
+        // Obtener conexión individual del pool para poder usar transacciones
+        const conn = await new Promise((resolve, reject) => {
+            db.getConnection((err, connection) => {
+                if (err) return reject(err);
+                resolve(connection);
             });
         });
+
+        try {
+            await new Promise((resolve, reject) => {
+                conn.beginTransaction(async (err) => {
+                    if (err) return reject(err);
+
+                    try {
+                        // Insertar cada destinatario
+                        for (const recipient of validRecipients) {
+                            const token = generateToken();
+
+                            let roleId = null;
+                            let signingOrder = null;
+                            let canSignAt = null;
+
+                            if (recipient.part_id) {
+                                const part = documentParts.find(p => p.part_id === recipient.part_id);
+                                if (part) {
+                                    signingOrder = part.order_position;
+                                    const matchingRole = roles.find(r => r.role_order === part.order_position);
+                                    if (matchingRole) {
+                                        roleId = matchingRole.role_id;
+                                    }
+                                    if (signInOrder && part.order_position === 1) {
+                                        canSignAt = new Date();
+                                    }
+                                    console.log(`   📋 ${recipient.email} → Parte "${part.role_name}" (orden ${signingOrder}) → role_id ${roleId} → ${canSignAt ? 'PUEDE FIRMAR' : 'DEBE ESPERAR'}`);
+                                }
+                            }
+
+                            // Generar PDF personalizado si tiene fieldValues (CSV personalizado)
+                            let customPdfPath = null;
+
+                            if (recipient.fieldValues && Object.keys(recipient.fieldValues).length > 0) {
+                                console.log(`\n📝 Generando PDF personalizado para ${recipient.email}...`);
+                                const personalizedPdfAbsPath = await prefillPDFWithRecipientData(
+                                    db,
+                                    signature_document_id,
+                                    originalPdfPath,
+                                    recipient.email,
+                                    recipient.fieldValues,
+                                    fieldLabelMap
+                                );
+
+                                if (personalizedPdfAbsPath) {
+                                    customPdfPath = path.relative(path.resolve(__dirname, '../../'), personalizedPdfAbsPath).replace(/\\/g, '/');
+                                    console.log(`   ✅ PDF personalizado: ${customPdfPath}`);
+                                }
+                            }
+
+                            const insertResult = await new Promise((res, rej) => {
+                                conn.query(
+                                    `INSERT INTO document_recipients
+                                     (document_id, email, name, token, custom_pdf_path, personal_pdf_path, status, part_id, role_id, signing_order, can_sign_at)
+                                     VALUES (?, ?, ?, ?, ?, ?, 'sent', ?, ?, ?, ?)`,
+                                    [signature_document_id, recipient.email, recipient.name, token, customPdfPath, customPdfPath, recipient.part_id, roleId, signingOrder, canSignAt],
+                                    (err, result) => {
+                                        if (err) rej(err);
+                                        else res(result);
+                                    }
+                                );
+                            });
+
+                            const recipientId = insertResult.insertId;
+
+                            // Si owner vinculado a VI: copiar vi_validated_at si el email fue validado en el último año
+                            if (ownerVinculadoVI) {
+                                const oneYearAgo = new Date();
+                                oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+                                const viCheck = await new Promise((res, rej) => {
+                                    db.query(
+                                        `SELECT vi_validated_at FROM document_recipients
+                                         WHERE email = ? AND vi_validated_at IS NOT NULL AND vi_validated_at >= ?
+                                         ORDER BY vi_validated_at DESC LIMIT 1`,
+                                        [recipient.email, oneYearAgo],
+                                        (err, rows) => { if (err) rej(err); else res(rows); }
+                                    );
+                                });
+                                if (viCheck.length > 0) {
+                                    // Email validado en VI — copiar vi_validated_at al recipient recién insertado
+                                    await new Promise((res, rej) => {
+                                        conn.query(
+                                            'UPDATE document_recipients SET vi_validated_at = ? WHERE recipient_id = ?',
+                                            [viCheck[0].vi_validated_at, recipientId],
+                                            (err) => { if (err) rej(err); else res(); }
+                                        );
+                                    });
+                                    console.log(`   ✅ [VI] ${recipient.email} validado (dentro de 1 año) — vi_validated_at copiado`);
+                                } else {
+                                    // Email NO validado — cambiar status a 'pending' para que tracking muestre bloque VI
+                                    await new Promise((res, rej) => {
+                                        conn.query(
+                                            `UPDATE document_recipients SET status = 'pending' WHERE recipient_id = ?`,
+                                            [recipientId],
+                                            (err) => { if (err) rej(err); else res(); }
+                                        );
+                                    });
+                                    console.log(`   🔐 [VI] ${recipient.email} no validado — status=pending, requerirá VI en tracking`);
+                                }
+                            }
+
+                            // Verificar si tiene vi_validated_at (puede haberse copiado arriba)
+                            const viValidatedRows = ownerVinculadoVI ? await new Promise((res, rej) => {
+                                conn.query('SELECT vi_validated_at FROM document_recipients WHERE recipient_id = ?',
+                                    [recipientId], (err, rows) => { if (err) rej(err); else res(rows); });
+                            }) : [];
+                            const hasVI = viValidatedRows.length > 0 && viValidatedRows[0].vi_validated_at !== null;
+
+                            insertedRecipients.push({
+                                id: recipientId,
+                                email: recipient.email,
+                                name: recipient.name,
+                                token: token,
+                                part_id: recipient.part_id,
+                                part_name: recipient.part_name,
+                                role_id: roleId,
+                                signing_order: signingOrder,
+                                custom_pdf_path: customPdfPath,
+                                needsVI: ownerVinculadoVI && !hasVI
+                            });
+
+                            // Crear registros en field_values para los campos que debe firmar este destinatario
+                            if (recipient.part_id) {
+                                try {
+                                    const fieldsForPart = await new Promise((res, rej) => {
+                                        conn.query(
+                                            `SELECT field_id, field_type
+                                             FROM document_fields
+                                             WHERE document_id = ? AND part_id = ?`,
+                                            [signature_document_id, recipient.part_id],
+                                            (err, results) => {
+                                                if (err) rej(err);
+                                                else res(results || []);
+                                            }
+                                        );
+                                    });
+
+                                    if (fieldsForPart && fieldsForPart.length > 0) {
+                                        for (const field of fieldsForPart) {
+                                            let valueType = field.field_type;
+                                            if (field.field_type === 'signature' || field.field_type === 'seal') {
+                                                valueType = 'signature_image';
+                                            } else if (field.field_type === 'stamp') {
+                                                valueType = 'stamp_data';
+                                            }
+
+                                            await new Promise((res, rej) => {
+                                                conn.query(
+                                                    `INSERT INTO field_values
+                                                     (field_id, recipient_id, value_type)
+                                                     VALUES (?, ?, ?)`,
+                                                    [field.field_id, recipientId, valueType],
+                                                    (err, result) => {
+                                                        if (err) rej(err);
+                                                        else res(result);
+                                                    }
+                                                );
+                                            });
+                                        }
+                                        console.log(`   ✅ ${fieldsForPart.length} campos asignados a ${recipient.email}`);
+                                    } else {
+                                        console.log(`   ℹ️ No hay campos asignados para la parte ${recipient.part_id} del destinatario ${recipient.email}`);
+                                    }
+                                } catch (fieldError) {
+                                    console.error(`   ⚠️ Error al asignar campos a ${recipient.email}:`, fieldError.message);
+                                }
+                            }
+
+                            if (recipient.fieldValues && Object.keys(recipient.fieldValues).length > 0) {
+                                console.log(`   ✅ Valores CSV escritos FIJOS en PDF personalizado (${Object.keys(recipient.fieldValues).length} campos)`);
+                            } else {
+                                console.log(`   ℹ️ Sin valores CSV específicos - destinatario usará PDF compartido`);
+                            }
+                        }
+
+                        // Commit de la transacción
+                        conn.commit((err) => {
+                            if (err) {
+                                return conn.rollback(() => reject(err));
+                            }
+                            resolve();
+                        });
+
+                    } catch (error) {
+                        conn.rollback(() => reject(error));
+                    }
+                });
+            });
+        } finally {
+            conn.release();
+        }
 
         console.log(`✅ ${insertedRecipients.length} destinatarios insertados en BD`);
 
@@ -1119,7 +1179,13 @@ router.post('/bulk-send', requireAuth, upload.single('file'), async (req, res) =
         console.log(`📧 Encolando ${insertedRecipients.length} emails...`);
 
         let queuedCount = 0;
+        let pendingViCount = 0;
         for (const recipient of insertedRecipients) {
+            if (recipient.needsVI) {
+                console.log(`   ⏸️ [VI] ${recipient.email} — email en espera (requiere validación de identidad)`);
+                pendingViCount++;
+                continue;
+            }
             await emailQueue.add({
                 recipientId: recipient.id,
                 email: recipient.email,
@@ -1129,16 +1195,13 @@ router.post('/bulk-send', requireAuth, upload.single('file'), async (req, res) =
                 documentTitle: doc.title || doc.file_name,
                 userId: req.userId
             }, {
-                attempts: 3, // 3 intentos
-                backoff: {
-                    type: 'exponential',
-                    delay: 2000 // 2s, 4s, 8s
-                }
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 2000 }
             });
             queuedCount++;
         }
 
-        console.log(`✅ ${queuedCount} emails encolados exitosamente`);
+        console.log(`✅ ${queuedCount} emails encolados, ${pendingViCount} en espera de validación VI`);
 
         // Log de actividad
         await logActivity(db, {

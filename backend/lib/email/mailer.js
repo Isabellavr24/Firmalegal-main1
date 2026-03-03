@@ -68,7 +68,7 @@ async function sendEmail({ to, subject, text, html }) {
 async function sendSignatureRequest({ to, recipientName, documentTitle, senderName, documentId }) {
     const signatureUrl = `${APP_URL}/sign.html?document_id=${documentId}`;
 
-    const subject = `📝 Solicitud de firma: ${documentTitle}`;
+    const subject = `Solicitud de firma: ${documentTitle}`;
 
     const text = `
 Hola ${recipientName},
@@ -119,7 +119,7 @@ Equipo de FirmaLegal Online
 async function sendSignatureCompleted({ to, recipientName, documentTitle, signerName, documentId }) {
     const documentUrl = `${APP_URL}/tracking.html?document_id=${documentId}`;
 
-    const subject = `✅ Documento firmado: ${documentTitle}`;
+    const subject = `Documento firmado: ${documentTitle}`;
 
     const text = `
 Hola ${recipientName},
@@ -159,7 +159,7 @@ Equipo de FirmaLegal Online
  * @returns {Promise<Object>}
  */
 async function sendTestEmail(to) {
-    const subject = '✅ Prueba de Configuración - FirmaLegal Online';
+    const subject = 'Prueba de Configuracion - FirmaLegal Online';
 
     const text = `
 ¡Hola!

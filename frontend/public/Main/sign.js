@@ -25,6 +25,7 @@ let placingFieldType = null; // 'signature', 'text', 'date', 'seal', 'final_sign
 // Estado del modo y documento actual
 let currentMode = null; // 'prepare' o 'sign'
 let currentDocId = null; // ID del documento actual
+let _pdfModified = false; // true cuando se agregaron páginas via SUBIR PDF
 
 // ✅ Detectar tipo de documento (normal o pagaré)
 const urlParams = new URLSearchParams(window.location.search);
@@ -501,16 +502,20 @@ function renderFieldOnPage(fieldData) {
       el.dataset.fieldId = fieldData.field_id;
     }
 
-    const labels = {signature: 'Firma', text: 'Texto', date: 'Fecha', seal: 'Sello PKI'};
+    const labels = {signature: 'Firma', text: 'Texto', date: 'Fecha', seal: 'Sello PKI', final_signature: 'Firma Definitiva'};
 
-    // 🔥 NUEVO: Determinar label con parte asignada
-    let fieldLabel = labels[fieldData.type];
+    // Determinar label con parte asignada
+    let fieldLabel = labels[fieldData.type] || fieldData.type;
     let labelColor = '#374151'; // Color por defecto
-    
-    // El sello siempre tiene estilo especial verde
+
+    const balanzaSvg = '<svg style="width:14px;height:14px;vertical-align:middle;" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"><line x1="50" y1="8" x2="50" y2="85"/><rect x="28" y="85" width="44" height="8" rx="2" fill="currentColor" stroke="none"/><line x1="12" y1="20" x2="88" y2="20"/><circle cx="50" cy="20" r="4" fill="currentColor" stroke="none"/><line x1="20" y1="20" x2="16" y2="48"/><line x1="80" y1="20" x2="84" y2="48"/><path d="M8 48 Q16 60 24 48" fill="currentColor" stroke="none"/><path d="M76 48 Q84 60 92 48" fill="currentColor" stroke="none"/></svg>';
+
     if (fieldData.type === 'seal') {
       labelColor = '#10b981';
       fieldLabel = '<svg style="width:14px;height:14px;vertical-align:middle;" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Sello PKI';
+    } else if (fieldData.type === 'final_signature') {
+      labelColor = '#9333ea';
+      fieldLabel = balanzaSvg.replace('currentColor', '#9333ea').replace(/currentColor/g, '#9333ea') + ' Firma Definitiva';
     } else if (fieldData.roleName && fieldData.roleColor) {
       fieldLabel = `${labels[fieldData.type]}: ${fieldData.roleName}`;
       labelColor = fieldData.roleColor;
@@ -526,17 +531,25 @@ function renderFieldOnPage(fieldData) {
         </div>
         <button class="delete-btn" title="Eliminar">×</button>
       `;
-      // Sello PKI: borde verde especial
       el.style.borderColor = '#10b981';
       el.style.borderWidth = '3px';
       el.style.borderStyle = 'solid';
       el.style.background = 'rgba(16, 185, 129, 0.05)';
+    } else if (fieldData.type === 'final_signature') {
+      el.innerHTML = `
+        <span class="label" style="color:#9333ea;font-weight:600;">${fieldLabel}</span>
+        <button class="delete-btn" title="Eliminar">×</button>
+      `;
+      el.style.borderColor = '#9333ea';
+      el.style.borderWidth = '3px';
+      el.style.borderStyle = 'solid';
+      el.style.background = 'rgba(147, 51, 234, 0.05)';
+      el.dataset.noModal = 'true';
     } else {
       el.innerHTML = `
         <span class="label" style="color: ${labelColor}; font-weight: ${fieldData.roleName ? '600' : '500'};">${fieldLabel}</span>
         <button class="delete-btn" title="Eliminar">×</button>
       `;
-      // Aplicar borde de color si tiene parte asignada
       if (fieldData.roleColor) {
         el.style.borderColor = fieldData.roleColor;
         el.style.borderWidth = '3px';
@@ -580,6 +593,9 @@ async function handleFileUpload(e) {
   const file = e.target.files?.[0];
   if(!file) return;
 
+  // Reset input so same file can be selected again
+  document.getElementById('pdfFile').value = '';
+
   try {
     // Verificar tipo de archivo
     const fileType = file.type;
@@ -590,20 +606,50 @@ async function handleFileUpload(e) {
 
     if (!isValidPDF) {
       toast.error('❌ Solo se permiten archivos PDF. Por favor selecciona un archivo .pdf válido.');
-      document.getElementById('pdfFile').value = '';
       return;
     }
 
-    // Guardar referencia al archivo
-    currentFile = file;
-
-    // ✅ Mostrar loader ANTES de cargar
     showLoadingIndicator();
 
-    // Es un PDF, cargar directamente
-    await loadPDF(file);
+    // Si ya hay un PDF cargado, AGREGAR al final en lugar de reemplazar
+    if (pdfBytes) {
+      try {
+        const { PDFDocument } = PDFLib;
+        const newFileBytes = await file.arrayBuffer();
 
-    // Actualizar info del documento
+        const basePdf = await PDFDocument.load(pdfBytes);
+        const appendPdf = await PDFDocument.load(newFileBytes);
+        const appendPageCount = appendPdf.getPageCount();
+
+        const appendedPages = await basePdf.copyPages(appendPdf, appendPdf.getPageIndices());
+        appendedPages.forEach(p => basePdf.addPage(p));
+
+        const mergedBytes = await basePdf.save();
+        const mergedBuffer = mergedBytes.buffer.slice(mergedBytes.byteOffset, mergedBytes.byteOffset + mergedBytes.byteLength);
+
+        // Preservar campos existentes (están en páginas que no cambiaron)
+        const savedFields = [...fields];
+
+        await loadPDF(mergedBuffer);
+
+        // Restaurar campos de las páginas anteriores
+        savedFields.forEach(f => fields.push(f));
+        savedFields.forEach(f => renderFieldOnPage(f));
+
+        _pdfModified = true;
+        updateDocInfo();
+        toast.success(`✅ PDF agregado al final (${appendPageCount} pág.)`);
+      } catch (mergeErr) {
+        console.error('❌ Error al combinar PDFs:', mergeErr);
+        toast.error('Error al agregar el PDF: ' + mergeErr.message);
+        hideLoadingIndicator();
+      }
+      return;
+    }
+
+    // No hay PDF previo → cargar normalmente
+    currentFile = file;
+    await loadPDF(file);
     updateDocInfo();
   } catch (error) {
     console.error('❌ Error al cargar archivo:', error);
@@ -650,12 +696,15 @@ function updateDocInfo() {
 // ===== Cargar PDF (TODAS LAS PÁGINAS) =====
 async function loadPDF(file) {
   // NOTA: showLoadingIndicator() debe llamarse ANTES de esta función
-  
+  // Acepta un File object o directamente un ArrayBuffer
+
   try {
     console.log('📄 Cargando PDF con todas las páginas...');
-    
-    pdfBytes = await file.arrayBuffer();
-    pdfDoc   = await pdfjsLib.getDocument({data: pdfBytes}).promise;
+
+    const rawBytes = (file instanceof ArrayBuffer) ? file : await file.arrayBuffer();
+    // Guardar copia antes de pasar a pdfjs (getDocument puede transferir/detach el buffer)
+    pdfBytes = rawBytes.slice(0);
+    pdfDoc   = await pdfjsLib.getDocument({data: rawBytes}).promise;
     
     const numPages = pdfDoc.numPages;
     console.log(`📚 PDF tiene ${numPages} página(s)`);
@@ -1171,7 +1220,7 @@ function initPageOverlays() {
       } else if (placingFieldType === 'final_signature') {
         // Firma definitiva: estilo especial morado/dorado para el dueño
         labelColor = '#9333ea'; // Púrpura
-        fieldLabel = '<svg style="width:14px;height:14px;vertical-align:middle;" viewBox="0 0 24 24" fill="none" stroke="#9333ea" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M5 12h14"/><circle cx="12" cy="12" r="10"/></svg> Firma Definitiva';
+        fieldLabel = '<svg style="width:14px;height:14px;vertical-align:middle;" viewBox="0 0 100 100" fill="none" stroke="#9333ea" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"><line x1="50" y1="8" x2="50" y2="85"/><rect x="28" y="85" width="44" height="8" rx="2" fill="#9333ea" stroke="none"/><line x1="12" y1="20" x2="88" y2="20"/><circle cx="50" cy="20" r="4" fill="#9333ea" stroke="none"/><line x1="20" y1="20" x2="16" y2="48"/><line x1="80" y1="20" x2="84" y2="48"/><path d="M8 48 Q16 60 24 48" fill="#9333ea" stroke="none"/><path d="M76 48 Q84 60 92 48" fill="#9333ea" stroke="none"/></svg> Firma Definitiva';
       } else if (roleName && roleColor) {
         fieldLabel = `${labels[placingFieldType]}: ${roleName}`;
         labelColor = roleColor;
@@ -2085,6 +2134,24 @@ async function saveFieldsToBackend(skipRedirect = false) {
     const saveBtn = document.getElementById('saveBtn');
     const originalText = saveBtn ? saveBtn.textContent : '';
     if (saveBtn) saveBtn.textContent = 'GUARDANDO...';
+
+    // ✅ Si el PDF fue modificado (se agregaron páginas), subir el nuevo PDF al servidor primero
+    if (_pdfModified && currentDocId && pdfBytes) {
+      console.log('📤 Subiendo PDF modificado al servidor...');
+      if (saveBtn) saveBtn.textContent = 'SUBIENDO PDF...';
+      const fileUploadRes = await fetch(`/api/documents/${currentDocId}/file?user_id=${user.user_id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: pdfBytes
+      });
+      if (!fileUploadRes.ok) {
+        const errData = await fileUploadRes.json().catch(() => ({}));
+        throw new Error(errData.error || 'Error al subir el PDF modificado');
+      }
+      _pdfModified = false;
+      console.log('✅ PDF modificado subido al servidor');
+      if (saveBtn) saveBtn.textContent = 'GUARDANDO...';
+    }
 
     // ✅ CORREGIDO: Enviar user_id en lugar de token JWT
     const response = await fetch(`/api/documents/${currentDocId}/fields?user_id=${user.user_id}`, {
