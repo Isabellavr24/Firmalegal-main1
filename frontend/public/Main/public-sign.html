@@ -1289,6 +1289,17 @@ function loadExistingFields(existingFields) {
 
     console.log(`✅ ${fields.length} campo(s) renderizado(s) en el PDF`);
 
+    // Scroll automático al primer campo de firma no completado
+    const firstPendingField = fields.find(f => !f.signed && (f.type === 'signature' || f.type === 'final_signature' || f.type === 'text'));
+    if (firstPendingField) {
+      setTimeout(() => {
+        const fieldEl = document.getElementById(firstPendingField.id);
+        if (fieldEl) {
+          fieldEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 400);
+    }
+
   } catch (error) {
     console.error('❌ Error al cargar campos existentes:', error);
   }

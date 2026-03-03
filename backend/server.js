@@ -537,12 +537,12 @@ async function notifyFinalSigner(documentId) {
             // ✅ VALIDACIÓN: Solo censurar si es pagaré con envío masivo
             if (docInfo[0].document_type !== 'pagare') {
                 console.log(`   ℹ️  No es pagaré, saltando censura`);
-                return;
+                throw new Error('SKIP_CENSURA');
             }
 
             if (docInfo[0].viewer_count <= 1) {
                 console.log(`   ℹ️  Pagaré con ${docInfo[0].viewer_count} viewer(s), no es envío masivo, saltando censura`);
-                return;
+                throw new Error('SKIP_CENSURA');
             }
 
             console.log(`   ✅ Pagaré con envío masivo (${docInfo[0].viewer_count} viewer_groups) - Procediendo con censura`);
@@ -625,7 +625,9 @@ async function notifyFinalSigner(documentId) {
             console.log(`   ✅ ${textFields.length} campos censurados`);
 
         } catch (pdfError) {
-            console.error(`   ⚠️ Error:`, pdfError.message);
+            if (pdfError.message !== 'SKIP_CENSURA') {
+                console.error(`   ⚠️ Error:`, pdfError.message);
+            }
         }
 
         // Obtener configuración de email del usuario
@@ -4717,19 +4719,110 @@ app.post('/api/public/sign/:token', async (req, res) => {
                         censoredPdfPath = finalSignerRecipient[0].custom_pdf_path;
                         console.log(`   ✅ Usando PDF censurado: ${censoredPdfPath}`);
                     } else {
-                        // Fallback: Si no existe PDF censurado, usar file_path (CON ADVERTENCIA DE SEGURIDAD)
-                        const [docInfo] = await new Promise((resolve, reject) => {
+                        // Para 1 viewer_group: generar un PDF censurado desde la base limpia (pagare_vg_)
+                        // La base limpia tiene los datos CSV pero sin firmas manuscritas.
+                        // Obtenemos personal_pdf_path de cualquier recipient del viewer group (no se sobreescribe).
+                        console.log(`   ℹ️  Sin custom_pdf_path — generando PDF censurado desde base pagare_vg_`);
+
+                        const [vgRecipient] = await new Promise((resolve, reject) => {
                             db.query(
-                                'SELECT file_path FROM documents WHERE document_id = ?',
+                                `SELECT dr.personal_pdf_path FROM document_recipients dr
+                                 WHERE dr.document_id = ? AND dr.is_final_signer = 0 AND dr.personal_pdf_path IS NOT NULL
+                                 LIMIT 1`,
                                 [recipient.document_id],
-                                (err, results) => {
-                                    if (err) reject(err);
-                                    else resolve([results]);
-                                }
+                                (err, r) => { if (err) reject(err); else resolve([r]); }
                             );
                         });
-                        censoredPdfPath = docInfo[0].file_path;
-                        console.warn(`   ⚠️ ADVERTENCIA: No se encontró PDF censurado, usando file_path (PUEDE CONTENER DATOS SENSIBLES)`);
+
+                        let basePdfPath;
+                        if (vgRecipient.length > 0 && vgRecipient[0].personal_pdf_path) {
+                            basePdfPath = vgRecipient[0].personal_pdf_path;
+                            console.log(`   ✅ Base limpia (pagare_vg_): ${basePdfPath}`);
+                        } else {
+                            // Fallback: usar file_path del documento si no hay personal_pdf_path
+                            const [docFallback] = await new Promise((resolve, reject) => {
+                                db.query('SELECT file_path FROM documents WHERE document_id = ?',
+                                    [recipient.document_id], (err, r) => { if (err) reject(err); else resolve([r]); });
+                            });
+                            basePdfPath = docFallback[0].file_path;
+                            console.log(`   ⚠️  Fallback a file_path: ${basePdfPath}`);
+                        }
+
+                        const cleanBasePath = basePdfPath.startsWith('/') ? basePdfPath.substring(1) : basePdfPath;
+                        const fullBasePath = resolveFromRoot(cleanBasePath);
+
+                        if (!fs.existsSync(fullBasePath)) {
+                            throw new Error(`PDF base no encontrado: ${fullBasePath}`);
+                        }
+
+                        // Cargar el PDF base limpio
+                        const { PDFDocument: PDFDoc2, rgb: rgb2 } = require('pdf-lib');
+                        const basePdfBytes = fs.readFileSync(fullBasePath);
+                        const basePdfDoc = await PDFDoc2.load(basePdfBytes);
+
+                        // Obtener todos los campos sensibles (text y signature)
+                        const [fieldsToHide] = await new Promise((resolve, reject) => {
+                            db.query(
+                                `SELECT field_type, page_number, x_position, y_position, width, height
+                                 FROM document_fields
+                                 WHERE document_id = ? AND field_type IN ('text', 'signature')`,
+                                [recipient.document_id],
+                                (err, r) => { if (err) reject(err); else resolve([r]); }
+                            );
+                        });
+
+                        console.log(`   🔒 Censurando ${fieldsToHide.length} campo(s) (text + signature)...`);
+
+                        for (const field of fieldsToHide) {
+                            const pageNum = field.page_number - 1;
+                            if (pageNum >= 0 && pageNum < basePdfDoc.getPageCount()) {
+                                const page = basePdfDoc.getPage(pageNum);
+                                const { height: pageHeight } = page.getSize();
+
+                                const fx = parseFloat(field.x_position);
+                                const fy = pageHeight - parseFloat(field.y_position) - parseFloat(field.height);
+                                const fw = parseFloat(field.width);
+                                const fh = parseFloat(field.height);
+
+                                if (field.field_type === 'signature') {
+                                    // Campo de firma: rectángulo verde con texto "Firmado"
+                                    page.drawRectangle({
+                                        x: fx, y: fy, width: fw, height: fh,
+                                        color: rgb2(0.88, 0.96, 0.88),
+                                        borderColor: rgb2(0.2, 0.7, 0.2),
+                                        borderWidth: 1.5
+                                    });
+                                    page.drawText('Firmado', {
+                                        x: fx + fw / 2 - 20,
+                                        y: fy + fh / 2 - 5,
+                                        size: 11,
+                                        color: rgb2(0.1, 0.5, 0.1)
+                                    });
+                                } else {
+                                    // Campo de texto: rectángulo blanco con "*** PROTEGIDO ***"
+                                    page.drawRectangle({
+                                        x: fx, y: fy, width: fw, height: fh,
+                                        color: rgb2(1, 1, 1),
+                                        borderColor: rgb2(0.8, 0.8, 0.8),
+                                        borderWidth: 1
+                                    });
+                                    page.drawText('*** PROTEGIDO ***', {
+                                        x: fx + 5,
+                                        y: fy + fh / 2 - 5,
+                                        size: 9,
+                                        color: rgb2(0.5, 0.5, 0.5)
+                                    });
+                                }
+                            }
+                        }
+
+                        // Guardar PDF censurado
+                        const censoredBytes = await basePdfDoc.save();
+                        const censoredFinalFilename = `censored_final_${recipient.document_id}_${Date.now()}.pdf`;
+                        const censoredFinalPath = path.join(intermediatePdfDir, censoredFinalFilename);
+                        fs.writeFileSync(censoredFinalPath, censoredBytes);
+                        censoredPdfPath = path.join('uploads', 'signed', censoredFinalFilename);
+                        console.log(`   ✅ PDF censurado generado: ${censoredPdfPath}`);
                     }
 
                     const cleanPath = censoredPdfPath.startsWith('/') ? censoredPdfPath.substring(1) : censoredPdfPath;
@@ -6328,6 +6421,282 @@ app.get('/api/documents/:docId/pagares/:viewerGroupId/download-complete', requir
     } catch (error) {
         console.error('❌ [PAGARE-COMPLETE] Error:', error.message);
         res.status(500).json({ success: false, message: 'Error al generar el pagaré completo', error: error.message });
+    }
+});
+
+// ==================== DESCARGA MASIVA DE PAGARÉS (ZIP) ====================
+// GET /api/documents/:docId/pagares/download-all-zip
+// Genera un ZIP con todos los pagarés COMPLETADOS del documento.
+// Cada pagaré = un PDF completo (base + firmas + PKI + trazas VI).
+// Solo para administradores (requireAuth).
+app.get('/api/documents/:docId/pagares/download-all-zip', requireAuth, async (req, res) => {
+    const { docId } = req.params;
+    const archiver = require('archiver');
+
+    try {
+        console.log(`\n📦 [PAGARE-ZIP] Iniciando descarga masiva - Documento ${docId}`);
+
+        // Obtener info del documento
+        const [docs] = await db.promise().query(
+            `SELECT d.title, d.document_type
+             FROM documents d WHERE d.document_id = ?`,
+            [docId]
+        );
+        if (!docs.length || docs[0].document_type !== 'pagare') {
+            return res.status(400).json({ success: false, message: 'Documento no es pagaré' });
+        }
+        const docTitle = docs[0].title;
+
+        // Obtener todos los viewer_groups COMPLETADOS
+        const [viewerGroups] = await db.promise().query(
+            `SELECT vg.viewer_group_id, vg.viewer_id
+             FROM pagare_viewer_groups vg
+             WHERE vg.document_id = ? AND vg.status = 'completed'
+             ORDER BY vg.viewer_id`,
+            [docId]
+        );
+
+        // Verificar que el firmante definitivo también completó
+        const [finalSignerRows] = await db.promise().query(
+            `SELECT final_signer_status FROM pagare_metadata WHERE document_id = ?`,
+            [docId]
+        );
+        const finalSignerDone = finalSignerRows[0]?.final_signer_status === 'signed';
+
+        const completedGroups = viewerGroups.filter(vg => true); // ya filtrados por status='completed'
+
+        if (completedGroups.length === 0) {
+            return res.status(400).json({ success: false, message: 'No hay pagarés completados para descargar' });
+        }
+
+        console.log(`   📋 ${completedGroups.length} pagaré(s) completado(s) encontrado(s)`);
+
+        // Obtener firmante definitivo (email, nombre, firma, traza VI)
+        const [finalSignerRecipients] = await db.promise().query(
+            `SELECT dr.recipient_id, dr.email, dr.name, dr.custom_pdf_path, dr.vi_traza_path
+             FROM document_recipients dr
+             WHERE dr.document_id = ? AND dr.is_final_signer = 1`,
+            [docId]
+        );
+        const finalSigner = finalSignerRecipients[0] || null;
+
+        // Firma definitiva (field_values del firmante definitivo)
+        let finalSignatureDataUrl = null;
+        let finalSigField = null;
+        if (finalSigner) {
+            const [finalSigFields] = await db.promise().query(
+                `SELECT df.field_id, df.page_number as page, df.x_position as x, df.y_position as y,
+                        df.width, df.height, fv.signature_path
+                 FROM document_fields df
+                 LEFT JOIN field_values fv ON fv.field_id = df.field_id AND fv.recipient_id = ?
+                 WHERE df.document_id = ? AND df.field_type = 'final_signature'
+                 LIMIT 1`,
+                [finalSigner.recipient_id, docId]
+            );
+            finalSigField = finalSigFields[0] || null;
+        }
+
+        // Sello PKI
+        const [sealFields] = await db.promise().query(
+            `SELECT page_number as page, x_position as x, y_position as y, width, height
+             FROM document_fields WHERE document_id = ? AND field_type = 'seal'`,
+            [docId]
+        );
+
+        // Configurar respuesta ZIP
+        const safeTitle = docTitle.replace(/[^a-zA-Z0-9_\-]/g, '_').substring(0, 40);
+        const zipFilename = `Pagares_${safeTitle}.zip`;
+        res.setHeader('Content-Type', 'application/zip');
+        res.setHeader('Content-Disposition', `attachment; filename="${zipFilename}"`);
+
+        const archive = archiver('zip', { zlib: { level: 6 } });
+        archive.on('error', err => {
+            console.error('❌ [PAGARE-ZIP] Error archiver:', err.message);
+            if (!res.headersSent) res.status(500).json({ success: false, message: err.message });
+        });
+        archive.pipe(res);
+
+        // Generar PDF por cada viewer_group
+        for (let i = 0; i < completedGroups.length; i++) {
+            const vg = completedGroups[i];
+            const viewerGroupId = vg.viewer_group_id;
+            console.log(`   📄 [PAGARE-ZIP] Generando pagaré ${i + 1}/${completedGroups.length} (VG ${viewerGroupId})...`);
+
+            try {
+                const { PDFDocument } = require('pdf-lib');
+
+                // Obtener recipients del grupo
+                const [groupRecipients] = await db.promise().query(
+                    `SELECT dr.recipient_id, dr.email, dr.name,
+                            dr.personal_pdf_path, dr.custom_pdf_path, dr.vi_traza_path
+                     FROM document_recipients dr
+                     WHERE dr.document_id = ? AND dr.viewer_group_id = ? AND dr.is_final_signer = 0
+                     ORDER BY dr.recipient_id`,
+                    [docId, viewerGroupId]
+                );
+
+                // PDF base: personal_pdf_path (pagare_vg_ sin firmas manuscritas)
+                const basePdfRel = groupRecipients[0]?.personal_pdf_path || '';
+                const cleanBase = basePdfRel.startsWith('/') ? basePdfRel.substring(1) : basePdfRel;
+                const baseAbsPath = resolveFromRoot(cleanBase);
+
+                if (!fs.existsSync(baseAbsPath)) {
+                    console.warn(`   ⚠️ PDF base no encontrado para VG ${viewerGroupId}: ${baseAbsPath}`);
+                    continue;
+                }
+
+                const mergedDoc = await PDFDocument.load(fs.readFileSync(baseAbsPath));
+
+                // Dibujar firmas de cada viewer en sus campos
+                for (const rec of groupRecipients) {
+                    const [sigFields] = await db.promise().query(
+                        `SELECT df.page_number as page, df.x_position as x, df.y_position as y,
+                                df.width, df.height, fv.signature_path
+                         FROM document_fields df
+                         LEFT JOIN field_values fv ON fv.field_id = df.field_id AND fv.recipient_id = ?
+                         WHERE df.document_id = ? AND df.field_type = 'signature'`,
+                        [rec.recipient_id, docId]
+                    );
+
+                    for (const sf of sigFields) {
+                        if (!sf.signature_path || !sf.signature_path.startsWith('data:image')) continue;
+                        const pageIdx = (sf.page || 1) - 1;
+                        if (pageIdx < 0 || pageIdx >= mergedDoc.getPageCount()) continue;
+                        const page = mergedDoc.getPage(pageIdx);
+                        const { height: ph } = page.getSize();
+                        const fx = parseFloat(sf.x), fy = parseFloat(sf.y);
+                        const fw = parseFloat(sf.width), fh = parseFloat(sf.height);
+                        const drawX = fx, drawY = ph - fy - fh;
+
+                        try {
+                            const base64 = sf.signature_path.split(',')[1];
+                            const imgBytes = Buffer.from(base64, 'base64');
+                            const img = sf.signature_path.includes('image/png')
+                                ? await mergedDoc.embedPng(imgBytes)
+                                : await mergedDoc.embedJpg(imgBytes);
+                            const dims = img.scale(1);
+                            const aspect = dims.width / dims.height;
+                            const fa = fw / fh;
+                            let dw, dh;
+                            if (aspect > fa) { dw = fw * 0.9; dh = dw / aspect; }
+                            else { dh = fh * 0.9; dw = dh * aspect; }
+                            page.drawImage(img, {
+                                x: drawX + (fw - dw) / 2,
+                                y: drawY + (fh - dh) / 2,
+                                width: dw, height: dh
+                            });
+                        } catch (e) {
+                            console.warn(`   ⚠️ Error dibujando firma ${rec.email}: ${e.message}`);
+                        }
+                    }
+                }
+
+                // Dibujar firma definitiva
+                if (finalSigField?.signature_path?.startsWith('data:image')) {
+                    const pageIdx = (finalSigField.page || 1) - 1;
+                    if (pageIdx >= 0 && pageIdx < mergedDoc.getPageCount()) {
+                        const page = mergedDoc.getPage(pageIdx);
+                        const { height: ph } = page.getSize();
+                        const fx = parseFloat(finalSigField.x), fy = parseFloat(finalSigField.y);
+                        const fw = parseFloat(finalSigField.width), fh = parseFloat(finalSigField.height);
+                        try {
+                            const base64 = finalSigField.signature_path.split(',')[1];
+                            const imgBytes = Buffer.from(base64, 'base64');
+                            const img = finalSigField.signature_path.includes('image/png')
+                                ? await mergedDoc.embedPng(imgBytes)
+                                : await mergedDoc.embedJpg(imgBytes);
+                            const dims = img.scale(1);
+                            const aspect = dims.width / dims.height;
+                            const fa = fw / fh;
+                            let dw, dh;
+                            if (aspect > fa) { dw = fw * 0.9; dh = dw / aspect; }
+                            else { dh = fh * 0.9; dw = dh * aspect; }
+                            page.drawImage(img, {
+                                x: fx + (fw - dw) / 2,
+                                y: ph - fy - fh + (fh - dh) / 2,
+                                width: dw, height: dh
+                            });
+                        } catch (e) {
+                            console.warn(`   ⚠️ Error dibujando firma definitiva: ${e.message}`);
+                        }
+                    }
+                }
+
+                // Añadir trazabilidades VI (viewers + firmante definitivo)
+                const allParticipants = [...groupRecipients, ...(finalSigner ? [finalSigner] : [])];
+                for (const p of allParticipants) {
+                    if (!p.vi_traza_path) continue;
+                    const trazaClean = p.vi_traza_path.startsWith('/') ? p.vi_traza_path.substring(1) : p.vi_traza_path;
+                    const trazaAbs = resolveFromRoot(trazaClean);
+                    if (!fs.existsSync(trazaAbs)) continue;
+                    try {
+                        const trazaDoc = await PDFDocument.load(fs.readFileSync(trazaAbs));
+                        const pages = await mergedDoc.copyPages(trazaDoc, trazaDoc.getPageIndices());
+                        pages.forEach(p => mergedDoc.addPage(p));
+                    } catch (e) {
+                        console.warn(`   ⚠️ Error añadiendo traza ${p.email}: ${e.message}`);
+                    }
+                }
+
+                // Aplicar sello PKI
+                const pdfBuffer = Buffer.from(await mergedDoc.save());
+                let finalBuffer = pdfBuffer;
+
+                try {
+                    const pythonSigner = new PythonSignerClient({ verbose: false });
+                    const verifToken = crypto
+                        .createHash('sha256')
+                        .update(`VERIFY-${docId}-${process.env.JWT_SECRET || 'firmalegal-secret-key'}`)
+                        .digest('hex').substring(0, 32);
+
+                    const sealsForPKI = [];
+                    for (const seal of sealFields) {
+                        const { PDFDocument: PD2 } = require('pdf-lib');
+                        const tmpDoc = await PD2.load(pdfBuffer);
+                        const pageIdx = (seal.page || 1) - 1;
+                        if (pageIdx >= 0 && pageIdx < tmpDoc.getPageCount()) {
+                            const pg = tmpDoc.getPage(pageIdx);
+                            const { height: ph } = pg.getSize();
+                            sealsForPKI.push({
+                                page: seal.page,
+                                x: parseFloat(seal.x),
+                                y: ph - parseFloat(seal.y) - parseFloat(seal.height),
+                                width: parseFloat(seal.width),
+                                height: parseFloat(seal.height)
+                            });
+                        }
+                    }
+
+                    finalBuffer = await pythonSigner.signPdf(pdfBuffer, {
+                        reason: `Pagaré ${i + 1} - ${docTitle}`,
+                        location: 'Colombia',
+                        signerName: 'PKI Services',
+                        fieldName: `PagareZip_${docId}_vg${viewerGroupId}`,
+                        visible: true,
+                        seals: sealsForPKI.length > 0 ? sealsForPKI : null,
+                        verificationToken: verifToken
+                    });
+                } catch (pkiErr) {
+                    console.warn(`   ⚠️ PKI error VG ${viewerGroupId}: ${pkiErr.message} — usando sin sello`);
+                }
+
+                const pdfFilename = `Pagare_${i + 1}_${safeTitle}_vg${viewerGroupId}.pdf`;
+                archive.append(Buffer.from(finalBuffer), { name: pdfFilename });
+                console.log(`   ✅ [PAGARE-ZIP] Pagaré ${i + 1} agregado al ZIP`);
+
+            } catch (vgErr) {
+                console.error(`   ❌ [PAGARE-ZIP] Error VG ${viewerGroupId}:`, vgErr.message);
+            }
+        }
+
+        await archive.finalize();
+        console.log(`   ✅ [PAGARE-ZIP] ZIP enviado: ${completedGroups.length} pagaré(s)`);
+
+    } catch (error) {
+        console.error('❌ [PAGARE-ZIP] Error general:', error.message);
+        if (!res.headersSent) {
+            res.status(500).json({ success: false, message: 'Error al generar el ZIP', error: error.message });
+        }
     }
 });
 

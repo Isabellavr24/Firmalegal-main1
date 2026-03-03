@@ -165,6 +165,78 @@ function renderRecipients(recipients) {
     const groupIds = Object.keys(groups).sort((a, b) => parseInt(a) - parseInt(b));
     const docId = getDocumentDataFromURL().id;
 
+    // ── Botón de descarga masiva ZIP (solo si TODOS los pagarés y firmante definitivo completaron) ──
+    const allGroupsDone = groupIds.every(gid => groups[gid].every(r => r.status === 'completed'));
+    const finalSignerDoneGlobal = finalSigner && finalSigner.status === 'completed';
+    const showZipBtn = allGroupsDone && finalSignerDoneGlobal && groupIds.length > 0 && docId;
+
+    // Insertar/actualizar botón ZIP en section-actions (evitar duplicados)
+    const sectionActions = document.querySelector('.section-actions');
+    if (sectionActions && showZipBtn) {
+      let zipBtn = document.getElementById('downloadAllZipBtn');
+      if (!zipBtn) {
+        zipBtn = document.createElement('button');
+        zipBtn.id = 'downloadAllZipBtn';
+        zipBtn.className = 'action-btn secondary';
+        zipBtn.innerHTML = `
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          DESCARGAR TODO
+        `;
+        // Insertar antes del primer botón de la sección
+        sectionActions.insertBefore(zipBtn, sectionActions.firstChild);
+
+        zipBtn.addEventListener('click', async () => {
+          const userStr = localStorage.getItem('currentUser');
+          if (!userStr) return;
+          const user = JSON.parse(userStr);
+          const url = `/api/documents/${docId}/pagares/download-all-zip?user_id=${user.user_id}`;
+          zipBtn.disabled = true;
+          zipBtn.innerHTML = `
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10" stroke-dasharray="31.4" stroke-dashoffset="10">
+                <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/>
+              </circle>
+            </svg>
+            Generando...
+          `;
+          try {
+            const resp = await fetch(url);
+            if (!resp.ok) {
+              const err = await resp.json().catch(() => ({}));
+              alert(err.message || 'Error al generar el ZIP');
+              return;
+            }
+            const blob = await resp.blob();
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            const cd = resp.headers.get('Content-Disposition') || '';
+            const fnMatch = cd.match(/filename="([^"]+)"/);
+            a.download = fnMatch ? fnMatch[1] : `Pagares_${docId}.zip`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(a.href);
+          } catch (e) {
+            alert('Error al descargar el ZIP de pagarés');
+          } finally {
+            zipBtn.disabled = false;
+            zipBtn.innerHTML = `
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              DESCARGAR TODO
+            `;
+          }
+        });
+      }
+    }
+
     groupIds.forEach((groupId, idx) => {
       const groupRecipients = groups[groupId];
       const groupAllCompleted = groupRecipients.every(r => r.status === 'completed');
