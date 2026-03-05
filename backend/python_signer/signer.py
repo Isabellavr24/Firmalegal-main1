@@ -84,6 +84,84 @@ class LegacyTLSHTTPTimeStamper(HTTPTimeStamper):
 
         return await to_thread(task)
 
+
+class ChainAwareSimpleSigner(signers.SimpleSigner):
+    """
+    SimpleSigner con soporte para cadena de CA y parche de asn1crypto.
+    El certificado PKISERVICES-2YEARS.pfx tiene OID 2.5.4.45 (x500UniqueIdentifier)
+    codificado como PrintableString (tag 19) en lugar de BitString (tag 3),
+    lo que causa que asn1crypto falle al parsear el subject. Este subclass
+    evita ese error usando cryptography para extraer el CN.
+    """
+
+    @property
+    def subject_name(self):
+        if self.signing_cert is None:
+            return None
+        try:
+            # Intentar el método normal primero
+            return super().subject_name
+        except Exception:
+            pass
+        # Fallback: usar cryptography para parsear el subject
+        try:
+            from cryptography.x509 import load_der_x509_certificate
+            cry_cert = load_der_x509_certificate(self.signing_cert.dump())
+            for attr in cry_cert.subject:
+                if attr.oid._name == 'commonName':
+                    return attr.value
+            # Si no hay CN, retornar organizationName
+            for attr in cry_cert.subject:
+                if attr.oid._name == 'organizationName':
+                    return attr.value
+        except Exception:
+            pass
+        return 'PKI SERVICES SAS'
+
+    @classmethod
+    def load_pkcs12_with_chain(cls, pfx_file, passphrase, ca_chain_files=None):
+        """Carga P12 con cadena CA y retorna instancia de ChainAwareSimpleSigner."""
+        from pyhanko_certvalidator.registry import SimpleCertificateStore
+        from pyhanko.keys.internal import (
+            translate_pyca_cryptography_key_to_asn1,
+            translate_pyca_cryptography_cert_to_asn1,
+        )
+        from cryptography.hazmat.primitives.serialization import pkcs12 as _pkcs12
+        from cryptography.x509 import load_der_x509_certificate
+
+        with open(pfx_file, 'rb') as f:
+            pfx_bytes = f.read()
+        private_key, cert, other_certs_pkcs12 = _pkcs12.load_key_and_certificates(
+            pfx_bytes, passphrase
+        )
+        kinfo = translate_pyca_cryptography_key_to_asn1(private_key)
+        asn1_cert = translate_pyca_cryptography_cert_to_asn1(cert)
+
+        cs = SimpleCertificateStore()
+        # Agregar certs del P12 (usualmente vacío para PKISERVICES)
+        if other_certs_pkcs12:
+            for c in other_certs_pkcs12:
+                cs.register(translate_pyca_cryptography_cert_to_asn1(c))
+        # Agregar cadena CA desde archivos externos
+        if ca_chain_files:
+            for ca_file in ca_chain_files:
+                if os.path.exists(ca_file):
+                    with open(ca_file, 'rb') as f:
+                        ca_data = f.read()
+                    try:
+                        ca_cert = load_der_x509_certificate(ca_data)
+                    except Exception:
+                        from cryptography.x509 import load_pem_x509_certificate
+                        ca_cert = load_pem_x509_certificate(ca_data)
+                    cs.register(translate_pyca_cryptography_cert_to_asn1(ca_cert))
+
+        return cls(
+            signing_key=kinfo,
+            signing_cert=asn1_cert,
+            cert_registry=cs,
+        )
+
+
 # Importar funciones de sello visual
 from signature_seal import draw_signature_seal, draw_qr_vertical
 
@@ -142,9 +220,20 @@ class PDFSigner:
         """
         if self._cached_signer is None:
             logger.info("📋 Cargando certificado P12 (primera vez)...")
-            self._cached_signer = signers.SimpleSigner.load_pkcs12(
+            # Buscar cadena de CA (Sub CA + Root CA) junto al certificado principal
+            import os as _os
+            _cert_dir = _os.path.dirname(self.cert_path)
+            _sub_ca = _os.path.join(_cert_dir, 'PKIServicesSubCA.crt')
+            _root_ca = _os.path.join(_cert_dir, 'PKIServicesRootCA.crt')
+            _ca_chain = [f for f in [_sub_ca, _root_ca] if _os.path.exists(f)]
+            if _ca_chain:
+                logger.info(f"   🔗 Cadena CA encontrada: {[_os.path.basename(f) for f in _ca_chain]}")
+            else:
+                logger.warning("   ⚠️  No se encontró cadena CA — el sello puede no ser confiable en Adobe")
+            self._cached_signer = ChainAwareSimpleSigner.load_pkcs12_with_chain(
                 pfx_file=self.cert_path,
-                passphrase=self.cert_password.encode('utf-8')
+                passphrase=self.cert_password.encode('utf-8'),
+                ca_chain_files=_ca_chain if _ca_chain else None
             )
             logger.info("   ✅ Certificado cargado y cacheado")
         else:
@@ -660,25 +749,40 @@ class PDFSigner:
 
             logger.info("Certificado cargado en SimpleSigner")
 
-            # Extraer información del certificado
-            cert = signer.signing_cert
-            subject = cert.subject.human_friendly
+            # Extraer información del certificado usando cryptography (evita bug asn1crypto OID 2.5.4.45)
+            from cryptography.hazmat.primitives.serialization import pkcs12 as _pkcs12
+
+            def _name_to_str(x509_name):
+                parts = []
+                for attr in x509_name:
+                    try:
+                        parts.append(f"{attr.oid._name}: {attr.value}")
+                    except Exception:
+                        parts.append(f"{attr.oid.dotted_string}: {attr.value}")
+                return ", ".join(parts)
+
+            with open(self.cert_path, "rb") as _f:
+                _, _crypto_cert, _ = _pkcs12.load_key_and_certificates(
+                    _f.read(), self.cert_password.encode("utf-8")
+                )
+
+            subject = _name_to_str(_crypto_cert.subject)
+            issuer_str = _name_to_str(_crypto_cert.issuer)
 
             logger.info(f"Certificado válido: {subject}")
 
-            # Obtener algoritmo de firma (puede variar según la versión de cryptography)
             try:
-                algorithm = cert.signature_algorithm_oid._name
-            except:
+                algorithm = _crypto_cert.signature_algorithm_oid.dotted_string
+            except Exception:
                 algorithm = "Unknown"
 
             return {
                 "valid": True,
                 "subject": subject,
-                "issuer": cert.issuer.human_friendly,
-                "serial_number": str(cert.serial_number),
-                "not_before": cert.not_valid_before.isoformat(),
-                "not_after": cert.not_valid_after.isoformat(),
+                "issuer": issuer_str,
+                "serial_number": str(_crypto_cert.serial_number),
+                "not_before": _crypto_cert.not_valid_before_utc.isoformat(),
+                "not_after": _crypto_cert.not_valid_after_utc.isoformat(),
                 "algorithm": algorithm
             }
 

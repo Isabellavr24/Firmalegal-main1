@@ -6059,6 +6059,7 @@ app.get('/api/documents/:docId/recipients/:recipientId/download', async (req, re
     const { docId, recipientId } = req.params;
     const userId = req.query.user_id;
     const mode = req.query.mode || 'download'; // 'download' o 'view'
+    const noTraza = req.query.no_traza === '1'; // si true, omite trazabilidad VI
 
     try {
         console.log(`📥 ${mode === 'view' ? 'Visualizando' : 'Descargando'} PDF para doc: ${docId}, recipient: ${recipientId}`);
@@ -6067,7 +6068,7 @@ app.get('/api/documents/:docId/recipients/:recipientId/download', async (req, re
         const [documentInfo] = await new Promise((resolve, reject) => {
             db.query(
                 `SELECT d.document_id, d.title, d.file_path, d.signed_file_path, d.owner_id,
-                        dr.email, dr.completed_at, dr.status as recipient_status, dr.vi_traza_path
+                        dr.email, dr.completed_at, dr.status as recipient_status, dr.vi_traza_path, dr.custom_pdf_path as recipient_custom_pdf_path
                  FROM documents d
                  INNER JOIN document_recipients dr ON d.document_id = dr.document_id
                  WHERE d.document_id = ? AND dr.recipient_id = ?`,
@@ -6096,12 +6097,16 @@ app.get('/api/documents/:docId/recipients/:recipientId/download', async (req, re
             ? `${document.title}_completado_${document.email}.pdf`
             : `${document.title}_${document.email}.pdf`;
 
-        // ✅ Si el documento está completado, usar signed_file_path
-        if (document.recipient_status === 'completed' && document.signed_file_path) {
-            console.log('✅ Documento completado, descargando PDF firmado desde signed_file_path');
+        // ✅ Si el documento está completado, usar custom_pdf_path del recipient (ya tiene traza fusionada) o signed_file_path
+        if (document.recipient_status === 'completed' && (document.recipient_custom_pdf_path || document.signed_file_path)) {
+            // Preferir custom_pdf_path del recipient (ya tiene la traza VI pre-fusionada)
+            const sourceRelPath = (!noTraza && document.recipient_custom_pdf_path)
+                ? document.recipient_custom_pdf_path
+                : document.signed_file_path;
 
-            // Usar signed_file_path (PDF con firmas + sello PKI + QR)
-            let signedRelativePath = document.signed_file_path;
+            console.log(`✅ Documento completado, descargando PDF firmado desde: ${sourceRelPath}`);
+
+            let signedRelativePath = sourceRelPath;
             if (signedRelativePath.startsWith('/')) {
                 signedRelativePath = signedRelativePath.substring(1);
             }
@@ -6125,8 +6130,8 @@ app.get('/api/documents/:docId/recipients/:recipientId/download', async (req, re
                 res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
             }
 
-            // Si el destinatario tiene trazabilidad VI personal, fusionar al vuelo
-            if (document.vi_traza_path) {
+            // Si NO tiene custom_pdf_path propio y tiene traza VI, fusionar al vuelo (fallback)
+            if (!document.recipient_custom_pdf_path && document.vi_traza_path && !noTraza) {
                 try {
                     const { PDFDocument: PDFDoc } = require('pdf-lib');
                     const { resolveFromRoot } = require('./config/paths');

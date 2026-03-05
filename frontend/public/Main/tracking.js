@@ -544,6 +544,15 @@ function createRecipientCard(recipient) {
            </svg>
            DESCARGAR
          </button>
+         ${recipient.status === 'completed' ? `
+         <button class="recipient-btn download-sealed" data-action="download-sealed" data-id="${recipient.id}" title="Descargar solo el documento sellado, sin trazabilidad">
+           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+             <polyline points="7 10 12 15 17 10"/>
+             <line x1="12" y1="15" x2="12" y2="3"/>
+           </svg>
+           DOC. SELLADO
+         </button>` : ''}
        </div>`;
 
   card.innerHTML = `
@@ -1113,6 +1122,37 @@ async function handleRecipientDownload(recipientId) {
   }
 }
 
+async function handleRecipientDownloadSealed(recipientId) {
+  const docData = getDocumentDataFromURL();
+  const userStr = localStorage.getItem('currentUser');
+  if (!userStr) return;
+  const user = JSON.parse(userStr);
+  const userId = user.user_id;
+
+  const downloadUrl = `/api/documents/${docData.id}/recipients/${recipientId}/download?user_id=${userId}&no_traza=1`;
+  try {
+    const resp = await fetch(downloadUrl);
+    if (!resp.ok) {
+      ToastManager.error('Error', 'No se pudo descargar el documento sellado');
+      return;
+    }
+    const blob = await resp.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    const cd = resp.headers.get('Content-Disposition') || '';
+    const fnMatch = cd.match(/filename="([^"]+)"/);
+    a.download = fnMatch ? decodeURIComponent(fnMatch[1]) : `documento_sellado_${docData.id}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+    ToastManager.success('¡Descarga iniciada!', 'Documento sellado sin trazabilidad');
+  } catch (e) {
+    console.error('❌ Error descargando documento sellado:', e);
+    ToastManager.error('Error', 'No se pudo descargar el documento sellado');
+  }
+}
+
 function handleRecipientView(recipientId, status) {
   console.log('👁️ Viendo detalles del destinatario:', recipientId, 'Estado:', status);
 
@@ -1183,6 +1223,9 @@ document.addEventListener('click', (e) => {
         break;
       case 'download':
         handleRecipientDownload(recipientId);
+        break;
+      case 'download-sealed':
+        handleRecipientDownloadSealed(recipientId);
         break;
       case 'view':
         handleRecipientView(recipientId, status);
