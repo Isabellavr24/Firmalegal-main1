@@ -1783,6 +1783,31 @@ document.getElementById('sigOk').addEventListener('click', (e) => {
   setTimeout(() => {
     sigModal.classList.remove('show');
     sigModal.setAttribute('aria-hidden', 'true');
+
+    // Buscar siguiente campo de firma pendiente
+    const nextPending = fields.find(f =>
+      !f.signed && (f.type === 'signature' || f.type === 'final_signature')
+    );
+
+    if (nextPending) {
+      // Mostrar aviso no bloqueante
+      showPendingFieldToast(`Tienes un campo de firma pendiente. Desplázate para completarlo.`);
+
+      // Scroll automático al siguiente campo pendiente
+      setTimeout(() => {
+        const nextDiv = document.getElementById(nextPending.id);
+        if (nextDiv) {
+          nextDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Parpadeo visual para destacar el campo
+          nextDiv.style.outline = '3px solid #f59e0b';
+          nextDiv.style.boxShadow = '0 0 12px rgba(245,158,11,0.7)';
+          setTimeout(() => {
+            nextDiv.style.outline = '';
+            nextDiv.style.boxShadow = '';
+          }, 3000);
+        }
+      }, 400);
+    }
   }, 10);
 
   currentFieldToSign = null;
@@ -2144,6 +2169,35 @@ document.getElementById('dateOk').addEventListener('click', (e) => {
 });
 
 // ===== VERIFICAR SI TODOS LOS CAMPOS ESTÁN FIRMADOS =====
+function showPendingFieldToast(message) {
+  // Remover toast anterior si existe
+  const existing = document.getElementById('pendingFieldToast');
+  if (existing) existing.remove();
+
+  const toast = document.createElement('div');
+  toast.id = 'pendingFieldToast';
+  toast.style.cssText = `
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: #1e293b; color: #fff; padding: 14px 24px;
+    border-radius: 10px; font-size: 15px; font-weight: 500;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.3); z-index: 9999;
+    display: flex; align-items: center; gap: 10px;
+    animation: toastIn 0.3s ease;
+  `;
+  toast.innerHTML = `<span style="font-size:20px">✍️</span> ${message}`;
+
+  // Agregar keyframe si no existe
+  if (!document.getElementById('toastKeyframe')) {
+    const style = document.createElement('style');
+    style.id = 'toastKeyframe';
+    style.textContent = `@keyframes toastIn { from { opacity:0; transform:translateX(-50%) translateY(16px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }`;
+    document.head.appendChild(style);
+  }
+
+  document.body.appendChild(toast);
+  setTimeout(() => { if (toast.parentNode) toast.remove(); }, 4000);
+}
+
 function checkAllFieldsSigned() {
   const allRequiredSigned = fields
     .filter(f => f.required)
