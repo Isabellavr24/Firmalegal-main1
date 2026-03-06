@@ -2568,6 +2568,7 @@ app.post('/api/public/vi-callback', async (req, res) => {
                 `SELECT dr.recipient_id, dr.document_id, dr.vi_validated_at,
                         dr.custom_pdf_path, dr.personal_pdf_path, dr.email,
                         dr.viewer_group_id, dr.is_final_signer, dr.status,
+                        dr.vi_traza_path,
                         d.file_path, d.title, d.document_type
                  FROM document_recipients dr
                  INNER JOIN documents d ON dr.document_id = d.document_id
@@ -2595,11 +2596,13 @@ app.post('/api/public/vi-callback', async (req, res) => {
         console.log(`✅ [VI-CALLBACK] vi_validated_at marcado para token=${token.substring(0, 8)}...`);
 
         // 3. Guardar trazabilidad VI
-        // Para PAGARÉS (viewer_group_id != null): solo guardar vi_traza_path.
-        //   El PDF con traza se construye individualmente en el momento de la firma (interim),
-        //   así cada recipient ve SOLO su propia traza y nunca la de otros.
-        // Para documentos NORMALES: también generar vi_personal (PDF base + traza) en custom_pdf_path.
-        if (validacion_id) {
+        // IDEMPOTENCIA: Si ya existe vi_traza_path para este recipient, el callback llegó duplicado.
+        // Esto ocurre cuando un intento es exitoso automáticamente (callback 1) Y el operador
+        // también aprueba manualmente (callback 2) con el mismo validacion_id.
+        // En ese caso saltamos toda la generación para evitar adjuntar la trazabilidad dos veces.
+        if (recipient.vi_traza_path) {
+            console.log(`⚠️ [VI-CALLBACK] Trazabilidad ya existe para ${recipient.email} — callback duplicado, ignorando (vi_traza_path: ${recipient.vi_traza_path})`);
+        } else if (validacion_id) {
             const fs = require('fs');
             const path = require('path');
             const { resolveFromRoot } = require('./config/paths');
