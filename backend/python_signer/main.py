@@ -269,6 +269,100 @@ async def verify_certificate(request: CertificateInfoRequest):
         )
 
 
+class StripTrazaRequest(BaseModel):
+    pdf_base64: str
+
+
+@app.post("/api/strip-traza", tags=["Signing"])
+async def strip_traza(request: StripTrazaRequest):
+    """
+    Recibe un PDF en base64, extrae solo las páginas del documento
+    (sin trazas VI), re-sella con PKI y devuelve el PDF en base64.
+    """
+    import base64, io, re
+    from pypdf import PdfReader, PdfWriter
+    from signer import ChainAwareSimpleSigner, LegacyTLSHTTPTimeStamper
+    from pyhanko.sign import signers
+    from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
+    from pyhanko.sign.signers import PdfSignatureMetadata
+    import os
+
+    try:
+        pdf_bytes = base64.b64decode(request.pdf_base64)
+
+        # Detectar páginas sin traza VI
+        VI_PATTERNS = [
+            'DETALLE DE LA TRAZABILIDAD',
+            'INFORMACION DE LA SOLICITUD',
+            'EVIDENCIA FOTOGRAFICA DEL FIRMANTE',
+            'EVIDENCIA FOTOGRAFICA',
+            'Datos extraidos por OCR',
+        ]
+        VAL_REGEX = re.compile(r'VAL-[A-Z0-9]+-[A-Z0-9]+')
+
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        writer = PdfWriter()
+        doc_page_count = 0
+        for page in reader.pages:
+            text = page.extract_text() or ''
+            is_traza = bool(VAL_REGEX.search(text)) or any(p in text for p in VI_PATTERNS)
+            if not is_traza:
+                writer.add_page(page)
+                doc_page_count += 1
+
+        if doc_page_count == 0:
+            raise HTTPException(status_code=400, detail="No se encontraron páginas de documento (todas son traza VI)")
+
+        # Guardar PDF sin trazas en buffer
+        buf = io.BytesIO()
+        writer.write(buf)
+        buf.seek(0)
+        stripped_bytes = buf.read()
+
+        # Re-sellar con PKI
+        cert_path = os.environ.get('CERT_PATH', '/app/backend/certificates/PKISERVICES-2YEARS.pfx')
+        cert_password = os.environ.get('CERT_PASSWORD', '901301044')
+        tsa_url = os.environ.get('TSA_URL', 'https://ca.pkiservices.co/tsa/get.aspx?u=pkiservices&p=901301044')
+
+        cert_dir = os.path.dirname(cert_path)
+        ca_chain = [f for f in [
+            os.path.join(cert_dir, 'PKIServicesSubCA.crt'),
+            os.path.join(cert_dir, 'PKIServicesRootCA.crt'),
+        ] if os.path.exists(f)]
+
+        signer_obj = ChainAwareSimpleSigner.load_pkcs12_with_chain(
+            pfx_file=cert_path,
+            passphrase=cert_password.encode('utf-8'),
+            ca_chain_files=ca_chain if ca_chain else None
+        )
+        tsa = LegacyTLSHTTPTimeStamper(tsa_url)
+
+        w = IncrementalPdfFileWriter(io.BytesIO(stripped_bytes))
+        meta = PdfSignatureMetadata(
+            field_name='Sello_PKI',
+            reason='Sello digital PKI Services - FirmaLegal',
+            location='Colombia',
+            contact_info='firmalegalonline@pkiservices.co'
+        )
+        out_buf = io.BytesIO()
+        await signers.async_sign_pdf(w, meta, signer=signer_obj, timestamper=tsa, output=out_buf)
+        out_buf.seek(0)
+        out_bytes = out_buf.read()
+
+        logger.info(f"✅ DOC. SELLADO generado: {doc_page_count} págs, {len(out_bytes)} bytes")
+        return {
+            "success": True,
+            "pdf_base64": base64.b64encode(out_bytes).decode('utf-8'),
+            "pages": doc_page_count
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error en strip-traza: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     """Handler global de excepciones"""

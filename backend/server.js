@@ -5220,11 +5220,11 @@ app.post('/api/public/sign/:token', async (req, res) => {
                     const relativeFinalPath = path.join('uploads', 'signed', finalPdfFilename).replace(/\\/g, '/');
                     console.log(`💾 PDF final con PKI guardado: ${relativeFinalPath}`);
 
-                    // Actualizar signed_file_path y verification_token del documento
+                    // Actualizar signed_file_path, doc_only_path y verification_token del documento
                     await new Promise((resolve, reject) => {
                         db.query(
-                            'UPDATE documents SET signed_file_path = ?, verification_token = ? WHERE document_id = ?',
-                            [relativeFinalPath, verificationToken, recipient.document_id],
+                            'UPDATE documents SET signed_file_path = ?, doc_only_path = ?, verification_token = ? WHERE document_id = ?',
+                            [relativeFinalPath, relativeFinalPath, verificationToken, recipient.document_id],
                             (err) => { if (err) reject(err); else resolve(); }
                         );
                     });
@@ -6160,7 +6160,60 @@ app.get('/api/documents/:docId/recipients/:recipientId/download', async (req, re
                 }
             }
 
-            // Sin trazabilidad VI — enviar PDF firmado tal cual
+            // DOC. SELLADO: usar doc_only_path si existe, si no re-generarlo via Python
+            if (noTraza) {
+                try {
+                    // Intentar usar doc_only_path pre-generado de la DB
+                    const [docOnlyRow] = await new Promise((resolve, reject) => {
+                        db.query(
+                            'SELECT doc_only_path FROM documents WHERE document_id = ?',
+                            [docId],
+                            (err, rows) => { if (err) reject(err); else resolve(rows); }
+                        );
+                    });
+
+                    const docOnlyRel = docOnlyRow && docOnlyRow.doc_only_path;
+                    if (docOnlyRel) {
+                        const docOnlyAbs = path.resolve(__dirname, '..', docOnlyRel.replace(/^\/+/, ''));
+                        if (fs.existsSync(docOnlyAbs)) {
+                            const docOnlyStream = fs.createReadStream(docOnlyAbs);
+                            docOnlyStream.pipe(res);
+                            console.log(`✅ DOC. SELLADO desde doc_only_path: ${fileName}`);
+                            return;
+                        }
+                    }
+
+                    // Fallback: extraer páginas sin traza y re-sellar via Python
+                    console.log('⚙️ Generando DOC. SELLADO al vuelo (extrayendo páginas sin traza VI)...');
+                    const axios = require('axios');
+                    const signedBytes = fs.readFileSync(signedFilePath);
+                    const b64 = signedBytes.toString('base64');
+
+                    const pyResp = await axios.post('http://127.0.0.1:5001/api/strip-traza', {
+                        pdf_base64: b64
+                    }, { timeout: 60000 });
+
+                    if (pyResp.data && pyResp.data.pdf_base64) {
+                        const outBytes = Buffer.from(pyResp.data.pdf_base64, 'base64');
+                        // Guardar para futuras descargas
+                        const docOnlyFilename = `doc_only_${docId}_${Date.now()}.pdf`;
+                        const docOnlyPath = path.join(path.dirname(signedFilePath), docOnlyFilename);
+                        fs.writeFileSync(docOnlyPath, outBytes);
+                        const docOnlyRelSave = path.join('uploads', 'signed', docOnlyFilename).replace(/\\/g, '/');
+                        db.query('UPDATE documents SET doc_only_path = ? WHERE document_id = ?', [docOnlyRelSave, docId]);
+
+                        res.setHeader('Content-Length', outBytes.length);
+                        res.end(outBytes);
+                        console.log(`✅ DOC. SELLADO generado (${outBytes.length} bytes): ${fileName}`);
+                        return;
+                    }
+                } catch (filterErr) {
+                    console.error('⚠️ Error generando DOC. SELLADO:', filterErr.message);
+                    // Fallback: enviar tal cual
+                }
+            }
+
+            // Sin filtrado — enviar PDF firmado tal cual
             const fileStream = fs.createReadStream(signedFilePath);
             fileStream.pipe(res);
 
