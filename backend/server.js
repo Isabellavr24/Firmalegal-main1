@@ -6102,8 +6102,10 @@ app.get('/api/documents/:docId/recipients/:recipientId/download', async (req, re
 
         // ✅ Si el documento está completado, usar custom_pdf_path del recipient (ya tiene traza fusionada) o signed_file_path
         if (document.recipient_status === 'completed' && (document.recipient_custom_pdf_path || document.signed_file_path)) {
-            // Preferir custom_pdf_path del recipient (ya tiene la traza VI pre-fusionada)
-            const sourceRelPath = (!noTraza && document.recipient_custom_pdf_path)
+            // Preferir custom_pdf_path del recipient (ya tiene la firma sellada + traza VI pre-fusionada).
+            // Con noTraza=1: usar custom_pdf_path igual (tiene la firma sellada) pero sin fusionar traza encima.
+            // Fallback a signed_file_path solo si no hay custom_pdf_path.
+            const sourceRelPath = document.recipient_custom_pdf_path
                 ? document.recipient_custom_pdf_path
                 : document.signed_file_path;
 

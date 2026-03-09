@@ -536,23 +536,29 @@ function createRecipientCard(recipient) {
          <button class="recipient-btn view" data-action="view" data-id="${recipient.id}" data-status="${recipient.status || 'pending'}">
            VISTA
          </button>
-         <button class="recipient-btn download" data-action="download" data-id="${recipient.id}">
-           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-             <polyline points="7 10 12 15 17 10"/>
-             <line x1="12" y1="15" x2="12" y2="3"/>
-           </svg>
-           DESCARGAR
-         </button>
-         ${recipient.status === 'completed' ? `
-         <button class="recipient-btn download-sealed" data-action="download-sealed" data-id="${recipient.id}" title="Descargar solo el documento sellado, sin trazabilidad">
-           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-             <polyline points="7 10 12 15 17 10"/>
-             <line x1="12" y1="15" x2="12" y2="3"/>
-           </svg>
-           DOC. SELLADO
-         </button>` : ''}
+         <div class="download-dropdown-wrap" style="position:relative;display:inline-block;">
+           <button class="recipient-btn download download-main-btn" data-action="download" data-id="${recipient.id}" style="display:flex;align-items:center;gap:4px;padding-right:8px;">
+             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+               <polyline points="7 10 12 15 17 10"/>
+               <line x1="12" y1="15" x2="12" y2="3"/>
+             </svg>
+             DESCARGAR
+             ${recipient.status === 'completed' ? `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-left:2px;"><polyline points="6 9 12 15 18 9"/></svg>` : ''}
+           </button>
+           ${recipient.status === 'completed' ? `
+           <div class="download-dropdown-menu" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:#fff;border:1px solid #e5e7eb;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.12);z-index:9999;min-width:210px;overflow:hidden;">
+             <button class="download-option-btn" data-action="download" data-id="${recipient.id}" style="width:100%;text-align:left;padding:11px 16px;border:none;background:none;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:10px;color:#1f2937;">
+               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5b21b6" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+               <div><div style="font-weight:600;">Con trazabilidad</div><div style="font-size:11px;color:#6b7280;">Incluye trazabilidad de identidad</div></div>
+             </button>
+             <div style="height:1px;background:#f3f4f6;margin:0 12px;"></div>
+             <button class="download-option-btn" data-action="download-sealed" data-id="${recipient.id}" style="width:100%;text-align:left;padding:11px 16px;border:none;background:none;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:10px;color:#1f2937;">
+               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#374151" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+               <div><div style="font-weight:600;">Sin trazabilidad</div><div style="font-size:11px;color:#6b7280;">Solo documento sellado PKI</div></div>
+             </button>
+           </div>` : ''}
+         </div>
        </div>`;
 
   card.innerHTML = `
@@ -572,6 +578,39 @@ function createRecipientCard(recipient) {
   const skipBtn = card.querySelector('.vi-skip-btn');
   if (startBtn) startBtn.addEventListener('click', () => handleViStart(recipient));
   if (skipBtn) skipBtn.addEventListener('click', () => handleViSkip(recipient, card));
+
+  // Dropdown de descarga (Con trazabilidad / Sin trazabilidad)
+  const mainDownloadBtn = card.querySelector('.download-main-btn');
+  const dropdownMenu = card.querySelector('.download-dropdown-menu');
+  if (mainDownloadBtn && dropdownMenu) {
+    // Click en el botón principal → abrir/cerrar dropdown
+    mainDownloadBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isOpen = dropdownMenu.style.display !== 'none';
+      // Cerrar todos los otros dropdowns abiertos
+      document.querySelectorAll('.download-dropdown-menu').forEach(m => { m.style.display = 'none'; });
+      dropdownMenu.style.display = isOpen ? 'none' : 'block';
+    });
+    // Click en opciones del dropdown
+    dropdownMenu.querySelectorAll('.download-option-btn').forEach(optBtn => {
+      optBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        dropdownMenu.style.display = 'none';
+        const action = optBtn.dataset.action;
+        const rid = optBtn.dataset.id;
+        if (action === 'download') handleRecipientDownload(rid);
+        else if (action === 'download-sealed') handleRecipientDownloadSealed(rid);
+      });
+    });
+  } else if (mainDownloadBtn && !dropdownMenu) {
+    // Recipient no completado: click directo descarga normal
+    mainDownloadBtn.addEventListener('click', () => handleRecipientDownload(recipient.id));
+  }
+
+  // Cerrar dropdown al hacer click fuera
+  if (dropdownMenu) {
+    document.addEventListener('click', () => { dropdownMenu.style.display = 'none'; }, { once: false });
+  }
 
   return card;
 }
@@ -1210,7 +1249,10 @@ document.addEventListener('click', (e) => {
   if (e.target.closest('#addRecipientBtn')) handleAddRecipient();
 
   // Botones de destinatarios
+  // Ignorar el botón principal del dropdown y las opciones dentro del dropdown
+  // (son manejados por los event listeners propios de cada card)
   const actionBtn = e.target.closest('[data-action]');
+  if (actionBtn && (actionBtn.classList.contains('download-main-btn') || actionBtn.classList.contains('download-option-btn'))) return;
   if (actionBtn) {
     const action = actionBtn.dataset.action;
     const recipientId = actionBtn.dataset.id;
