@@ -6422,31 +6422,10 @@ app.get('/api/documents/:docId/pagares/:viewerGroupId/download-complete', requir
             return { page: seal.page, x: parseFloat(seal.x) || 10, y: ph - parseFloat(seal.y) - (parseFloat(seal.height) || 80), width: parseFloat(seal.width) || 200, height: parseFloat(seal.height) || 80 };
         }).filter(Boolean);
 
-        let pdfBuffer = Buffer.from(await pdfDoc.save());
-        const pythonSigner = new PythonSignerClient({ verbose: false });
-        try {
-            const [fsMeta] = await db.promise().query('SELECT final_signer_email, final_signer_name FROM pagare_metadata WHERE document_id = ?', [docId]);
-            const fsEmail = fsMeta[0]?.final_signer_email || finalSigner.email;
-            const fsName = fsMeta[0]?.final_signer_name || finalSigner.name;
-            pdfBuffer = await pythonSigner.signPdf(pdfBuffer, {
-                reason: `Pagaré Completo: ${docTitle}`,
-                location: 'Colombia',
-                signerName: 'PKI Services',
-                contactInfo: fsEmail,
-                fieldName: `PagareCompleto_${docId}_vg${viewerGroupId}_${Date.now()}`,
-                visible: true,
-                seals: seals.length > 0 ? seals : null,
-                documentId: docId
-            });
-            console.log(`   🔐 Sello PKI aplicado`);
-        } catch (sealErr) {
-            console.warn(`   ⚠️ Sello PKI falló, continuando sin sello: ${sealErr.message}`);
-        }
-
-        // 9. Agregar trazabilidades de TODOS los participantes al final
+        // 9. Agregar trazabilidades ANTES de sellar (para no romper la firma PKI)
         //    Orden: viewer1, viewer2, ..., firmante definitivo
         const allWithTraza = [...vgRecipients, finalSigner];
-        const mergedDoc = await PDFDocument.load(pdfBuffer);
+        const mergedDoc = await PDFDocument.load(await pdfDoc.save());
 
         for (const participant of allWithTraza) {
             if (!participant.vi_traza_path) {
@@ -6468,7 +6447,28 @@ app.get('/api/documents/:docId/pagares/:viewerGroupId/download-complete', requir
             }
         }
 
-        const finalBytes = await mergedDoc.save();
+        // 10. Aplicar sello PKI DESPUÉS de las trazas (última operación para preservar firma)
+        let pdfBuffer = Buffer.from(await mergedDoc.save());
+        const pythonSigner = new PythonSignerClient({ verbose: false });
+        try {
+            const [fsMeta] = await db.promise().query('SELECT final_signer_email, final_signer_name FROM pagare_metadata WHERE document_id = ?', [docId]);
+            const fsEmail = fsMeta[0]?.final_signer_email || finalSigner.email;
+            pdfBuffer = await pythonSigner.signPdf(pdfBuffer, {
+                reason: `Pagaré Completo: ${docTitle}`,
+                location: 'Colombia',
+                signerName: 'PKI Services',
+                contactInfo: fsEmail,
+                fieldName: `PagareCompleto_${docId}_vg${viewerGroupId}_${Date.now()}`,
+                visible: true,
+                seals: seals.length > 0 ? seals : null,
+                documentId: docId
+            });
+            console.log(`   🔐 Sello PKI aplicado`);
+        } catch (sealErr) {
+            console.warn(`   ⚠️ Sello PKI falló, continuando sin sello: ${sealErr.message}`);
+        }
+
+        const finalBytes = pdfBuffer;
         const safeTitle = docTitle.replace(/[^a-zA-Z0-9_\-]/g, '_').substring(0, 50);
         const filename = `Pagare_Completo_${safeTitle}_vg${viewerGroupId}.pdf`;
 
