@@ -2613,9 +2613,36 @@ app.post('/api/public/vi-callback', async (req, res) => {
                 const isPagare = !!recipient.viewer_group_id || recipient.is_final_signer === 1;
 
                 // Descargar trazabilidad pura de VI
+                // El endpoint traza-pdf acepta el CÓDIGO (VAL-XXXX), no el UUID.
+                // Primero resolvemos el código consultando VI por ID.
                 const VI_URL = process.env.VI_URL || 'http://validacion-identidad-app-1:3000';
                 const VI_API_KEY = process.env.INTERNAL_API_KEY || '';
-                const trazaUrl = new URL(`${VI_URL}/validacion/api/validaciones/${validacion_id}/traza-pdf`);
+
+                // Resolver código desde ID
+                let trazaCodigo = validacion_id; // fallback: intentar con el id directo
+                try {
+                    const codigoBytes = await new Promise((resolve, reject) => {
+                        const chunks = [];
+                        const codigoUrl = new URL(`${VI_URL}/validacion/api/validaciones/by-id/${validacion_id}`);
+                        const t = codigoUrl.protocol === 'https:' ? require('https') : require('http');
+                        const r = t.request({
+                            hostname: codigoUrl.hostname,
+                            port: codigoUrl.port || 80,
+                            path: codigoUrl.pathname,
+                            method: 'GET',
+                            headers: { 'X-Internal-Api-Key': VI_API_KEY }
+                        }, (resp) => {
+                            resp.on('data', d => chunks.push(d));
+                            resp.on('end', () => resolve(Buffer.concat(chunks)));
+                        });
+                        r.on('error', reject);
+                        r.end();
+                    });
+                    const codigoData = JSON.parse(codigoBytes.toString());
+                    if (codigoData.codigo) trazaCodigo = codigoData.codigo;
+                } catch (_) {}
+
+                const trazaUrl = new URL(`${VI_URL}/validacion/api/validaciones/${trazaCodigo}/traza-pdf`);
                 const transport = trazaUrl.protocol === 'https:' ? require('https') : require('http');
 
                 const trazaBytes = await new Promise((resolve, reject) => {
