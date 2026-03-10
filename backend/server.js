@@ -4368,6 +4368,9 @@ app.post('/api/public/sign/:token', async (req, res) => {
                 // 🔥 Obtener el campo final_signature y su firma (es el MISMO para todos los pagarés)
                 console.log(`   🔍 Buscando campo final_signature para recipient_id=${recipient.recipient_id}, document_id=${recipient.document_id}`);
 
+                // Buscar la firma definitiva: primero intentar con recipient_id exacto,
+                // si no tiene signature_path buscar cualquier field_value del campo final_signature
+                // (puede pasar que el recipient_id en field_values no coincide exactamente)
                 const [finalSignatureField] = await new Promise((resolve, reject) => {
                     db.query(
                         `SELECT
@@ -4381,10 +4384,12 @@ app.post('/api/public/sign/:token', async (req, res) => {
                             fv.signature_path,
                             fv.recipient_id as fv_recipient_id
                          FROM document_fields df
-                         LEFT JOIN field_values fv ON df.field_id = fv.field_id AND fv.recipient_id = ?
+                         LEFT JOIN field_values fv ON df.field_id = fv.field_id
+                             AND fv.signature_path IS NOT NULL
                          WHERE df.document_id = ? AND df.field_type = 'final_signature'
+                         ORDER BY (fv.recipient_id = ?) DESC
                          LIMIT 1`,
-                        [recipient.recipient_id, recipient.document_id],
+                        [recipient.document_id, recipient.recipient_id],
                         (err, results) => {
                             if (err) reject(err);
                             else resolve([results]);
@@ -6372,14 +6377,17 @@ app.get('/api/documents/:docId/pagares/:viewerGroupId/download-complete', requir
         }
 
         // 7. Obtener y dibujar la firma definitiva
+        // Buscar cualquier field_value con signature_path, priorizando el del firmante definitivo
         const [finalSigFields] = await db.promise().query(
             `SELECT df.page_number as page, df.x_position as x, df.y_position as y,
                     df.width, df.height, fv.signature_path
              FROM document_fields df
-             LEFT JOIN field_values fv ON df.field_id = fv.field_id AND fv.recipient_id = ?
+             LEFT JOIN field_values fv ON df.field_id = fv.field_id
+                 AND fv.signature_path IS NOT NULL
              WHERE df.document_id = ? AND df.field_type = 'final_signature'
+             ORDER BY (fv.recipient_id = ?) DESC
              LIMIT 1`,
-            [finalSigner.recipient_id, docId]
+            [docId, finalSigner.recipient_id]
         );
         if (finalSigFields.length && finalSigFields[0].signature_path) {
             const fsf = finalSigFields[0];
@@ -6543,7 +6551,8 @@ app.get('/api/documents/:docId/pagares/download-all-zip', requireAuth, async (re
         );
         const finalSigner = finalSignerRecipients[0] || null;
 
-        // Firma definitiva (field_values del firmante definitivo)
+        // Firma definitiva — buscar cualquier field_value con signature_path del campo final_signature,
+        // priorizando el del firmante definitivo (por si acaso hay duplicados)
         let finalSignatureDataUrl = null;
         let finalSigField = null;
         if (finalSigner) {
@@ -6551,10 +6560,12 @@ app.get('/api/documents/:docId/pagares/download-all-zip', requireAuth, async (re
                 `SELECT df.field_id, df.page_number as page, df.x_position as x, df.y_position as y,
                         df.width, df.height, fv.signature_path
                  FROM document_fields df
-                 LEFT JOIN field_values fv ON fv.field_id = df.field_id AND fv.recipient_id = ?
+                 LEFT JOIN field_values fv ON fv.field_id = df.field_id
+                     AND fv.signature_path IS NOT NULL
                  WHERE df.document_id = ? AND df.field_type = 'final_signature'
+                 ORDER BY (fv.recipient_id = ?) DESC
                  LIMIT 1`,
-                [finalSigner.recipient_id, docId]
+                [docId, finalSigner.recipient_id]
             );
             finalSigField = finalSigFields[0] || null;
         }
