@@ -129,7 +129,7 @@ const demoData = {
 };
 
 // ====== RENDERIZAR DESTINATARIOS ======
-function renderRecipients(recipients) {
+function renderRecipients(recipients, tvGuid) {
   const container = document.getElementById('recipientsContainer');
   const emptyState = document.getElementById('emptyState');
 
@@ -316,7 +316,26 @@ function renderRecipients(recipients) {
                    <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
                  </svg>
                  DESCARGAR PAGARÉ COMPLETO
-               </button>`
+               </button>
+               ${tvGuid
+                 ? `<span style="display:flex;align-items:center;gap:6px;background:linear-gradient(135deg,#047857,#059669);
+                             color:#fff;border-radius:8px;padding:7px 14px;font-size:12px;
+                             font-weight:700;letter-spacing:0.3px;">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <polyline points="20 6 9 17 4 12"/>
+                      </svg>
+                      TÍTULO VALOR ENVIADO
+                    </span>`
+                 : `<button class="etitulo-enviar-btn" data-doc-id="${docId}"
+                      style="display:flex;align-items:center;gap:6px;background:linear-gradient(135deg,#b45309,#d97706);
+                             color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:12px;
+                             font-weight:700;cursor:pointer;letter-spacing:0.3px;" title="Enviar al baúl e-título valor">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                      </svg>
+                      ENVIAR AL BAÚL
+                    </button>`
+               }`
             : ''
           }
           <svg id="${chevronId}" width="16" height="16" viewBox="0 0 24 24" fill="none"
@@ -468,6 +487,137 @@ function renderRecipients(recipients) {
         btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> DESCARGAR PAGARÉ COMPLETO`;
       }
     });
+  });
+
+  // Event listener: ENVIAR AL BAÚL
+  container.querySelectorAll('.etitulo-enviar-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const dId = btn.dataset.docId;
+      showEtituloModal(dId, btn);
+    });
+  });
+
+  // Event listener: VER CERTIFICADO
+  container.querySelectorAll('.etitulo-cert-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const dId = btn.dataset.docId;
+      btn.disabled = true;
+      btn.textContent = 'Descargando...';
+      try {
+        const resp = await fetch(`/api/documents/${dId}/certificado-etitulo`);
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          alert(err.message || 'Error al obtener certificado');
+          return;
+        }
+        const blob = await resp.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `certificado_custodia_${dId}.pdf`;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+      } catch(e) {
+        alert('Error al descargar certificado');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'VER CERTIFICADO';
+      }
+    });
+  });
+}
+
+function showEtituloModal(docId, triggerBtn) {
+  // Eliminar modal anterior si existe
+  const prev = document.getElementById('etitulo-modal');
+  if (prev) prev.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'etitulo-modal';
+  modal.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;
+    display:flex;align-items:center;justify-content:center;`;
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:12px;padding:28px 32px;max-width:420px;width:90%;
+                box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2">
+          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+        </svg>
+        <h3 style="margin:0;font-size:16px;font-weight:700;color:#1f2937;">Enviar al baúl e-título valor</h3>
+      </div>
+      <p style="font-size:13px;color:#6b7280;margin:0 0 20px;">
+        Ingresa el ID del baúl asignado por PKI Services para custodiar este pagaré.
+      </p>
+      <label style="font-size:13px;font-weight:600;color:#374151;display:block;margin-bottom:6px;">
+        ID del Baúl (BeneficiarioId)
+      </label>
+      <input id="etitulo-baul-id" type="number" placeholder="Ej: 8572847"
+        style="width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;
+               font-size:14px;box-sizing:border-box;outline:none;margin-bottom:20px;"
+      />
+      <div id="etitulo-error" style="color:#dc2626;font-size:12px;margin-bottom:12px;display:none;"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;">
+        <button id="etitulo-cancel"
+          style="padding:9px 18px;border:1px solid #d1d5db;border-radius:8px;background:#fff;
+                 cursor:pointer;font-size:13px;font-weight:600;color:#374151;">
+          Cancelar
+        </button>
+        <button id="etitulo-confirm"
+          style="padding:9px 18px;border:none;border-radius:8px;
+                 background:linear-gradient(135deg,#b45309,#d97706);
+                 color:#fff;cursor:pointer;font-size:13px;font-weight:700;">
+          Enviar al baúl
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const input = modal.querySelector('#etitulo-baul-id');
+  const errorDiv = modal.querySelector('#etitulo-error');
+  const confirmBtn = modal.querySelector('#etitulo-confirm');
+  const cancelBtn = modal.querySelector('#etitulo-cancel');
+
+  input.focus();
+
+  cancelBtn.addEventListener('click', () => modal.remove());
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+
+  confirmBtn.addEventListener('click', async () => {
+    const beneficiarioId = input.value.trim();
+    if (!beneficiarioId || isNaN(beneficiarioId)) {
+      errorDiv.textContent = 'Ingresa un ID de baúl válido.';
+      errorDiv.style.display = 'block';
+      return;
+    }
+    errorDiv.style.display = 'none';
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Enviando...';
+
+    try {
+      const resp = await fetch(`/api/documents/${docId}/enviar-etitulo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ beneficiarioId: parseInt(beneficiarioId) })
+      });
+      const data = await resp.json();
+      if (data.success) {
+        modal.remove();
+        // Recargar para mostrar badge "TÍTULO VALOR ENVIADO"
+        const docId2 = new URLSearchParams(window.location.search).get('id');
+        if (docId2) loadRecipients(docId2);
+      } else {
+        errorDiv.textContent = data.message || 'Error al enviar al baúl';
+        errorDiv.style.display = 'block';
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Enviar al baúl';
+      }
+    } catch(e) {
+      errorDiv.textContent = 'Error de conexión. Intenta de nuevo.';
+      errorDiv.style.display = 'block';
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = 'Enviar al baúl';
+    }
   });
 }
 
@@ -1548,7 +1698,7 @@ async function loadRecipients(docId) {
     
     if (data.success && data.data && data.data.recipients) {
       console.log(`✅ ${data.data.recipients.length} destinatarios cargados`);
-      renderRecipients(data.data.recipients);
+      renderRecipients(data.data.recipients, data.data.tv_guid || null);
     } else {
       console.log('ℹ️ No hay destinatarios para este documento');
       renderRecipients([]);

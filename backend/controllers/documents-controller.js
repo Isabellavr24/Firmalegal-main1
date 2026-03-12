@@ -1998,7 +1998,7 @@ router.get('/:id/recipients', requireAuth, async (req, res) => {
         // Verificar que el documento pertenece al usuario
         const docResults = await new Promise((resolve, reject) => {
             db.query(
-                'SELECT document_id FROM documents WHERE document_id = ? AND owner_id = ?',
+                'SELECT document_id, tv_guid FROM documents WHERE document_id = ? AND owner_id = ?',
                 [documentId, req.userId],
                 (err, results) => {
                     if (err) reject(err);
@@ -2014,6 +2014,8 @@ router.get('/:id/recipients', requireAuth, async (req, res) => {
                 error: 'Documento no encontrado'
             });
         }
+
+        const tvGuid = docResults[0].tv_guid || null;
 
         // Obtener destinatarios
         // COALESCE: si vi_validated_at está en document_recipients úsalo,
@@ -2044,6 +2046,7 @@ router.get('/:id/recipients', requireAuth, async (req, res) => {
             success: true,
             data: {
                 document_id: documentId,
+                tv_guid: tvGuid,
                 recipients: recipients
             }
         });
