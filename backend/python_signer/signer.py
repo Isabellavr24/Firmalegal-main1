@@ -5,6 +5,8 @@ Integrado con sello visual personalizado
 """
 
 from pyhanko.sign import signers, fields
+from pyhanko.stamp import TextStampStyle
+from pyhanko.sign.signers.pdf_signer import PdfSigner as PyHankoPdfSigner
 from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
 from pyhanko.sign.timestamps import HTTPTimeStamper
 from pyhanko.sign.signers import PdfSignatureMetadata
@@ -407,8 +409,16 @@ class PDFSigner:
         try:
             logger.info(f"📋 Procesando PDF para agregar QR y sellos...")
 
-            # ✅ OPTIMIZACIÓN: Usar datos de certificado cacheados
-            cert_data = self._get_or_extract_cert_data(signer)
+            # ✅ OPTIMIZACIÓN: Usar datos de certificado cacheados (nombre, email, issuer, país)
+            # ✅ FIX: Copiar el dict para no contaminar el caché con timestamp ni token
+            cached = self._get_or_extract_cert_data(signer)
+            cert_data = dict(cached)
+
+            # ✅ FIX: Timestamp siempre fresco en el momento de firma (no cacheado)
+            now = datetime.now(TZ_COLOMBIA)
+            cert_data['timestamp_iso'] = now.strftime("%Y-%m-%dT%H:%M:%S-05:00")
+            cert_data['timestamp_local'] = now.strftime("%d/%m/%Y %H:%M:%S")
+            logger.info(f"   ⏰ Timestamp sello: {cert_data['timestamp_local']}")
 
             # ✅ Token seguro para el QR (no expone el document_id)
             if verification_token:
@@ -599,7 +609,8 @@ class PDFSigner:
                 sig_field_spec = fields.SigFieldSpec(
                     sig_field_name=field_name,
                     on_page=last_page_index,  # ✅ Firma en la ÚLTIMA página
-                    box=box  # (x1, y1, x2, y2) en puntos
+                    box=box,  # (x1, y1, x2, y2) en puntos
+                    empty_field_appearance=True  # ✅ FIX: No mostrar texto UTC por defecto de pyHanko (los sellos visuales ya se dibujan con ReportLab)
                 )
             else:
                 logger.info("📋 5. Firma invisible (sin campo visual)")
@@ -620,14 +631,28 @@ class PDFSigner:
                         pdf_in_retry = BytesIO(pdf_bytes)
                         reader_retry = PyHankoPdfReader(pdf_in_retry)
                         w = IncrementalPdfFileWriter.from_reader(reader_retry)
-                    out = signers.sign_pdf(
-                        pdf_out=w,
-                        signature_meta=meta,
-                        signer=signer,
+                    # Usar hora Colombia en el stamp_text de pyHanko, con logo de fondo
+                    now_col = datetime.now(TZ_COLOMBIA)
+                    ts_col = now_col.strftime("%Y-%m-%d %H:%M:%S")
+                    logo_path = '/app/frontend/img/Nuevologo.jpg'
+                    try:
+                        from pyhanko.pdf_utils.images import PdfImage
+                        bg = PdfImage(logo_path) if os.path.exists(logo_path) else None
+                    except Exception:
+                        bg = None
+                    pdf_signer_obj = PyHankoPdfSigner(
+                        meta,
+                        signer,
                         timestamper=timestamper,
+                        stamp_style=TextStampStyle(
+                            stamp_text=f'Digitally signed by PKI Services.\nTimestamp: {ts_col} COT.',
+                            timestamp_format='%Y-%m-%d %H:%M:%S',
+                            background=bg,
+                            background_opacity=0.25,
+                        ),
                         new_field_spec=sig_field_spec,
-                        existing_fields_only=False
                     )
+                    out = pdf_signer_obj.sign_pdf(w, existing_fields_only=False)
                     last_tsa_error = None
                     break
                 except Exception as tsa_error:

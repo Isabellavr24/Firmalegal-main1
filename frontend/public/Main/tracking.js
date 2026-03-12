@@ -544,9 +544,9 @@ function createRecipientCard(recipient) {
                <line x1="12" y1="15" x2="12" y2="3"/>
              </svg>
              DESCARGAR
-             ${recipient.status === 'completed' ? `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-left:2px;"><polyline points="6 9 12 15 18 9"/></svg>` : ''}
+             ${recipient.status === 'completed' && recipient.vi_traza_path ? `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-left:2px;"><polyline points="6 9 12 15 18 9"/></svg>` : ''}
            </button>
-           ${recipient.status === 'completed' ? `
+           ${recipient.status === 'completed' && recipient.vi_traza_path ? `
            <div class="download-dropdown-menu" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:#fff;border:1px solid #e5e7eb;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.12);z-index:9999;min-width:210px;overflow:hidden;">
              <button class="download-option-btn" data-action="download" data-id="${recipient.id}" style="width:100%;text-align:left;padding:11px 16px;border:none;background:none;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:10px;color:#1f2937;">
                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5b21b6" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
