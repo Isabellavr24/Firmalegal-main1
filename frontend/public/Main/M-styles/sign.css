@@ -687,6 +687,8 @@ body{margin:0;background:#fbf7f5;font:16px/1.4 Inter,system-ui,Segoe UI,Arial}
 .btn-secondary:hover{background:#f5f5f5;border-color:#999}
 .btn-primary,.btn.primary{background:var(--plum);color:#fff;border:2px solid var(--plum)}
 .btn-primary:hover,.btn.primary:hover{background:#2a0d31;box-shadow:0 6px 16px rgba(126,90,136,.3)}
+#sigOk{background:#16a34a;border-color:#16a34a}
+#sigOk:hover{background:#15803d;border-color:#15803d;box-shadow:0 6px 16px rgba(22,163,74,.3)}
 
 /* ===================================
    MODAL DE DESTINATARIOS
