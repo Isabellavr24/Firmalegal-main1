@@ -6453,6 +6453,8 @@ app.get('/api/documents/:docId/pagares/:viewerGroupId/download-complete', requir
         try {
             const [fsMeta] = await db.promise().query('SELECT final_signer_email, final_signer_name FROM pagare_metadata WHERE document_id = ?', [docId]);
             const fsEmail = fsMeta[0]?.final_signer_email || finalSigner.email;
+            const [docVerifRow] = await db.promise().query('SELECT verification_token FROM documents WHERE document_id = ?', [docId]);
+            const verifToken = docVerifRow[0]?.verification_token || crypto.createHash('sha256').update(`VERIFY-${docId}-${process.env.JWT_SECRET || 'firmalegal-secret-key'}`).digest('hex').substring(0, 32);
             pdfBuffer = await pythonSigner.signPdf(pdfBuffer, {
                 reason: `Pagaré Completo: ${docTitle}`,
                 location: 'Colombia',
@@ -6461,7 +6463,8 @@ app.get('/api/documents/:docId/pagares/:viewerGroupId/download-complete', requir
                 fieldName: `PagareCompleto_${docId}_vg${viewerGroupId}_${Date.now()}`,
                 visible: true,
                 seals: seals.length > 0 ? seals : null,
-                documentId: docId
+                documentId: docId,
+                verificationToken: verifToken
             });
             console.log(`   🔐 Sello PKI aplicado`);
         } catch (sealErr) {
