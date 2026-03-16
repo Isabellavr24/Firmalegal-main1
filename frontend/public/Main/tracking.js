@@ -256,10 +256,12 @@ function renderRecipients(recipients, tvGuidsByGroup) {
         etituloBtn = document.createElement('button');
         etituloBtn.id = 'enviarBaulMasivoBtn';
         etituloBtn.className = 'action-btn secondary';
-        etituloBtn.style.cssText = 'background:linear-gradient(135deg,#b45309,#d97706);color:#fff;border-color:transparent;';
         etituloBtn.innerHTML = `
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="7" width="20" height="14" rx="2"/>
+            <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
+            <line x1="12" y1="12" x2="12" y2="16"/>
+            <line x1="10" y1="14" x2="14" y2="14"/>
           </svg>
           ENVIAR AL BAÚL
         `;
@@ -275,10 +277,10 @@ function renderRecipients(recipients, tvGuidsByGroup) {
       if (!sentBadge && sentEtituloGroups.length > 0 && pendingEtituloGroups.length === 0) {
         sentBadge = document.createElement('span');
         sentBadge.id = 'tvEnviadoBadge';
-        sentBadge.className = 'action-btn';
-        sentBadge.style.cssText = 'background:linear-gradient(135deg,#047857,#059669);color:#fff;border-color:transparent;cursor:default;';
+        sentBadge.className = 'action-btn secondary';
+        sentBadge.style.cssText = 'background:#d1fae5;color:#065f46;border-color:#86efac;cursor:default;';
         sentBadge.innerHTML = `
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="20 6 9 17 4 12"/>
           </svg>
           TÍTULO VALOR ENVIADO
@@ -307,8 +309,8 @@ function renderRecipients(recipients, tvGuidsByGroup) {
       const accordion = document.createElement('div');
       accordion.style.cssText = `
         margin: ${idx === 0 ? '16px' : '12px'} 0 0;
-        border: 1px solid #e9d5ff;
-        border-left: 4px solid #7c3aed;
+        border: 1px solid #e9dfe7;
+        border-left: 4px solid #4a1e5c;
         border-radius: 10px;
         overflow: hidden;
       `;
@@ -318,7 +320,7 @@ function renderRecipients(recipients, tvGuidsByGroup) {
       groupHeader.style.cssText = `
         display: flex; align-items: center; justify-content: space-between;
         padding: 10px 14px;
-        background: linear-gradient(90deg, #f5f3ff 0%, #ede9fe 100%);
+        background: linear-gradient(90deg, #f9f5f2 0%, #f3edf0 100%);
         cursor: pointer; user-select: none;
       `;
 
@@ -333,24 +335,24 @@ function renderRecipients(recipients, tvGuidsByGroup) {
       groupHeader.innerHTML = `
         <div style="display:flex;flex-direction:column;gap:4px;min-width:0;flex:1;">
           <div style="display:flex;align-items:center;gap:10px;">
-            <svg width="18" height="18" viewBox="0 0 100 100" fill="none" stroke="#7c3aed" stroke-width="7">
+            <svg width="18" height="18" viewBox="0 0 100 100" fill="none" stroke="#4a1e5c" stroke-width="7">
               <line x1="50" y1="8" x2="50" y2="85"/>
-              <rect x="28" y="85" width="44" height="8" rx="2" fill="#7c3aed" stroke="none"/>
+              <rect x="28" y="85" width="44" height="8" rx="2" fill="#4a1e5c" stroke="none"/>
               <line x1="12" y1="20" x2="88" y2="20"/>
-              <circle cx="50" cy="20" r="4" fill="#7c3aed" stroke="none"/>
+              <circle cx="50" cy="20" r="4" fill="#4a1e5c" stroke="none"/>
               <line x1="20" y1="20" x2="16" y2="48"/>
               <line x1="80" y1="20" x2="84" y2="48"/>
-              <path d="M8 48 Q16 60 24 48" fill="#7c3aed" stroke="none"/>
-              <path d="M76 48 Q84 60 92 48" fill="#7c3aed" stroke="none"/>
+              <path d="M8 48 Q16 60 24 48" fill="#4a1e5c" stroke="none"/>
+              <path d="M76 48 Q84 60 92 48" fill="#4a1e5c" stroke="none"/>
             </svg>
-            <span style="font-weight:700;color:#5b21b6;font-size:14px;">Pagaré #${idx + 1}</span>
+            <span style="font-weight:700;color:#2b0e31;font-size:14px;">Pagaré #${idx + 1}</span>
             ${pagareFullyComplete
               ? `<span style="background:#d1fae5;color:#065f46;border-radius:10px;padding:2px 10px;font-size:11px;font-weight:700;">COMPLETADO</span>`
               : `<span style="background:#fef3c7;color:#92400e;border-radius:10px;padding:2px 10px;font-size:11px;font-weight:700;">EN PROCESO</span>`
             }
           </div>
           <!-- Preview: visible solo cuando está cerrado -->
-          <div id="${previewId}" style="font-size:11px;color:#6b21a8;padding-left:28px;line-height:1.5;
+          <div id="${previewId}" style="font-size:11px;color:#4a1e5c;padding-left:28px;line-height:1.5;
                transition:opacity 0.2s ease,max-height 0.25s ease;max-height:40px;opacity:1;overflow:hidden;">
             ${previewText}
           </div>
@@ -358,7 +360,7 @@ function renderRecipients(recipients, tvGuidsByGroup) {
         <div style="display:flex;align-items:center;gap:10px;flex-shrink:0;padding-left:10px;align-self:center;">
           ${pagareFullyComplete && docId
             ? `<button class="pagare-download-complete-btn" data-group-id="${groupId}" data-doc-id="${docId}"
-                 style="display:flex;align-items:center;gap:6px;background:linear-gradient(135deg,#5b21b6,#7c3aed);
+                 style="display:flex;align-items:center;gap:6px;background:linear-gradient(135deg,#2b0e31,#4a1e5c);
                         color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:12px;
                         font-weight:700;cursor:pointer;letter-spacing:0.3px;">
                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -370,7 +372,7 @@ function renderRecipients(recipients, tvGuidsByGroup) {
             : ''
           }
           <svg id="${chevronId}" width="16" height="16" viewBox="0 0 24 24" fill="none"
-               stroke="#7c3aed" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+               stroke="#4a1e5c" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
                style="flex-shrink:0;transition:transform 0.25s ease;transform:rotate(-90deg);">
             <polyline points="6 9 12 15 18 9"/>
           </svg>
@@ -412,13 +414,13 @@ function renderRecipients(recipients, tvGuidsByGroup) {
         const infoBox = document.createElement('div');
         infoBox.style.cssText = `
           margin: 6px 0 0; padding: 9px 12px;
-          background: #faf5ff; border: 1px solid #e9d5ff; border-radius: 8px;
+          background: #faf5ff; border: 1px solid #e9dfe7; border-radius: 8px;
           font-size: 11px; color: #6b21a8; line-height: 1.5;
           display: flex; align-items: flex-start; gap: 8px;
         `;
         infoBox.innerHTML = `
           <svg style="flex-shrink:0;margin-top:1px;" width="14" height="14" viewBox="0 0 24 24" fill="none"
-               stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+               stroke="#4a1e5c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
             <polyline points="14 2 14 8 20 8"/>
             <line x1="16" y1="13" x2="8" y2="13"/>
@@ -528,7 +530,7 @@ function showEtituloMasivoModal(docId, groupIds, triggerBtn) {
   var modal = document.createElement('div');
   modal.id = 'etitulo-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:99999;display:flex;align-items:center;justify-content:center;';
-  modal.innerHTML = '<div style="background:#fff;border-radius:14px;padding:30px 34px;max-width:440px;width:90%;box-shadow:0 24px 64px rgba(0,0,0,0.25);"><div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;"><div style="background:linear-gradient(135deg,#fef3c7,#fde68a);border-radius:10px;padding:8px;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#b45309" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></div><h3 style="margin:0;font-size:17px;font-weight:700;color:#1f2937;">Enviar al baul e-titulo valor</h3></div><div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px 14px;margin:16px 0;display:flex;align-items:center;gap:10px;"><span style="font-size:13px;color:#92400e;font-weight:600;">Se enviaran <strong id="etitulo-count"></strong> al baul de e-titulo valor.</span></div><p style="font-size:13px;color:#6b7280;margin:0 0 16px;line-height:1.5;">Ingresa el ID del baul asignado por PKI Services.</p><label style="font-size:13px;font-weight:600;color:#374151;display:block;margin-bottom:6px;">ID del Baul (BeneficiarioId)</label><input id="etitulo-baul-id" type="number" placeholder="Ej: 2145852140" style="width:100%;padding:10px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-size:14px;box-sizing:border-box;outline:none;margin-bottom:6px;"/><div id="etitulo-error" style="color:#dc2626;font-size:12px;margin-bottom:10px;display:none;"></div><div id="etitulo-progress" style="display:none;margin-bottom:10px;"><div style="font-size:12px;color:#6b7280;margin-bottom:6px;" id="etitulo-progress-text">Enviando...</div><div style="height:6px;background:#e5e7eb;border-radius:4px;overflow:hidden;"><div id="etitulo-progress-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#b45309,#d97706);border-radius:4px;transition:width 0.3s;"></div></div></div><div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px;"><button id="etitulo-cancel" style="padding:10px 20px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;font-size:13px;font-weight:600;color:#374151;">Cancelar</button><button id="etitulo-confirm" style="padding:10px 22px;border:none;border-radius:8px;background:linear-gradient(135deg,#b45309,#d97706);color:#fff;cursor:pointer;font-size:13px;font-weight:700;">Enviar al baul</button></div></div>';
+  modal.innerHTML = '<div style="background:#fff;border-radius:14px;padding:30px 34px;max-width:440px;width:90%;box-shadow:0 24px 64px rgba(0,0,0,0.2);"><div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;"><div style="background:#f3edf0;border-radius:10px;padding:9px;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4a1e5c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg></div><h3 style="margin:0;font-size:17px;font-weight:700;color:#1f2937;">Enviar al baúl e-título valor</h3></div><div style="background:#f3edf0;border:1px solid #e9dfe7;border-radius:8px;padding:12px 14px;margin-bottom:16px;display:flex;align-items:center;gap:10px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4a1e5c" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><span style="font-size:13px;color:#2b0e31;font-weight:600;">Se enviarán <strong id="etitulo-count"></strong> al baúl de e-título valor.</span></div><p style="font-size:13px;color:#6b7280;margin:0 0 14px;line-height:1.5;">Ingresa el ID del baúl asignado por PKI Services.</p><label style="font-size:13px;font-weight:600;color:#374151;display:block;margin-bottom:6px;">ID del Baúl (BeneficiarioId)</label><input id="etitulo-baul-id" type="number" placeholder="Ej: 2145852140" style="width:100%;padding:10px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-size:14px;box-sizing:border-box;outline:none;margin-bottom:6px;transition:border-color 0.2s;" onfocus="this.style.borderColor=\'#2b0e31\'" onblur="this.style.borderColor=\'#d1d5db\'"/><div id="etitulo-error" style="color:#dc2626;font-size:12px;margin-bottom:10px;display:none;"></div><div id="etitulo-progress" style="display:none;margin-bottom:10px;"><div style="font-size:12px;color:#6b7280;margin-bottom:6px;" id="etitulo-progress-text">Enviando...</div><div style="height:6px;background:#e5e7eb;border-radius:4px;overflow:hidden;"><div id="etitulo-progress-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#2b0e31,#4a1e5c);border-radius:4px;transition:width 0.3s;"></div></div></div><div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px;"><button id="etitulo-cancel" style="padding:10px 20px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;font-size:13px;font-weight:600;color:#374151;">Cancelar</button><button id="etitulo-confirm" style="padding:10px 22px;border:none;border-radius:8px;background:linear-gradient(135deg,#2b0e31,#4a1e5c);color:#fff;cursor:pointer;font-size:13px;font-weight:700;display:flex;align-items:center;gap:7px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>Enviar al baúl</button></div></div>';
   document.body.appendChild(modal);
   var countEl = modal.querySelector('#etitulo-count');
   if (countEl) countEl.textContent = count + (count === 1 ? ' pagare' : ' pagares');
@@ -655,7 +657,7 @@ function createRecipientCard(recipient) {
            ${recipient.status === 'completed' && recipient.vi_traza_path ? `
            <div class="download-dropdown-menu" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:#fff;border:1px solid #e5e7eb;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.12);z-index:9999;min-width:210px;overflow:hidden;">
              <button class="download-option-btn" data-action="download" data-id="${recipient.id}" style="width:100%;text-align:left;padding:11px 16px;border:none;background:none;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:10px;color:#1f2937;">
-               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5b21b6" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4a1e5c" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                <div><div style="font-weight:600;">Con trazabilidad</div><div style="font-size:11px;color:#6b7280;">Incluye trazabilidad de identidad</div></div>
              </button>
              <div style="height:1px;background:#f3f4f6;margin:0 12px;"></div>
