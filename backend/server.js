@@ -6809,7 +6809,7 @@ app.get('/api/documents/:docId/pagares/download-all-zip', requireAuth, async (re
 // POST /api/documents/:id/enviar-etitulo
 app.post('/api/documents/:id/enviar-etitulo', requireAuth, async (req, res) => {
     const docId = parseInt(req.params.id);
-    const { beneficiarioId } = req.body;
+    const { beneficiarioId, viewerGroupId: viewerGroupIdFromBody } = req.body;
 
     if (!beneficiarioId) {
         return res.status(400).json({ success: false, message: 'BeneficiarioId es requerido' });
@@ -6828,17 +6828,23 @@ app.post('/api/documents/:id/enviar-etitulo', requireAuth, async (req, res) => {
             return res.status(400).json({ success: false, message: 'Este pagaré ya fue enviado al baúl', tv_guid: doc.tv_guid });
         }
 
-        // Obtener viewer_group_id del pagaré (primer grupo de firmantes no definitivos)
-        const [vgRows] = await db.promise().query(
-            `SELECT DISTINCT viewer_group_id FROM document_recipients
-             WHERE document_id = ? AND is_final_signer = 0 AND status = 'completed'
-             LIMIT 1`,
-            [docId]
-        );
-        if (!vgRows.length || !vgRows[0].viewer_group_id) {
+        // Obtener viewer_group_id: del body (envío masivo) o buscar el primero completado
+        let viewerGroupId = viewerGroupIdFromBody ? parseInt(viewerGroupIdFromBody) : null;
+        if (!viewerGroupId) {
+            const [vgRows] = await db.promise().query(
+                `SELECT DISTINCT viewer_group_id FROM document_recipients
+                 WHERE document_id = ? AND is_final_signer = 0 AND status = 'completed'
+                 LIMIT 1`,
+                [docId]
+            );
+            if (!vgRows.length || !vgRows[0].viewer_group_id) {
+                return res.status(400).json({ success: false, message: 'El pagaré aún no está completamente firmado' });
+            }
+            viewerGroupId = vgRows[0].viewer_group_id;
+        }
+        if (!viewerGroupId) {
             return res.status(400).json({ success: false, message: 'El pagaré aún no está completamente firmado' });
         }
-        const viewerGroupId = vgRows[0].viewer_group_id;
 
         const [recipients] = await db.promise().query(
             `SELECT dr.name, dr.email, dp.role_name
@@ -6947,12 +6953,18 @@ app.post('/api/documents/:id/enviar-etitulo', requireAuth, async (req, res) => {
 
         const guidId = pagarData.pagare.guidId;
 
+        // Guardar tv_guid por viewer_group (permite múltiples pagarés por documento)
         await db.promise().query(
-            'UPDATE documents SET tv_guid = ?, tv_baul_id = ? WHERE document_id = ?',
+            'UPDATE pagare_viewer_groups SET tv_guid = ?, tv_baul_id = ? WHERE viewer_group_id = ?',
+            [guidId, parseInt(beneficiarioId), viewerGroupId]
+        );
+        // También guardar en documents para compatibilidad (si solo hay un pagaré)
+        await db.promise().query(
+            'UPDATE documents SET tv_guid = ?, tv_baul_id = ? WHERE document_id = ? AND tv_guid IS NULL',
             [guidId, parseInt(beneficiarioId), docId]
         );
 
-        console.log(`✅ [E-TITULO] Pagaré ${docId} custodiado. GUID: ${guidId}`);
+        console.log(`✅ [E-TITULO] Pagaré ${docId}/vg${viewerGroupId} custodiado. GUID: ${guidId}`);
         res.json({ success: true, message: 'Pagaré enviado al baúl exitosamente', guidId, numeroPagare: pagarData.pagare.numeroPagare });
 
     } catch (error) {
