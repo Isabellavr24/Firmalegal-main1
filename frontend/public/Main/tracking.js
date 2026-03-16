@@ -519,7 +519,7 @@ function renderRecipients(recipients, tvGuidsByGroup) {
       }
     });
   });
-
+}
 
 function showEtituloMasivoModal(docId, groupIds, triggerBtn) {
   var prev = document.getElementById('etitulo-modal');
