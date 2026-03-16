@@ -360,7 +360,7 @@ function renderRecipients(recipients, tvGuidsByGroup) {
         <div style="display:flex;align-items:center;gap:10px;flex-shrink:0;padding-left:10px;align-self:center;">
           ${pagareFullyComplete && docId
             ? `<button class="pagare-download-complete-btn" data-group-id="${groupId}" data-doc-id="${docId}"
-                 style="display:flex;align-items:center;gap:6px;background:linear-gradient(135deg,#2b0e31,#4a1e5c);
+                 style="display:flex;align-items:center;gap:6px;background:#2b0e31;
                         color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:12px;
                         font-weight:700;cursor:pointer;letter-spacing:0.3px;">
                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
