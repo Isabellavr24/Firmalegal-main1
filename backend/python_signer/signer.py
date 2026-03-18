@@ -392,7 +392,8 @@ class PDFSigner:
         pdf_bytes: bytes,
         seals: List[Dict],
         signer: signers.SimpleSigner,
-        verification_token: Optional[str] = None
+        verification_token: Optional[str] = None,
+        signing_time: Optional[str] = None
     ) -> bytes:
         """
         Dibuja sellos PKI en el PDF antes de firmar.
@@ -414,11 +415,26 @@ class PDFSigner:
             cached = self._get_or_extract_cert_data(signer)
             cert_data = dict(cached)
 
-            # ✅ FIX: Timestamp siempre fresco en el momento de firma (no cacheado)
-            now = datetime.now(TZ_COLOMBIA)
-            cert_data['timestamp_iso'] = now.strftime("%Y-%m-%dT%H:%M:%S-05:00")
-            cert_data['timestamp_local'] = now.strftime("%d/%m/%Y %H:%M:%S")
-            logger.info(f"   ⏰ Timestamp sello: {cert_data['timestamp_local']}")
+            # ✅ FIX: Usar signing_time si se proporcionó (para docs ya firmados)
+            if signing_time:
+                try:
+                    # Parsear ISO8601 con stdlib (sin dateutil)
+                    st = signing_time.replace('Z', '+00:00')
+                    dt = datetime.fromisoformat(st)
+                    dt = dt.astimezone(TZ_COLOMBIA)
+                    cert_data['timestamp_iso'] = dt.strftime("%Y-%m-%dT%H:%M:%S-05:00")
+                    cert_data['timestamp_local'] = dt.strftime("%d/%m/%Y %H:%M:%S")
+                    logger.info(f"   ⏰ Timestamp sello (original): {cert_data['timestamp_local']}")
+                except Exception as e:
+                    logger.warning(f"   ⚠️ No se pudo parsear signing_time '{signing_time}': {e}")
+                    now = datetime.now(TZ_COLOMBIA)
+                    cert_data['timestamp_iso'] = now.strftime("%Y-%m-%dT%H:%M:%S-05:00")
+                    cert_data['timestamp_local'] = now.strftime("%d/%m/%Y %H:%M:%S")
+            else:
+                now = datetime.now(TZ_COLOMBIA)
+                cert_data['timestamp_iso'] = now.strftime("%Y-%m-%dT%H:%M:%S-05:00")
+                cert_data['timestamp_local'] = now.strftime("%d/%m/%Y %H:%M:%S")
+                logger.info(f"   ⏰ Timestamp sello: {cert_data['timestamp_local']}")
 
             # ✅ Token seguro para el QR (no expone el document_id)
             if verification_token:
@@ -526,7 +542,8 @@ class PDFSigner:
         visible: bool,
         box: tuple,
         seals: Optional[List[Dict]] = None,
-        verification_token: Optional[str] = None
+        verification_token: Optional[str] = None,
+        signing_time: Optional[str] = None
     ) -> bytes:
         """
         Método síncrono que ejecuta la firma con pyHanko
@@ -546,7 +563,7 @@ class PDFSigner:
 
             # 1.5. Dibujar QR vertical en TODAS las páginas + sellos opcionales
             logger.info(f"📋 1.5. Dibujando QR vertical y sellos PKI...")
-            pdf_bytes = self._draw_seals_on_pdf(pdf_bytes, seals, signer, verification_token)
+            pdf_bytes = self._draw_seals_on_pdf(pdf_bytes, seals, signer, verification_token, signing_time)
             logger.info("   ✅ QR y sellos dibujados")
 
             # 2. Configurar timestamper con adaptador TLS legacy (OpenSSL 3.x compat)
@@ -705,7 +722,8 @@ class PDFSigner:
         visible: bool = True,
         box: tuple = (10, 10, 210, 60),
         seals: Optional[List[Dict]] = None,
-        verification_token: Optional[str] = None
+        verification_token: Optional[str] = None,
+        signing_time: Optional[str] = None
     ) -> bytes:
         """
         Firma un PDF con certificado P12 y timestamp TSA (versión async)
@@ -742,7 +760,8 @@ class PDFSigner:
             visible,
             box,
             seals,
-            verification_token
+            verification_token,
+            signing_time
         )
         return signed_pdf
 
