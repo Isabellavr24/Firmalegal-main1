@@ -2017,6 +2017,22 @@ router.get('/:id/recipients', requireAuth, async (req, res) => {
 
         const tvGuid = docResults[0].tv_guid || null;
 
+        // Obtener tv_guid por viewer_group (para múltiples pagarés)
+        const vgTvGuids = await new Promise((resolve, reject) => {
+            db.query(
+                'SELECT viewer_group_id, tv_guid FROM pagare_viewer_groups WHERE document_id = ?',
+                [documentId],
+                (err, results) => {
+                    if (err) reject(err);
+                    else {
+                        const map = {};
+                        results.forEach(r => { if (r.tv_guid) map[r.viewer_group_id] = r.tv_guid; });
+                        resolve(map);
+                    }
+                }
+            );
+        });
+
         // Obtener destinatarios
         // COALESCE: si vi_validated_at está en document_recipients úsalo,
         // si no, buscar en vi_verified_emails (para firmante definitivo que ya validó como dueño)
@@ -2041,12 +2057,24 @@ router.get('/:id/recipients', requireAuth, async (req, res) => {
 
         console.log(`✅ [DOCUMENTS] ${recipients.length} destinatario(s) encontrado(s)`);
 
+        // Verificar si el pagaré ya fue sellado (sin firmante definitivo)
+        const [pagareMetaRows] = await new Promise((resolve, reject) => {
+            db.query(
+                `SELECT final_signer_status FROM pagare_metadata WHERE document_id = ?`,
+                [documentId],
+                (err, results) => { if (err) reject(err); else resolve([results]); }
+            );
+        });
+        const pagareSealed = pagareMetaRows.length > 0 && pagareMetaRows[0].final_signer_status === 'signed';
+
         res.json({
             ok: true,
             success: true,
             data: {
                 document_id: documentId,
                 tv_guid: tvGuid,
+                tv_guids_by_group: vgTvGuids,
+                pagare_sealed: pagareSealed,
                 recipients: recipients
             }
         });
@@ -3061,12 +3089,7 @@ router.post('/:docId/pagare/send-bulk', requireAuth, async (req, res) => {
             });
         }
 
-        if (!finalSignerEmail || !finalSignerName) {
-            return res.status(400).json({
-                success: false,
-                error: 'Email y nombre del firmante definitivo son requeridos'
-            });
-        }
+        // finalSignerEmail es opcional — si no se provee, los pagarés se sellan automáticamente
 
         // Obtener documento con configuración de email (igual que documentos normales)
         const [docs] = await db.promise().query(
@@ -3423,8 +3446,9 @@ router.post('/:docId/pagare/send-bulk', requireAuth, async (req, res) => {
         });
 
     } catch (error) {
-        console.error('❌ Error al procesar pagarés masivos:', error);
-        res.status(500).json({
+        console.error('❌ Error al procesar pagarés masivos:', error.message);
+        console.error('❌ Stack:', error.stack);
+        res.status(400).json({
             success: false,
             error: error.message
         });

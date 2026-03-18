@@ -1,6 +1,8 @@
 /*********************************************************
  * TRACKING VIEW - SISTEMA DE SEGUIMIENTO DE DOCUMENTOS
+ * v20260317b
  **********************************************************/
+console.log('🔖 tracking.js v20260317b cargado');
 
 // ====== VARIABLES GLOBALES ======
 let currentDocumentType = 'normal'; // ✅ Tipo de documento actual: 'normal' o 'pagare'
@@ -85,6 +87,23 @@ const ToastManager = {
 };
 
 // ====== OBTENER DATOS DE LA URL ======
+function toggleFinalSigner() {
+  var toggle = document.getElementById('finalSignerToggle');
+  var knob = document.getElementById('finalSignerToggleKnob');
+  var fields = document.getElementById('finalSignerFields');
+  var label = document.getElementById('finalSignerToggleLabel');
+  if (!toggle) return;
+  var active = toggle.dataset.active === 'true';
+  active = !active;
+  toggle.dataset.active = active ? 'true' : 'false';
+  toggle.style.background = active ? '#2b0e31' : '#d1d5db';
+  knob.style.left = active ? '18px' : '2px';
+  fields.style.display = active ? 'block' : 'none';
+  label.textContent = active
+    ? 'Con firmante definitivo — recibirá notificación para sellar todos los pagarés'
+    : 'Sin firmante definitivo — los pagarés se sellarán automáticamente cuando todos firmen';
+}
+
 function getDocumentDataFromURL() {
   const params = new URLSearchParams(window.location.search);
   const documentType = params.get('type') || 'normal'; // ✅ Capturar tipo de documento
@@ -129,7 +148,7 @@ const demoData = {
 };
 
 // ====== RENDERIZAR DESTINATARIOS ======
-function renderRecipients(recipients, tvGuidsByGroup) {
+function renderRecipients(recipients, tvGuidsByGroup, pagareSealed) {
   // tvGuidsByGroup: { viewer_group_id: guid, ... } o null/{}
   if (!tvGuidsByGroup || typeof tvGuidsByGroup !== 'object') tvGuidsByGroup = {};
   // Compatibilidad: si se pasa string (legado), ignorar
@@ -169,9 +188,13 @@ function renderRecipients(recipients, tvGuidsByGroup) {
     const groupIds = Object.keys(groups).sort((a, b) => parseInt(a) - parseInt(b));
     const docId = getDocumentDataFromURL().id;
 
-    // ── Botón de descarga masiva ZIP (solo si TODOS los pagarés y firmante definitivo completaron) ──
+    // ── Botón de descarga masiva ZIP (solo si TODOS los pagarés completaron) ──
     const allGroupsDone = groupIds.every(gid => groups[gid].every(r => r.status === 'completed'));
-    const finalSignerDoneGlobal = finalSigner && finalSigner.status === 'completed';
+    // finalSignerDoneGlobal: si hay firmante definitivo, debe estar completed;
+    // si no hay, usar pagareSealed (sellado automático sin firmante definitivo)
+    const finalSignerDoneGlobal = finalSigner
+      ? finalSigner.status === 'completed'
+      : (pagareSealed || allGroupsDone);
     const showZipBtn = allGroupsDone && finalSignerDoneGlobal && groupIds.length > 0 && docId;
 
     // ── Datos para botones de e-título en barra superior ──
@@ -292,7 +315,11 @@ function renderRecipients(recipients, tvGuidsByGroup) {
     groupIds.forEach((groupId, idx) => {
       const groupRecipients = groups[groupId];
       const groupAllCompleted = groupRecipients.every(r => r.status === 'completed');
-      const finalSignerCompleted = finalSigner && finalSigner.status === 'completed';
+      // Si hay firmante definitivo: requiere que esté completed
+      // Si no hay: el pagaré está completo cuando todos del grupo firmaron Y está sellado
+      const finalSignerCompleted = finalSigner
+        ? finalSigner.status === 'completed'
+        : (pagareSealed || groupAllCompleted);
       const pagareFullyComplete = groupAllCompleted && finalSignerCompleted;
 
       // ── Datos calculados ──────────────────────────────────────────────────
@@ -529,37 +556,120 @@ function showEtituloMasivoModal(docId, groupIds, triggerBtn) {
   var count = groupIds.length;
   var modal = document.createElement('div');
   modal.id = 'etitulo-modal';
-  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:99999;display:flex;align-items:center;justify-content:center;';
-  modal.innerHTML = '<div style="background:#fff;border-radius:14px;padding:30px 34px;max-width:440px;width:90%;box-shadow:0 24px 64px rgba(0,0,0,0.2);"><div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;"><div style="background:#f3edf0;border-radius:10px;padding:9px;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4a1e5c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg></div><h3 style="margin:0;font-size:17px;font-weight:700;color:#1f2937;">Enviar al baúl e-título valor</h3></div><div style="background:#f3edf0;border:1px solid #e9dfe7;border-radius:8px;padding:12px 14px;margin-bottom:16px;display:flex;align-items:center;gap:10px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4a1e5c" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><span style="font-size:13px;color:#2b0e31;font-weight:600;">Se enviarán <strong id="etitulo-count"></strong> al baúl de e-título valor.</span></div><p style="font-size:13px;color:#6b7280;margin:0 0 14px;line-height:1.5;">Ingresa el ID del baúl asignado por PKI Services.</p><label style="font-size:13px;font-weight:600;color:#374151;display:block;margin-bottom:6px;">ID del Baúl (BeneficiarioId)</label><input id="etitulo-baul-id" type="number" placeholder="Ej: 2145852140" style="width:100%;padding:10px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-size:14px;box-sizing:border-box;outline:none;margin-bottom:6px;transition:border-color 0.2s;" onfocus="this.style.borderColor=\'#2b0e31\'" onblur="this.style.borderColor=\'#d1d5db\'"/><div id="etitulo-error" style="color:#dc2626;font-size:12px;margin-bottom:10px;display:none;"></div><div id="etitulo-progress" style="display:none;margin-bottom:10px;"><div style="font-size:12px;color:#6b7280;margin-bottom:6px;" id="etitulo-progress-text">Enviando...</div><div style="height:6px;background:#e5e7eb;border-radius:4px;overflow:hidden;"><div id="etitulo-progress-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#2b0e31,#4a1e5c);border-radius:4px;transition:width 0.3s;"></div></div></div><div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px;"><button id="etitulo-cancel" style="padding:10px 20px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;font-size:13px;font-weight:600;color:#374151;">Cancelar</button><button id="etitulo-confirm" style="padding:10px 22px;border:none;border-radius:8px;background:linear-gradient(135deg,#2b0e31,#4a1e5c);color:#fff;cursor:pointer;font-size:13px;font-weight:700;display:flex;align-items:center;gap:7px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>Enviar al baúl</button></div></div>';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:99999;display:flex;align-items:center;justify-content:center;animation:fadeIn 0.15s ease;';
+  var countLabel = count === 1 ? '1 pagaré' : count + ' pagarés';
+  modal.innerHTML = `
+<div id="etitulo-box" style="background:#fff;border-radius:16px;padding:32px 36px;max-width:460px;width:90%;box-shadow:0 24px 64px rgba(0,0,0,0.18);position:relative;">
+  <!-- VISTA: Formulario -->
+  <div id="etitulo-view-form">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
+      <div style="background:#f3edf0;border-radius:10px;padding:10px;flex-shrink:0;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2b0e31" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>
+      </div>
+      <h3 style="margin:0;font-size:17px;font-weight:700;color:#1f2937;">Enviar al baúl e-título valor</h3>
+    </div>
+    <div style="background:#f3edf0;border:1px solid #e9dfe7;border-radius:10px;padding:13px 16px;margin-bottom:18px;display:flex;align-items:center;gap:10px;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4a1e5c" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <span style="font-size:13px;color:#2b0e31;font-weight:600;">Se enviarán <strong>${countLabel}</strong> al baúl de e-título valor.</span>
+    </div>
+    <p style="font-size:13px;color:#6b7280;margin:0 0 16px;line-height:1.5;">Ingresa el ID del baúl asignado por PKI Services.</p>
+    <label style="font-size:13px;font-weight:600;color:#374151;display:block;margin-bottom:6px;">ID del Baúl (BeneficiarioId)</label>
+    <input id="etitulo-baul-id" type="number" placeholder="Ej: 2145852140"
+      style="width:100%;padding:11px 13px;border:1.5px solid #d1d5db;border-radius:8px;font-size:14px;box-sizing:border-box;outline:none;margin-bottom:6px;transition:border-color 0.2s;"
+      onfocus="this.style.borderColor='#2b0e31'" onblur="this.style.borderColor='#d1d5db'"/>
+    <div id="etitulo-error" style="color:#dc2626;font-size:12px;min-height:18px;margin-bottom:4px;"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px;">
+      <button id="etitulo-cancel" style="padding:10px 22px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;font-size:13px;font-weight:600;color:#374151;">Cancelar</button>
+      <button id="etitulo-confirm" style="padding:10px 24px;border:none;border-radius:8px;background:#2b0e31;color:#fff;cursor:pointer;font-size:13px;font-weight:700;display:flex;align-items:center;gap:7px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>
+        Enviar al baúl
+      </button>
+    </div>
+  </div>
+
+  <!-- VISTA: Enviando (oculta inicialmente) -->
+  <div id="etitulo-view-sending" style="display:none;text-align:center;padding:10px 0;">
+    <div style="margin-bottom:20px;">
+      <div style="width:56px;height:56px;border-radius:50%;background:#f3edf0;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;">
+        <svg id="etitulo-spin-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2b0e31" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:etituloSpin 1.2s linear infinite;"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>
+      </div>
+      <div id="etitulo-send-title" style="font-size:16px;font-weight:700;color:#1f2937;margin-bottom:6px;">Enviando al baúl...</div>
+      <div id="etitulo-send-sub" style="font-size:13px;color:#6b7280;">Generando PDF y enviando a e-título valor</div>
+    </div>
+    <div style="margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+        <span id="etitulo-progress-text" style="font-size:12px;color:#6b7280;font-weight:500;"></span>
+        <span id="etitulo-progress-pct" style="font-size:12px;color:#2b0e31;font-weight:700;"></span>
+      </div>
+      <div style="height:8px;background:#e9dfe7;border-radius:6px;overflow:hidden;">
+        <div id="etitulo-progress-bar" style="height:100%;width:0%;background:#2b0e31;border-radius:6px;transition:width 0.4s ease;"></div>
+      </div>
+    </div>
+    <div id="etitulo-items-log" style="margin-top:14px;text-align:left;max-height:120px;overflow-y:auto;"></div>
+  </div>
+
+  <!-- VISTA: Resultado (oculta inicialmente) -->
+  <div id="etitulo-view-result" style="display:none;text-align:center;padding:10px 0;">
+    <div id="etitulo-result-icon" style="width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;"></div>
+    <div id="etitulo-result-title" style="font-size:18px;font-weight:700;color:#1f2937;margin-bottom:8px;"></div>
+    <div id="etitulo-result-sub" style="font-size:13px;color:#6b7280;line-height:1.6;margin-bottom:24px;"></div>
+    <div id="etitulo-result-errors" style="display:none;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px;margin-bottom:16px;text-align:left;font-size:12px;color:#991b1b;"></div>
+    <button id="etitulo-close-btn" style="padding:11px 32px;border:none;border-radius:8px;background:#2b0e31;color:#fff;cursor:pointer;font-size:14px;font-weight:700;">Cerrar</button>
+  </div>
+</div>
+<style>
+@keyframes etituloSpin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+@keyframes fadeIn { from{opacity:0;transform:scale(0.97)} to{opacity:1;transform:scale(1)} }
+@keyframes etituloPulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+</style>`;
   document.body.appendChild(modal);
-  var countEl = modal.querySelector('#etitulo-count');
-  if (countEl) countEl.textContent = count + (count === 1 ? ' pagare' : ' pagares');
+
   var input = modal.querySelector('#etitulo-baul-id');
   var errorDiv = modal.querySelector('#etitulo-error');
   var confirmBtn = modal.querySelector('#etitulo-confirm');
   var cancelBtn = modal.querySelector('#etitulo-cancel');
-  var progressDiv = modal.querySelector('#etitulo-progress');
-  var progressText = modal.querySelector('#etitulo-progress-text');
+  var viewForm = modal.querySelector('#etitulo-view-form');
+  var viewSending = modal.querySelector('#etitulo-view-sending');
+  var viewResult = modal.querySelector('#etitulo-view-result');
   var progressBar = modal.querySelector('#etitulo-progress-bar');
+  var progressText = modal.querySelector('#etitulo-progress-text');
+  var progressPct = modal.querySelector('#etitulo-progress-pct');
+  var itemsLog = modal.querySelector('#etitulo-items-log');
+  var sendTitle = modal.querySelector('#etitulo-send-title');
+  var sendSub = modal.querySelector('#etitulo-send-sub');
+
   input.focus();
   cancelBtn.addEventListener('click', function() { modal.remove(); });
   modal.addEventListener('click', function(e) { if (e.target === modal) modal.remove(); });
+
   confirmBtn.addEventListener('click', async function() {
     var beneficiarioId = input.value.trim();
     if (!beneficiarioId || isNaN(beneficiarioId)) {
-      errorDiv.textContent = 'Ingresa un ID de baul valido.';
-      errorDiv.style.display = 'block';
+      errorDiv.textContent = 'Ingresa un ID de baúl válido.';
       return;
     }
-    errorDiv.style.display = 'none';
-    confirmBtn.disabled = true;
-    cancelBtn.disabled = true;
-    input.disabled = true;
-    progressDiv.style.display = 'block';
+    errorDiv.textContent = '';
+
+    // Cambiar a vista "enviando"
+    viewForm.style.display = 'none';
+    viewSending.style.display = 'block';
+
     var sent = 0, errors = 0, errs = [];
     for (var i = 0; i < groupIds.length; i++) {
       var gid = groupIds[i];
-      progressText.textContent = 'Enviando ' + (sent + errors + 1) + ' / ' + count + '...';
+      var num = i + 1;
+      progressText.textContent = 'Pagaré ' + num + ' de ' + count;
+      progressPct.textContent = Math.round((i / count) * 100) + '%';
+      sendTitle.textContent = 'Enviando pagaré ' + num + ' de ' + count + '...';
+      sendSub.textContent = 'Generando PDF y enviando a e-título valor, por favor espera';
+
+      // Barra con animación de pulso mientras espera respuesta
+      var baseW = Math.round((i / count) * 100);
+      progressBar.style.transition = 'width 0.3s ease';
+      progressBar.style.width = baseW + '%';
+      progressBar.style.animation = 'etituloPulse 1.2s ease-in-out infinite';
+      progressPct.textContent = baseW + '%';
+
       try {
         var resp = await fetch('/api/documents/' + docId + '/enviar-etitulo', {
           method: 'POST',
@@ -567,14 +677,71 @@ function showEtituloMasivoModal(docId, groupIds, triggerBtn) {
           body: JSON.stringify({ beneficiarioId: parseInt(beneficiarioId), viewerGroupId: parseInt(gid) })
         });
         var data = await resp.json();
-        if (data.success) { sent++; } else { errors++; errs.push(data.message || 'Error'); }
-      } catch(e) { errors++; errs.push('Error de conexion'); }
-      progressBar.style.width = Math.round(((sent + errors) / count) * 100) + '%';
+        // Detener pulso y avanzar al 100% de este pagaré
+        progressBar.style.animation = 'none';
+        progressBar.style.transition = 'width 0.4s ease';
+        progressBar.style.width = Math.round(((i + 1) / count) * 100) + '%';
+        progressPct.textContent = Math.round(((i + 1) / count) * 100) + '%';
+        if (data.success) {
+          sent++;
+          itemsLog.innerHTML += '<div style="display:flex;align-items:center;gap:7px;padding:5px 0;border-bottom:1px solid #f3edf0;font-size:12px;color:#166534;">' +
+            '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' +
+            'Pagaré #' + num + ' enviado correctamente</div>';
+        } else {
+          errors++;
+          errs.push('Pagaré #' + num + ': ' + (data.message || 'Error desconocido'));
+          itemsLog.innerHTML += '<div style="display:flex;align-items:center;gap:7px;padding:5px 0;border-bottom:1px solid #f3edf0;font-size:12px;color:#991b1b;">' +
+            '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
+            'Pagaré #' + num + ': ' + (data.message || 'Error') + '</div>';
+        }
+      } catch(e) {
+        errors++;
+        errs.push('Pagaré #' + num + ': Error de conexión');
+        progressBar.style.animation = 'none';
+        progressBar.style.transition = 'width 0.4s ease';
+        progressBar.style.width = Math.round(((i + 1) / count) * 100) + '%';
+        progressPct.textContent = Math.round(((i + 1) / count) * 100) + '%';
+      }
+      itemsLog.scrollTop = itemsLog.scrollHeight;
     }
-    modal.remove();
-    if (errors > 0) alert('Enviados: ' + sent + '. Errores: ' + errors + '.');
-    var docId2 = new URLSearchParams(window.location.search).get('id');
-    if (docId2) loadRecipients(docId2);
+
+    // Cambiar a vista resultado
+    viewSending.style.display = 'none';
+    viewResult.style.display = 'block';
+    var resultIcon = modal.querySelector('#etitulo-result-icon');
+    var resultTitle = modal.querySelector('#etitulo-result-title');
+    var resultSub = modal.querySelector('#etitulo-result-sub');
+    var resultErrors = modal.querySelector('#etitulo-result-errors');
+
+    if (errors === 0) {
+      resultIcon.style.background = '#dcfce7';
+      resultIcon.innerHTML = '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+      resultTitle.textContent = sent === 1 ? '¡Pagaré enviado al baúl!' : '¡' + sent + ' pagarés enviados al baúl!';
+      resultTitle.style.color = '#166534';
+      resultSub.textContent = 'El' + (sent > 1 ? ' los' : '') + ' pagaré' + (sent > 1 ? 's han' : ' ha') + ' sido custodiado' + (sent > 1 ? 's' : '') + ' exitosamente en e-título valor.';
+    } else if (sent > 0) {
+      resultIcon.style.background = '#fef9c3';
+      resultIcon.innerHTML = '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#b45309" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+      resultTitle.textContent = sent + ' enviado' + (sent > 1 ? 's' : '') + ', ' + errors + ' con error';
+      resultTitle.style.color = '#92400e';
+      resultSub.textContent = 'Algunos pagarés no pudieron enviarse. Revisa los errores a continuación.';
+      resultErrors.style.display = 'block';
+      resultErrors.innerHTML = errs.map(function(e) { return '• ' + e; }).join('<br>');
+    } else {
+      resultIcon.style.background = '#fee2e2';
+      resultIcon.innerHTML = '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+      resultTitle.textContent = 'Error al enviar';
+      resultTitle.style.color = '#991b1b';
+      resultSub.textContent = 'No se pudo enviar al baúl. Verifica el ID del baúl e intenta de nuevo.';
+      resultErrors.style.display = 'block';
+      resultErrors.innerHTML = errs.map(function(e) { return '• ' + e; }).join('<br>');
+    }
+
+    modal.querySelector('#etitulo-close-btn').addEventListener('click', function() {
+      modal.remove();
+      var docId2 = new URLSearchParams(window.location.search).get('id');
+      if (docId2) loadRecipients(docId2);
+    });
   });
 }
 
@@ -1010,6 +1177,15 @@ async function loadPagareFieldsInfo(docId) {
     // Actualizar UI
     document.getElementById('pagareViewersCount').textContent = viewerIds.size || 0;
     document.getElementById('pagareTextFieldsCount').textContent = textFields.length || 0;
+
+    // Detectar firmante definitivo
+    const hasFinalSignatureField = fields.some(f => f.type === 'final_signature');
+    const finalSignerStep = document.getElementById('finalSignerStep');
+    if (finalSignerStep) {
+      finalSignerStep.style.display = hasFinalSignatureField ? 'block' : 'none';
+      finalSignerStep.dataset.active = hasFinalSignatureField ? 'true' : 'false';
+    }
+    console.log('🔍 [PAGARE] Firmante definitivo detectado:', hasFinalSignatureField);
 
     // Mostrar lista de campos con diseño mejorado
     const fieldsList = document.getElementById('pagareFieldsList');
@@ -1656,7 +1832,7 @@ async function loadRecipients(docId) {
     
     if (data.success && data.data && data.data.recipients) {
       console.log(`✅ ${data.data.recipients.length} destinatarios cargados`);
-      renderRecipients(data.data.recipients, data.data.tv_guids_by_group || {});
+      renderRecipients(data.data.recipients, data.data.tv_guids_by_group || {}, data.data.pagare_sealed || false);
     } else {
       console.log('ℹ️ No hay destinatarios para este documento');
       renderRecipients([]);
@@ -1790,20 +1966,22 @@ async function sendPagaresBulk() {
       return;
     }
 
-    // Validar firmante definitivo
-    const finalSignerEmail = document.getElementById('finalSignerEmail')?.value.trim();
-    const finalSignerName = document.getElementById('finalSignerName')?.value.trim();
+    // Firmante definitivo (solo si el documento tiene campo final_signature)
+    const finalSignerStep = document.getElementById('finalSignerStep');
+    const finalSignerActive = finalSignerStep && finalSignerStep.dataset.active === 'true';
+    const finalSignerEmail = finalSignerActive ? (document.getElementById('finalSignerEmail')?.value.trim() || '') : '';
+    const finalSignerName = finalSignerActive ? (document.getElementById('finalSignerName')?.value.trim() || '') : '';
 
-    if (!finalSignerEmail || !finalSignerName) {
-      ToastManager.error('Error', 'Debes completar los datos del firmante definitivo');
-      return;
-    }
-
-    // Validar email
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(finalSignerEmail)) {
-      ToastManager.error('Error', 'El email del firmante definitivo no es válido');
-      return;
+    if (finalSignerActive) {
+      if (!finalSignerEmail || !finalSignerName) {
+        ToastManager.error('Error', 'Debes completar los datos del firmante definitivo');
+        return;
+      }
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(finalSignerEmail)) {
+        ToastManager.error('Error', 'El email del firmante definitivo no es válido');
+        return;
+      }
     }
 
     const docData = getDocumentDataFromURL();

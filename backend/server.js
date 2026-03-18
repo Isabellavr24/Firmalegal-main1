@@ -368,14 +368,208 @@ async function checkPagareCompletion(viewerGroupId, documentId) {
 
             if (completedGroups === totalGroups && totalGroups > 0) {
                 // TODOS los viewer_groups completaron
-                console.log(`   🎉 TODOS LOS PAGARÉS COMPLETADOS - Notificando al firmante definitivo`);
+                console.log(`   🎉 TODOS LOS PAGARÉS COMPLETADOS`);
 
-                await notifyFinalSigner(documentId);
+                // Verificar si hay firmante definitivo configurado
+                const [metaCheck] = await db.promise().query(
+                    `SELECT final_signer_email FROM pagare_metadata WHERE document_id = ? AND final_signer_email IS NOT NULL AND final_signer_email != ''`,
+                    [documentId]
+                );
+
+                if (metaCheck.length > 0) {
+                    console.log(`   📨 Firmante definitivo encontrado — notificando`);
+                    await notifyFinalSigner(documentId);
+                } else {
+                    console.log(`   🔒 Sin firmante definitivo — sellando directamente`);
+                    await sealPagaresWithoutFinalSigner(documentId);
+                }
             }
         }
 
     } catch (error) {
         console.error('❌ Error en checkPagareCompletion:', error);
+    }
+}
+
+/**
+ * Sellar todos los pagarés directamente cuando no hay firmante definitivo
+ */
+async function sealPagaresWithoutFinalSigner(documentId) {
+    try {
+        console.log(`\n🔒 [SIN-FINAL] Sellando pagarés del documento ${documentId} sin firmante definitivo...`);
+
+        const intermediatePdfDir = resolveFromRoot('uploads', 'signed');
+        if (!fs.existsSync(intermediatePdfDir)) {
+            fs.mkdirSync(intermediatePdfDir, { recursive: true });
+        }
+
+        const [allViewerGroups] = await db.promise().query(
+            `SELECT viewer_group_id FROM pagare_viewer_groups WHERE document_id = ?`,
+            [documentId]
+        );
+        console.log(`   📋 Total de pagarés a sellar: ${allViewerGroups.length}`);
+
+        const { PDFDocument } = require('pdf-lib');
+        const pythonSigner = new PythonSignerClient({ verbose: true });
+        const isHealthy = await pythonSigner.healthCheck();
+        if (!isHealthy) throw new Error('Servicio de firma no disponible');
+
+        const [sealFields] = await db.promise().query(
+            `SELECT page_number as page, x_position as x, y_position as y, width, height
+             FROM document_fields WHERE document_id = ? AND field_type = 'seal'`,
+            [documentId]
+        );
+
+        const pagareVerifToken = crypto
+            .createHash('sha256')
+            .update(`VERIFY-${documentId}-${process.env.JWT_SECRET || 'firmalegal-secret-key'}`)
+            .digest('hex')
+            .substring(0, 32);
+
+        for (let i = 0; i < allViewerGroups.length; i++) {
+            const viewerGroup = allViewerGroups[i];
+            console.log(`\n   📝 Sellando pagaré ${i + 1}/${allViewerGroups.length} (vg: ${viewerGroup.viewer_group_id})...`);
+            try {
+                const vgAllRecipients = await db.promise().query(
+                    `SELECT recipient_id, email, custom_pdf_path, personal_pdf_path, vi_traza_path, completed_at
+                     FROM document_recipients WHERE viewer_group_id = ? ORDER BY completed_at ASC`,
+                    [viewerGroup.viewer_group_id]
+                ).then(([r]) => r);
+
+                if (!vgAllRecipients.length) continue;
+
+                const baseRec = vgAllRecipients.find(r => r.personal_pdf_path) || vgAllRecipients[0];
+                const basePdfRel = (baseRec.personal_pdf_path || baseRec.custom_pdf_path || '').replace(/^\/+/, '');
+                const basePdfAbs = resolveFromRoot(basePdfRel);
+                if (!basePdfAbs || !fs.existsSync(basePdfAbs)) {
+                    console.warn(`   ⚠️ PDF base no encontrado para vg ${viewerGroup.viewer_group_id}`);
+                    continue;
+                }
+
+                // Firmas del grupo
+                const vgSignatures = await db.promise().query(
+                    `SELECT df.field_id, df.page_number as page, df.x_position as x, df.y_position as y,
+                            df.width, df.height, fv.signature_path
+                     FROM document_fields df
+                     LEFT JOIN field_values fv ON df.field_id = fv.field_id
+                     LEFT JOIN document_recipients dr ON fv.recipient_id = dr.recipient_id
+                     WHERE df.document_id = ? AND df.field_type = 'signature'
+                       AND fv.signature_path IS NOT NULL AND dr.viewer_group_id = ?`,
+                    [documentId, viewerGroup.viewer_group_id]
+                ).then(([r]) => r);
+
+                for (const recToSeal of vgAllRecipients) {
+                    try {
+                        const recBasePath = (recToSeal.personal_pdf_path || recToSeal.custom_pdf_path || '').replace(/^\/+/, '');
+                        const recPdfAbs = recBasePath && fs.existsSync(resolveFromRoot(recBasePath))
+                            ? resolveFromRoot(recBasePath) : basePdfAbs;
+
+                        const recPdfDoc = await PDFDocument.load(fs.readFileSync(recPdfAbs));
+
+                        // Dibujar firmas del grupo
+                        for (const sigField of vgSignatures) {
+                            const pageNum = (sigField.page || 1) - 1;
+                            if (pageNum < 0 || pageNum >= recPdfDoc.getPageCount()) continue;
+                            const page = recPdfDoc.getPage(pageNum);
+                            const { height: ph } = page.getSize();
+                            const fx = parseFloat(sigField.x) || 0, fy = parseFloat(sigField.y) || 0;
+                            const fw = parseFloat(sigField.width) || 100, fh = parseFloat(sigField.height) || 50;
+                            const sigUrl = sigField.signature_path;
+                            if (sigUrl && sigUrl.startsWith('data:image')) {
+                                const imgBytes = Buffer.from(sigUrl.split(',')[1], 'base64');
+                                let img;
+                                try {
+                                    img = sigUrl.includes('image/png')
+                                        ? await recPdfDoc.embedPng(imgBytes)
+                                        : await recPdfDoc.embedJpg(imgBytes);
+                                } catch (_) { continue; }
+                                if (img) {
+                                    const dims = img.scale(1);
+                                    const asp = dims.width / dims.height, fAsp = fw / fh;
+                                    let dw, dh;
+                                    if (asp > fAsp) { dw = fw * 0.9; dh = dw / asp; }
+                                    else { dh = fh * 0.9; dw = dh * asp; }
+                                    page.drawImage(img, { x: fx + (fw - dw) / 2, y: ph - fy - fh + (fh - dh) / 2, width: dw, height: dh });
+                                }
+                            }
+                        }
+
+                        // Añadir traza VI propia
+                        if (recToSeal.vi_traza_path) {
+                            const trazaAbs = resolveFromRoot(recToSeal.vi_traza_path.replace(/^\/+/, ''));
+                            if (fs.existsSync(trazaAbs)) {
+                                const trazaDoc = await PDFDocument.load(fs.readFileSync(trazaAbs));
+                                const trazaPages = await recPdfDoc.copyPages(trazaDoc, trazaDoc.getPageIndices());
+                                trazaPages.forEach(p => recPdfDoc.addPage(p));
+                            }
+                        }
+
+                        // Calcular posiciones de sellos
+                        let recPdfBuffer = Buffer.from(await recPdfDoc.save());
+                        const recPdfDocForSeals = await PDFDocument.load(recPdfBuffer);
+                        const sealsForRec = [];
+                        for (const seal of sealFields) {
+                            const pageIdx = (seal.page || 1) - 1;
+                            if (pageIdx >= 0 && pageIdx < recPdfDocForSeals.getPageCount()) {
+                                const pg = recPdfDocForSeals.getPage(pageIdx);
+                                const { height: ph } = pg.getSize();
+                                sealsForRec.push({
+                                    page: seal.page || 1,
+                                    x: parseFloat(seal.x) || 10,
+                                    y: ph - parseFloat(seal.y) - (parseFloat(seal.height) || 80),
+                                    width: parseFloat(seal.width) || 200,
+                                    height: parseFloat(seal.height) || 80
+                                });
+                            }
+                        }
+
+                        // Aplicar sello PKI
+                        const signedRecPdfBuffer = await pythonSigner.signPdf(recPdfBuffer, {
+                            reason: `Pagaré firmado por todos los participantes — ${documentId}`,
+                            location: 'Colombia',
+                            signerName: 'PKI Services',
+                            contactInfo: recToSeal.email,
+                            fieldName: `Seal_${documentId}_vg${viewerGroup.viewer_group_id}_rec${recToSeal.recipient_id}`,
+                            visible: true,
+                            seals: sealsForRec.length > 0 ? sealsForRec : null,
+                            verificationToken: pagareVerifToken
+                        });
+
+                        const finalFilename = `final_${documentId}_vg${viewerGroup.viewer_group_id}_rec${recToSeal.recipient_id}_${Date.now()}.pdf`;
+                        const finalPath = path.join(intermediatePdfDir, finalFilename);
+                        fs.writeFileSync(finalPath, signedRecPdfBuffer);
+                        const relativePath = path.join('uploads', 'signed', finalFilename);
+
+                        await db.promise().query(
+                            'UPDATE document_recipients SET custom_pdf_path = ? WHERE recipient_id = ?',
+                            [relativePath, recToSeal.recipient_id]
+                        );
+                        console.log(`      ✅ [${recToSeal.email}] PDF sellado: ${finalFilename}`);
+
+                    } catch (recErr) {
+                        console.error(`      ❌ [${recToSeal.email}] Error sellando:`, recErr.message);
+                    }
+                }
+            } catch (vgErr) {
+                console.error(`   ❌ Error en vg ${viewerGroup.viewer_group_id}:`, vgErr.message);
+            }
+        }
+
+        // Guardar verification_token
+        await db.promise().query(
+            'UPDATE documents SET verification_token = ? WHERE document_id = ?',
+            [pagareVerifToken, documentId]
+        );
+
+        // Marcar como completado en pagare_metadata (sin firmante definitivo)
+        await db.promise().query(
+            `UPDATE pagare_metadata SET final_signer_status = 'signed', final_signed_at = NOW(), all_viewers_signed_at = NOW() WHERE document_id = ?`,
+            [documentId]
+        );
+        console.log(`\n✅ [SIN-FINAL] Todos los pagarés sellados para documento ${documentId}`);
+
+    } catch (error) {
+        console.error('❌ Error en sealPagaresWithoutFinalSigner:', error);
     }
 }
 
@@ -4178,24 +4372,37 @@ app.post('/api/public/sign/:token', async (req, res) => {
                         fs.writeFileSync(recInterimPath, recInterimBuffer);
                         const recInterimRelPath = path.join('uploads', 'signed', recInterimFilename).replace(/\\/g, '/');
 
-                        await new Promise((resolve, reject) => {
-                            db.query(
-                                'UPDATE document_recipients SET custom_pdf_path = ? WHERE recipient_id = ?',
-                                [recInterimRelPath, vgRec.recipient_id],
-                                (err) => { if (err) reject(err); else resolve(); }
-                            );
-                        });
+                        // No sobreescribir custom_pdf_path si el pagaré ya fue sellado definitivamente
+                        const [metaStatus] = await db.promise().query(
+                            `SELECT final_signer_status FROM pagare_metadata WHERE document_id = ?`,
+                            [recipient.document_id]
+                        );
+                        if (metaStatus.length === 0 || metaStatus[0].final_signer_status !== 'signed') {
+                            await new Promise((resolve, reject) => {
+                                db.query(
+                                    'UPDATE document_recipients SET custom_pdf_path = ? WHERE recipient_id = ?',
+                                    [recInterimRelPath, vgRec.recipient_id],
+                                    (err) => { if (err) reject(err); else resolve(); }
+                                );
+                            });
+                        }
                         console.log(`   ✅ [${vgRec.email}] Interim individual guardado: ${recInterimFilename}`);
                     } catch (recInterimErr) {
                         console.error(`   ⚠️ [${vgRec.email}] Error generando interim individual:`, recInterimErr.message);
-                        // Fallback: asignar el PDF base sin traza
-                        await new Promise((resolve) => {
-                            db.query(
-                                'UPDATE document_recipients SET custom_pdf_path = ? WHERE recipient_id = ?',
-                                [relativeIntermediatePath, vgRec.recipient_id],
-                                () => resolve()
-                            );
-                        });
+                        // Fallback: asignar el PDF base sin traza (solo si no está ya sellado)
+                        const [metaStatusFb] = await db.promise().query(
+                            `SELECT final_signer_status FROM pagare_metadata WHERE document_id = ?`,
+                            [recipient.document_id]
+                        );
+                        if (metaStatusFb.length === 0 || metaStatusFb[0].final_signer_status !== 'signed') {
+                            await new Promise((resolve) => {
+                                db.query(
+                                    'UPDATE document_recipients SET custom_pdf_path = ? WHERE recipient_id = ?',
+                                    [relativeIntermediatePath, vgRec.recipient_id],
+                                    () => resolve()
+                                );
+                            });
+                        }
                     }
                 }
                 console.log(`✅ Interim individual generado para ${vgRecipientsForInterim.length} recipient(s) del viewer_group_id=${recipient.viewer_group_id} (pagaré)`);
@@ -4328,10 +4535,23 @@ app.post('/api/public/sign/:token', async (req, res) => {
             if (!allSigned) {
                 console.log('⏩ Saltando generación de sello PKI (esperando más firmas)');
 
+                // Para pagarés: verificar si el viewer_group ya quedó completado (último firmante del grupo)
+                let pagareGroupCompleted = false;
+                if (recipient.viewer_group_id) {
+                    const [vgStatus] = await db.promise().query(
+                        `SELECT status FROM pagare_viewer_groups WHERE viewer_group_id = ?`,
+                        [recipient.viewer_group_id]
+                    );
+                    pagareGroupCompleted = vgStatus.length > 0 && vgStatus[0].status === 'completed';
+                }
+
                 return res.json({
                     success: true,
-                    message: 'Firma registrada exitosamente. Esperando a que todos los destinatarios completen su firma.',
+                    message: pagareGroupCompleted
+                        ? 'Pagaré sellado exitosamente por todos los firmantes.'
+                        : 'Firma registrada exitosamente. Esperando a que todos los destinatarios completen su firma.',
                     allSigned: false,
+                    pagareGroupCompleted,
                     completed: completedRecipients,
                     total: totalRecipients
                 });
@@ -6340,7 +6560,7 @@ app.get('/api/documents/:docId/pagares/:viewerGroupId/download-complete', requir
             return res.status(400).json({ success: false, message: 'El pagaré aún no ha sido completado por todos los firmantes' });
         }
 
-        // 4. Verificar que el firmante definitivo también completó
+        // 4. Firmante definitivo (opcional)
         const [finalSignerRows] = await db.promise().query(
             `SELECT recipient_id, email, name, status, vi_traza_path
              FROM document_recipients
@@ -6348,10 +6568,7 @@ app.get('/api/documents/:docId/pagares/:viewerGroupId/download-complete', requir
              LIMIT 1`,
             [docId]
         );
-        if (!finalSignerRows.length) {
-            return res.status(400).json({ success: false, message: 'El firmante definitivo aún no ha completado el proceso' });
-        }
-        const finalSigner = finalSignerRows[0];
+        const finalSigner = finalSignerRows.length ? finalSignerRows[0] : null;
 
         // 5. Cargar PDF base con datos del CSV (personal_pdf_path del grupo)
         const baseRec = vgRecipients.find(r => r.personal_pdf_path) || vgRecipients[0];
@@ -6414,7 +6631,7 @@ app.get('/api/documents/:docId/pagares/:viewerGroupId/download-complete', requir
              WHERE df.document_id = ? AND df.field_type = 'final_signature'
              ORDER BY (fv.recipient_id = ?) DESC
              LIMIT 1`,
-            [docId, finalSigner.recipient_id]
+            [docId, finalSigner?.recipient_id || 0]
         );
         if (finalSigFields.length && finalSigFields[0].signature_path) {
             const fsf = finalSigFields[0];
@@ -6460,8 +6677,8 @@ app.get('/api/documents/:docId/pagares/:viewerGroupId/download-complete', requir
         }).filter(Boolean);
 
         // 9. Agregar trazabilidades ANTES de sellar (para no romper la firma PKI)
-        //    Orden: viewer1, viewer2, ..., firmante definitivo
-        const allWithTraza = [...vgRecipients, finalSigner];
+        //    Orden: viewer1, viewer2, ..., firmante definitivo (si existe)
+        const allWithTraza = finalSigner ? [...vgRecipients, finalSigner] : [...vgRecipients];
         const mergedDoc = await PDFDocument.load(await pdfDoc.save());
 
         for (const participant of allWithTraza) {
@@ -6489,7 +6706,7 @@ app.get('/api/documents/:docId/pagares/:viewerGroupId/download-complete', requir
         const pythonSigner = new PythonSignerClient({ verbose: false });
         try {
             const [fsMeta] = await db.promise().query('SELECT final_signer_email, final_signer_name FROM pagare_metadata WHERE document_id = ?', [docId]);
-            const fsEmail = fsMeta[0]?.final_signer_email || finalSigner.email;
+            const fsEmail = fsMeta[0]?.final_signer_email || finalSigner?.email || vgRecipients[0]?.email || '';
             const [docVerifRow] = await db.promise().query('SELECT verification_token FROM documents WHERE document_id = ?', [docId]);
             const verifToken = docVerifRow[0]?.verification_token || crypto.createHash('sha256').update(`VERIFY-${docId}-${process.env.JWT_SECRET || 'firmalegal-secret-key'}`).digest('hex').substring(0, 32);
             pdfBuffer = await pythonSigner.signPdf(pdfBuffer, {
@@ -6824,10 +7041,6 @@ app.post('/api/documents/:id/enviar-etitulo', requireAuth, async (req, res) => {
         if (!docRows.length) return res.status(404).json({ success: false, message: 'Pagaré no encontrado' });
         const doc = docRows[0];
 
-        if (doc.tv_guid) {
-            return res.status(400).json({ success: false, message: 'Este pagaré ya fue enviado al baúl', tv_guid: doc.tv_guid });
-        }
-
         // Obtener viewer_group_id: del body (envío masivo) o buscar el primero completado
         let viewerGroupId = viewerGroupIdFromBody ? parseInt(viewerGroupIdFromBody) : null;
         if (!viewerGroupId) {
@@ -6844,6 +7057,15 @@ app.post('/api/documents/:id/enviar-etitulo', requireAuth, async (req, res) => {
         }
         if (!viewerGroupId) {
             return res.status(400).json({ success: false, message: 'El pagaré aún no está completamente firmado' });
+        }
+
+        // Verificar si este viewer_group ya fue enviado al baúl
+        const [vgCheck] = await db.promise().query(
+            'SELECT tv_guid FROM pagare_viewer_groups WHERE viewer_group_id = ?',
+            [viewerGroupId]
+        );
+        if (vgCheck.length && vgCheck[0].tv_guid) {
+            return res.status(400).json({ success: false, message: 'Este pagaré ya fue enviado al baúl', tv_guid: vgCheck[0].tv_guid });
         }
 
         const [recipients] = await db.promise().query(
