@@ -3640,10 +3640,10 @@ app.get('/api/public/document-recipients/:token', async (req, res) => {
     try {
         console.log(`👥 Obteniendo destinatarios para token: ${token}`);
 
-        // Primero obtener el document_id y document_type del token actual
+        // Primero obtener el document_id, document_type y viewer_group_id del token actual
         const [currentRecipient] = await new Promise((resolve, reject) => {
             db.query(
-                `SELECT dr.document_id, d.document_type
+                `SELECT dr.document_id, dr.viewer_group_id, d.document_type
                  FROM document_recipients dr
                  INNER JOIN documents d ON dr.document_id = d.document_id
                  WHERE dr.token = ?`,
@@ -3664,6 +3664,7 @@ app.get('/api/public/document-recipients/:token', async (req, res) => {
 
         const documentId = currentRecipient[0].document_id;
         const documentType = currentRecipient[0].document_type;
+        const viewerGroupId = currentRecipient[0].viewer_group_id;
 
         // Obtener todos los destinatarios del documento (excluyendo firmantes definitivos para pagarés)
         const [recipients] = await new Promise((resolve, reject) => {
@@ -3672,7 +3673,8 @@ app.get('/api/public/document-recipients/:token', async (req, res) => {
                     token,
                     email,
                     status,
-                    is_final_signer
+                    is_final_signer,
+                    viewer_group_id
                  FROM document_recipients
                  WHERE document_id = ? AND (is_final_signer = 0 OR is_final_signer IS NULL)`,
                 [documentId],
@@ -3683,12 +3685,42 @@ app.get('/api/public/document-recipients/:token', async (req, res) => {
             );
         });
 
+        // Para pagarés: calcular en el servidor si este token es el último de su grupo sin firmante definitivo
+        let isLastOfGroupWithNoFinalSigner = false;
+        if (documentType === 'pagare' && viewerGroupId) {
+            // Verificar si hay firmante definitivo en pagare_metadata (se llena al enviar el CSV)
+            const [metaRows] = await db.promise().query(
+                `SELECT final_signer_email FROM pagare_metadata WHERE document_id = ? AND final_signer_email IS NOT NULL AND final_signer_email != ''`,
+                [documentId]
+            );
+            const hasFinalSigner = metaRows.length > 0;
+            console.log(`   [MODAL-CHECK] doc=${documentId} hasFinalSigner=${hasFinalSigner}`);
+
+            if (!hasFinalSigner) {
+                // Sin firmante definitivo: verificar si este token es el último pendiente del grupo
+                const [groupStats] = await db.promise().query(
+                    `SELECT
+                        COUNT(*) as total,
+                        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed
+                     FROM document_recipients
+                     WHERE viewer_group_id = ? AND token != ?`,
+                    [viewerGroupId, token]
+                );
+                const othersTotal = Number(groupStats[0].total);
+                const othersCompleted = Number(groupStats[0].completed);
+                isLastOfGroupWithNoFinalSigner = (othersCompleted === othersTotal && othersTotal > 0);
+                console.log(`   [SIN-FINAL] Grupo ${viewerGroupId}: otros ${othersCompleted}/${othersTotal} completados → isLast=${isLastOfGroupWithNoFinalSigner}`);
+            }
+        }
+
         console.log(`✅ Encontrados ${recipients.length} destinatario(s) para documento ${documentId} (tipo: ${documentType})`);
 
         res.json({
             success: true,
             recipients: recipients,
-            documentType: documentType
+            documentType: documentType,
+            viewerGroupId: viewerGroupId,
+            isLastOfGroupWithNoFinalSigner: isLastOfGroupWithNoFinalSigner
         });
 
     } catch (error) {
@@ -4535,14 +4567,22 @@ app.post('/api/public/sign/:token', async (req, res) => {
             if (!allSigned) {
                 console.log('⏩ Saltando generación de sello PKI (esperando más firmas)');
 
-                // Para pagarés: verificar si el viewer_group ya quedó completado (último firmante del grupo)
+                // Para pagarés: mostrar modal SOLO si el grupo completó Y no hay firmante definitivo
                 let pagareGroupCompleted = false;
                 if (recipient.viewer_group_id) {
                     const [vgStatus] = await db.promise().query(
                         `SELECT status FROM pagare_viewer_groups WHERE viewer_group_id = ?`,
                         [recipient.viewer_group_id]
                     );
-                    pagareGroupCompleted = vgStatus.length > 0 && vgStatus[0].status === 'completed';
+                    const groupDone = vgStatus.length > 0 && vgStatus[0].status === 'completed';
+                    if (groupDone) {
+                        // Solo activar si NO hay firmante definitivo configurado
+                        const [metaRows] = await db.promise().query(
+                            `SELECT final_signer_email FROM pagare_metadata WHERE document_id = ? AND final_signer_email IS NOT NULL AND final_signer_email != ''`,
+                            [recipient.document_id]
+                        );
+                        pagareGroupCompleted = metaRows.length === 0;
+                    }
                 }
 
                 return res.json({

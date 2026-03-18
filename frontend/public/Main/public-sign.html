@@ -2297,11 +2297,13 @@ async function submitDocument() {
       console.log('🔐 Último firmante del pagaré (sin firmante definitivo) - Mostrando modal de sellado');
       showSigningProgress();
       simulateSigningProgress();
-      updateSigningProgress(100, '¡Pagaré firmado y sellado exitosamente!');
       setTimeout(() => {
-        hideSigningProgress();
-        window.location.reload();
-      }, 2500);
+        updateSigningProgress(100, '¡Pagaré firmado y sellado exitosamente!');
+        setTimeout(() => {
+          hideSigningProgress();
+          window.location.reload();
+        }, 2000);
+      }, 3000);
       return;
     }
 
@@ -2756,10 +2758,10 @@ async function isLastSignerToComplete() {
     console.log('📄 Tipo de documento:', documentType);
     console.log('👥 Total de destinatarios:', recipients.length);
 
-    // 🔴 Para documentos tipo PAGARÉ: los viewers NUNCA muestran el modal antes del submit
-    // El modal se mostrará después del submit si el servidor indica pagareGroupCompleted=true
+    // Para documentos tipo PAGARÉ: los viewers NUNCA muestran el modal antes del fetch.
+    // El modal se muestra DESPUÉS del fetch si el servidor confirma pagareGroupCompleted=true.
     if (documentType === 'pagare') {
-      console.log('📋 Documento tipo PAGARÉ - Viewer NO muestra modal previo');
+      console.log('📋 Documento tipo PAGARÉ - Viewer no muestra modal previo');
       return false;
     }
 
