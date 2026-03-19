@@ -3167,8 +3167,12 @@ router.post('/:docId/pagare/send-bulk', requireAuth, async (req, res) => {
         const viewerGroupsCreated = [];
         const crypto = require('crypto');
 
-        // ✅ Limpiar viewer groups existentes para este documento (evitar duplicados)
-        console.log(`🧹 Limpiando viewer groups anteriores del documento ${docId}...`);
+        // ✅ Limpiar viewer groups y recipients anteriores (evitar duplicados / re-envíos)
+        console.log(`🧹 Limpiando viewer groups y recipients anteriores del documento ${docId}...`);
+        await db.promise().query(
+            `DELETE FROM document_recipients WHERE document_id = ? AND viewer_group_id IS NOT NULL`,
+            [docId]
+        );
         await db.promise().query(
             `DELETE FROM pagare_viewer_groups WHERE document_id = ?`,
             [docId]

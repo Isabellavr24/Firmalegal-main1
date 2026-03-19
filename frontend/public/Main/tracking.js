@@ -1957,12 +1957,27 @@ document.querySelectorAll('.recipients-tab').forEach(tab => {
 
 // ✅ Función para enviar pagarés masivos
 async function sendPagaresBulk() {
+  // Prevenir doble envío
+  const sendBtn = document.getElementById('recipientsAdd');
+  if (sendBtn && sendBtn.disabled) return;
+  if (sendBtn) {
+    sendBtn.disabled = true;
+    sendBtn.textContent = 'PROCESANDO...';
+  }
+  const restoreBtn = () => {
+    if (sendBtn) {
+      sendBtn.disabled = false;
+      sendBtn.textContent = 'ENVIAR';
+    }
+  };
+
   try {
     console.log('📋 Iniciando envío masivo de pagarés');
 
     // Validar que se haya cargado el CSV
     if (!window.pagareCsvData || window.pagareCsvData.length === 0) {
       ToastManager.error('Error', 'Debes cargar un archivo CSV primero');
+      restoreBtn();
       return;
     }
 
@@ -1975,11 +1990,13 @@ async function sendPagaresBulk() {
     if (finalSignerActive) {
       if (!finalSignerEmail || !finalSignerName) {
         ToastManager.error('Error', 'Debes completar los datos del firmante definitivo');
+        restoreBtn();
         return;
       }
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(finalSignerEmail)) {
         ToastManager.error('Error', 'El email del firmante definitivo no es válido');
+        restoreBtn();
         return;
       }
     }
@@ -2024,6 +2041,7 @@ async function sendPagaresBulk() {
   } catch (error) {
     console.error('❌ Error al enviar pagarés:', error);
     ToastManager.error('Error', error.message || 'No se pudieron enviar los pagarés');
+    restoreBtn();
   }
 }
 
