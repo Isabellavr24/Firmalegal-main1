@@ -3333,6 +3333,16 @@ app.get('/api/public/document/:token', async (req, res) => {
                 const finalSignerStatus = pagareMetadata[0].final_signer_status;
                 console.log(`   - final_signer_status: ${finalSignerStatus}`);
 
+                // 🔴 VALIDACIÓN: Si es firmante definitivo y ya firmó, denegar acceso
+                if (recipient.is_final_signer === 1 && finalSignerStatus === 'signed') {
+                    console.log('🔴 [SEGURIDAD] ACCESO DENEGADO: Firmante definitivo ya completó la firma');
+                    return res.status(403).json({
+                        success: false,
+                        message: 'Ya has completado tu firma definitiva en este documento. No tienes acceso adicional.',
+                        code: 'ALREADY_SIGNED'
+                    });
+                }
+
                 // 🔴 VALIDACIÓN: Si es firmante definitivo y el estatus NO es 'signed', bloquear acceso a pagarés de viewer_groups
                 if (recipient.is_final_signer === 1 && finalSignerStatus !== 'signed') {
                     // El firmante definitivo NO puede acceder antes de firmar
@@ -3374,11 +3384,14 @@ app.get('/api/public/document/:token', async (req, res) => {
                     console.log('✅ [SEGURIDAD] Firmante definitivo accede correctamente (todos los viewers completaron)');
                 }
 
-                // 🔴 VALIDACIÓN: Si NO es firmante definitivo pero intenta acceder después de firma definitiva
-                if (recipient.is_final_signer === 0 && finalSignerStatus === 'signed') {
-                    // Los viewer_groups NO deben poder acceder al documento después de la firma definitiva
-                    // Solo pueden descargar su propio pagaré sellado
-                    console.log('✅ [SEGURIDAD] Viewer puede acceder a su pagaré sellado (firma definitiva completada)');
+                // 🔴 VALIDACIÓN: Si es viewer y ya completó su firma, denegar acceso al formulario
+                if (recipient.is_final_signer === 0 && recipient.status === 'completed') {
+                    console.log('🔴 [SEGURIDAD] ACCESO DENEGADO: Viewer ya completó su firma en pagaré');
+                    return res.status(403).json({
+                        success: false,
+                        message: 'Ya has completado tu firma en este documento. No tienes acceso adicional.',
+                        code: 'ALREADY_SIGNED'
+                    });
                 }
             }
         }
