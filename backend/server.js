@@ -3750,6 +3750,8 @@ app.post('/api/public/sign/:token', async (req, res) => {
                 dr.name,
                 dr.status,
                 dr.custom_pdf_path,
+                dr.personal_pdf_path,
+                dr.vi_traza_path,
                 dr.viewer_group_id,
                 dr.is_final_signer,
                 d.file_path,
@@ -4083,7 +4085,17 @@ app.post('/api/public/sign/:token', async (req, res) => {
 
             // 4. Leer el PDF (usar custom_pdf_path si existe, sino file_path compartido)
             // 🔥 IMPORTANTE: Si tiene custom_pdf_path, usar ese (CSV personalizado)
-            const sourcePath = recipient.custom_pdf_path || recipient.file_path;
+            // ⚠️ EXCEPCIÓN VI: Si el custom_pdf_path es un vi_personal (tiene traza VI),
+            // usar el personal_pdf_path o file_path como base limpia.
+            // La traza se re-agrega al final del sellado en el paso VI-TRAZA.
+            let sourcePath;
+            if (recipient.vi_traza_path && recipient.custom_pdf_path && !recipient.personal_pdf_path) {
+                // Documento normal con VI: custom_pdf_path = vi_personal (tiene traza), usar file_path limpio
+                sourcePath = recipient.file_path;
+                console.log(`📄 [VI-FIX] Usando file_path limpio (sin traza VI) como base de firma intermedia`);
+            } else {
+                sourcePath = recipient.custom_pdf_path || recipient.file_path;
+            }
             const pdfType = recipient.custom_pdf_path ? 'PERSONALIZADO (CSV)' : 'COMPARTIDO (Manual)';
 
             // Limpiar la ruta: si empieza con /, quitarlo para Windows
@@ -4349,10 +4361,11 @@ app.post('/api/public/sign/:token', async (req, res) => {
             console.log(`💾 PDF intermedio guardado: ${relativeIntermediatePath}`);
 
             // 7. Actualizar file_path del documento para que apunte al PDF con firmas visuales
+            // También guardamos doc_only_path = PDF limpio con firmas (sin traza VI), usado como base del sellado PKI
             await new Promise((resolve, reject) => {
                 db.query(
-                    'UPDATE documents SET file_path = ? WHERE document_id = ?',
-                    [relativeIntermediatePath, recipient.document_id],
+                    'UPDATE documents SET file_path = ?, doc_only_path = ? WHERE document_id = ?',
+                    [relativeIntermediatePath, relativeIntermediatePath, recipient.document_id],
                     (err) => {
                         if (err) reject(err);
                         else resolve();
@@ -5489,7 +5502,32 @@ app.post('/api/public/sign/:token', async (req, res) => {
                         throw new Error('No se encontró el PDF intermedio con las firmas');
                     }
 
-                    const intermediatePdfPath = resolveFromRoot(allDocRecipientsFinal[0].custom_pdf_path);
+                    // Si hay destinatarios con traza VI, el custom_pdf_path puede ser vi_personal (PDF+traza).
+                    // Para el sellado PKI debemos usar el PDF sin traza (solo firmas), ya que la traza
+                    // se agrega después del sellado en el paso VI-TRAZA. Buscamos un recipient sin traza,
+                    // o si todos tienen traza, tomamos el personal_pdf_path / doc_only_path como base limpia.
+                    const hasViRecipients = allDocRecipientsFinal.some(r => r.vi_traza_path);
+                    let intermediatePdfSource = allDocRecipientsFinal[0].custom_pdf_path;
+                    if (hasViRecipients) {
+                        // Preferir un recipient sin vi_traza_path (su custom_pdf_path no tiene traza)
+                        const recipientNoTraza = allDocRecipientsFinal.find(r => !r.vi_traza_path);
+                        if (recipientNoTraza && recipientNoTraza.custom_pdf_path) {
+                            intermediatePdfSource = recipientNoTraza.custom_pdf_path;
+                            console.log(`📄 [VI-FIX] Usando PDF sin traza de ${recipientNoTraza.email} como base del sellado`);
+                        } else {
+                            // Todos tienen traza: usar doc_only_path del documento que tiene el PDF con firmas sin traza
+                            const [docRow] = await new Promise((resolve, reject) => {
+                                db.query('SELECT doc_only_path FROM documents WHERE document_id = ?',
+                                    [recipient.document_id], (err, rows) => { if (err) reject(err); else resolve(rows); });
+                            });
+                            if (docRow && docRow.doc_only_path) {
+                                intermediatePdfSource = docRow.doc_only_path;
+                                console.log(`📄 [VI-FIX] Usando doc_only_path como base limpia del sellado`);
+                            }
+                        }
+                    }
+
+                    const intermediatePdfPath = resolveFromRoot(intermediatePdfSource);
                     const pdfBuffer = fs.readFileSync(intermediatePdfPath);
                     console.log(`📄 PDF intermedio leído: ${(pdfBuffer.length / 1024).toFixed(2)} KB`);
 

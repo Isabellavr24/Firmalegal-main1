@@ -1636,8 +1636,8 @@ router.post('/:id/send', requireAuth, async (req, res) => {
         console.log(`   Roles encontrados: ${roles.length}`);
         console.log(`   Firma secuencial: ${signInOrder ? 'SÍ' : 'NO'}`);
 
-        // 4. Configurar SendGrid con la API Key del usuario
-        const apiKeyResults = await new Promise((resolve, reject) => {
+        // 4. Configurar SendGrid con la API Key del usuario (fallback al superadmin user_id=1)
+        let apiKeyResults = await new Promise((resolve, reject) => {
             db.query(
                 'SELECT sendgrid_api_key FROM email_config WHERE user_id = ?',
                 [req.userId],
@@ -1647,6 +1647,20 @@ router.post('/:id/send', requireAuth, async (req, res) => {
                 }
             );
         });
+
+        if (apiKeyResults.length === 0 || !apiKeyResults[0].sendgrid_api_key) {
+            // Fallback: usar la API key del superadmin (user_id=1)
+            apiKeyResults = await new Promise((resolve, reject) => {
+                db.query(
+                    'SELECT sendgrid_api_key FROM email_config WHERE user_id = 1',
+                    [],
+                    (err, results) => {
+                        if (err) reject(err);
+                        else resolve(results);
+                    }
+                );
+            });
+        }
 
         if (apiKeyResults.length === 0 || !apiKeyResults[0].sendgrid_api_key) {
             return res.status(400).json({
