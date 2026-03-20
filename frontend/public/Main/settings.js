@@ -1340,6 +1340,9 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log('✅ Permisos aplicados: Solo Perfil e Inquilinos visibles');
   } else {
     console.log('✅ Superadministrador: Acceso completo a todas las secciones');
+    // Mostrar sección Gestionar Firmas solo para Superadministrador
+    const navFirmas = document.getElementById('navFirmas');
+    if (navFirmas) navFirmas.style.display = '';
   }
 })();
 

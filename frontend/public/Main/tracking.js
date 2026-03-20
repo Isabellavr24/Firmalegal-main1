@@ -960,6 +960,24 @@ function handleEditAction() {
 async function handleAddRecipient() {
   console.log('➕ Agregar nuevo destinatario');
 
+  // 💳 Verificar balance de firmas antes de continuar
+  try {
+    const balanceRes = await fetch('/api/firmas/mi-balance', { credentials: 'include' });
+    const balanceData = await balanceRes.json();
+    if (balanceData.success && balanceData.balance === 0) {
+      const tipo = balanceData.tipo === 'equipo' ? `tu equipo "${balanceData.nombre}"` : 'tu cuenta';
+      if (window.ToastManager) {
+        ToastManager.error('Sin firmas disponibles', `No cuentas con firmas disponibles en ${tipo}. Contacta al administrador para recargar tu saldo.`);
+      } else {
+        alert(`No cuentas con firmas disponibles en ${tipo}. Contacta al administrador para recargar tu saldo.`);
+      }
+      return;
+    }
+  } catch (e) {
+    // Error de red — permitir continuar para no bloquear por fallo de conexión
+    console.warn('⚠️ No se pudo verificar balance de firmas:', e.message);
+  }
+
   // Cargar roles del documento antes de abrir el modal
   const docData = getDocumentDataFromURL();
   console.log('📄 Datos del documento desde URL:', docData);

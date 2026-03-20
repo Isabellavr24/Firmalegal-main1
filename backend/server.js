@@ -3924,6 +3924,31 @@ app.post('/api/public/sign/:token', async (req, res) => {
         console.log('✅ Documento firmado exitosamente');
         console.log('📊 Estado actualizado a completed');
 
+        // 💳 DESCONTAR 1 FIRMA del balance del dueño del documento (owner)
+        try {
+            // Verificar si el owner pertenece a un equipo activo
+            const ownerTeam = await new Promise((resolve, reject) => {
+                db.query(`SELECT t.team_id FROM team_members tm INNER JOIN teams t ON tm.team_id = t.team_id
+                          WHERE tm.user_id = ? AND t.is_active = 1 LIMIT 1`,
+                    [recipient.owner_id], (err, r) => { if (err) reject(err); else resolve(r); });
+            });
+            if (ownerTeam.length > 0) {
+                await new Promise((resolve, reject) => {
+                    db.query('UPDATE teams SET firma_balance = GREATEST(firma_balance - 1, 0) WHERE team_id = ?',
+                        [ownerTeam[0].team_id], (err, r) => { if (err) reject(err); else resolve(r); });
+                });
+                console.log(`💳 [FIRMAS] -1 firma al equipo ${ownerTeam[0].team_id} (owner: ${recipient.owner_id})`);
+            } else {
+                await new Promise((resolve, reject) => {
+                    db.query('UPDATE users SET firma_balance = GREATEST(firma_balance - 1, 0) WHERE user_id = ?',
+                        [recipient.owner_id], (err, r) => { if (err) reject(err); else resolve(r); });
+                });
+                console.log(`💳 [FIRMAS] -1 firma al usuario ${recipient.owner_id}`);
+            }
+        } catch (firmaErr) {
+            console.error('⚠️ [FIRMAS] Error descontando firma (no bloqueante):', firmaErr.message);
+        }
+
         // ✅ VERIFICAR SI ES UN PAGARÉ - Detectar viewer_group completado
         if (recipient.viewer_group_id) {
             console.log(`📋 Pagaré detectado - Viewer Group: ${recipient.viewer_group_id}`);
@@ -7585,6 +7610,150 @@ app.get('/api/documents/:id/certificado-etitulo', requireAuth, async (req, res) 
     } catch (error) {
         console.error('❌ [E-TITULO-CERT] Error:', error.message);
         res.status(500).json({ success: false, message: 'Error interno', error: error.message });
+    }
+});
+
+// ==================== GESTIÓN DE FIRMAS ====================
+
+// GET /api/firmas/dashboard — Solo Superadministrador: saldos de usuarios y equipos
+app.get('/api/firmas/dashboard', requireAuth, async (req, res) => {
+    try {
+        const [reqUser] = await new Promise((resolve, reject) => {
+            db.query('SELECT r.role_name FROM users u INNER JOIN roles r ON u.role_id = r.role_id WHERE u.user_id = ?', [req.userId], (err, results) => {
+                if (err) reject(err); else resolve(results);
+            });
+        });
+        if (!reqUser || reqUser.role_name !== 'Superadministrador') {
+            return res.status(403).json({ success: false, message: 'Acceso denegado' });
+        }
+
+        // Usuarios sin equipo (excluye Superadministrador)
+        const users = await new Promise((resolve, reject) => {
+            db.query(`
+                SELECT u.user_id, u.first_name, u.last_name, u.email, r.role_name, u.firma_balance,
+                       (SELECT COUNT(*) FROM team_members tm WHERE tm.user_id = u.user_id) as in_team
+                FROM users u
+                INNER JOIN roles r ON u.role_id = r.role_id
+                WHERE r.role_name != 'Superadministrador' AND u.is_active = 1
+                ORDER BY r.role_name, u.first_name
+            `, [], (err, results) => { if (err) reject(err); else resolve(results); });
+        });
+
+        const teams = await new Promise((resolve, reject) => {
+            db.query(`
+                SELECT t.team_id, t.team_name, t.firma_balance,
+                       COUNT(tm.user_id) as member_count,
+                       GROUP_CONCAT(CONCAT(u.first_name, ' ', u.last_name) SEPARATOR ', ') as members
+                FROM teams t
+                LEFT JOIN team_members tm ON t.team_id = tm.team_id
+                LEFT JOIN users u ON tm.user_id = u.user_id
+                WHERE t.is_active = 1
+                GROUP BY t.team_id
+            `, [], (err, results) => { if (err) reject(err); else resolve(results); });
+        });
+
+        res.json({ success: true, users, teams });
+    } catch (err) {
+        console.error('❌ [FIRMAS] Error dashboard:', err);
+        res.status(500).json({ success: false, message: 'Error al obtener datos' });
+    }
+});
+
+// POST /api/firmas/asignar/usuario — Asignar firmas a un usuario
+app.post('/api/firmas/asignar/usuario', requireAuth, async (req, res) => {
+    const { user_id, cantidad } = req.body;
+    try {
+        const [reqUser] = await new Promise((resolve, reject) => {
+            db.query('SELECT r.role_name FROM users u INNER JOIN roles r ON u.role_id = r.role_id WHERE u.user_id = ?', [req.userId], (err, results) => {
+                if (err) reject(err); else resolve(results);
+            });
+        });
+        if (!reqUser || reqUser.role_name !== 'Superadministrador') {
+            return res.status(403).json({ success: false, message: 'Acceso denegado' });
+        }
+        if (!user_id || cantidad === undefined || isNaN(cantidad) || cantidad < 0) {
+            return res.status(400).json({ success: false, message: 'Parámetros inválidos' });
+        }
+        await new Promise((resolve, reject) => {
+            db.query('UPDATE users SET firma_balance = ? WHERE user_id = ?', [parseInt(cantidad), user_id], (err, r) => {
+                if (err) reject(err); else resolve(r);
+            });
+        });
+        console.log(`✅ [FIRMAS] Usuario ${user_id} → ${cantidad} firmas asignadas por ${req.userId}`);
+        res.json({ success: true, message: 'Firmas asignadas correctamente' });
+    } catch (err) {
+        console.error('❌ [FIRMAS] Error asignar usuario:', err);
+        res.status(500).json({ success: false, message: 'Error al asignar firmas' });
+    }
+});
+
+// POST /api/firmas/asignar/equipo — Asignar firmas a un equipo
+app.post('/api/firmas/asignar/equipo', requireAuth, async (req, res) => {
+    const { team_id, cantidad } = req.body;
+    try {
+        const [reqUser] = await new Promise((resolve, reject) => {
+            db.query('SELECT r.role_name FROM users u INNER JOIN roles r ON u.role_id = r.role_id WHERE u.user_id = ?', [req.userId], (err, results) => {
+                if (err) reject(err); else resolve(results);
+            });
+        });
+        if (!reqUser || reqUser.role_name !== 'Superadministrador') {
+            return res.status(403).json({ success: false, message: 'Acceso denegado' });
+        }
+        if (!team_id || cantidad === undefined || isNaN(cantidad) || cantidad < 0) {
+            return res.status(400).json({ success: false, message: 'Parámetros inválidos' });
+        }
+        await new Promise((resolve, reject) => {
+            db.query('UPDATE teams SET firma_balance = ? WHERE team_id = ?', [parseInt(cantidad), team_id], (err, r) => {
+                if (err) reject(err); else resolve(r);
+            });
+        });
+        console.log(`✅ [FIRMAS] Equipo ${team_id} → ${cantidad} firmas asignadas por ${req.userId}`);
+        res.json({ success: true, message: 'Firmas asignadas correctamente' });
+    } catch (err) {
+        console.error('❌ [FIRMAS] Error asignar equipo:', err);
+        res.status(500).json({ success: false, message: 'Error al asignar firmas' });
+    }
+});
+
+// GET /api/firmas/mi-balance — Balance del usuario actual (o su equipo si pertenece a uno)
+app.get('/api/firmas/mi-balance', requireAuth, async (req, res) => {
+    try {
+        // Verificar si el usuario pertenece a un equipo
+        const teamRows = await new Promise((resolve, reject) => {
+            db.query(`
+                SELECT t.team_id, t.team_name, t.firma_balance
+                FROM team_members tm
+                INNER JOIN teams t ON tm.team_id = t.team_id
+                WHERE tm.user_id = ? AND t.is_active = 1
+                LIMIT 1
+            `, [req.userId], (err, results) => { if (err) reject(err); else resolve(results); });
+        });
+
+        if (teamRows.length > 0) {
+            return res.json({
+                success: true,
+                balance: teamRows[0].firma_balance,
+                tipo: 'equipo',
+                nombre: teamRows[0].team_name,
+                team_id: teamRows[0].team_id
+            });
+        }
+
+        // Sin equipo → balance propio
+        const [user] = await new Promise((resolve, reject) => {
+            db.query('SELECT firma_balance, first_name, last_name FROM users WHERE user_id = ?', [req.userId], (err, results) => {
+                if (err) reject(err); else resolve(results);
+            });
+        });
+        res.json({
+            success: true,
+            balance: user.firma_balance,
+            tipo: 'individual',
+            nombre: `${user.first_name} ${user.last_name}`
+        });
+    } catch (err) {
+        console.error('❌ [FIRMAS] Error mi-balance:', err);
+        res.status(500).json({ success: false, message: 'Error al obtener balance' });
     }
 });
 
