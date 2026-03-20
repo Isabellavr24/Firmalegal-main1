@@ -829,7 +829,20 @@ async function loadDocument() {
     const response = await fetch(`/api/public/document/${currentToken}`);
     
     if (!response.ok) {
-      throw new Error('Documento no encontrado o token inválido');
+      const errData = await response.json().catch(() => ({}));
+      if (response.status === 403 && errData.code === 'ALREADY_SIGNED') {
+        document.getElementById('loadingScreen')?.remove();
+        document.body.innerHTML = `
+          <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f8f9fa;font-family:sans-serif;">
+            <div style="text-align:center;padding:40px;background:white;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,0.1);max-width:420px;">
+              <svg style="width:56px;height:56px;margin-bottom:16px;" viewBox="0 0 24 24" fill="none" stroke="#28a745" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              <h2 style="color:#155724;margin:0 0 12px;">Firma completada</h2>
+              <p style="color:#555;font-size:15px;margin:0;">Ya completaste tu firma en este documento.<br>No se requiere ninguna acción adicional.</p>
+            </div>
+          </div>`;
+        return;
+      }
+      throw new Error(errData.message || 'Documento no encontrado o token inválido');
     }
 
     const data = await response.json();

@@ -59,6 +59,7 @@ class SignRequest(BaseModel):
     box: Optional[tuple] = Field(default=(10, 10, 210, 60), description="Posición de firma (x1,y1,x2,y2)")
     seals: Optional[list] = Field(default=None, description="Lista de sellos PKI a dibujar [{page, x, y, width, height}, ...]")
     verification_token: Optional[str] = Field(default=None, description="Token seguro de verificación para el QR")
+    signing_time: Optional[str] = Field(default=None, description="Fecha/hora real de firma ISO8601 (para sellos en descarga)")
 
 
 class SignResponse(BaseModel):
@@ -171,7 +172,8 @@ async def sign_pdf(request: SignRequest):
                 visible=request.visible,
                 box=request.box if request.box else (10, 10, 210, 60),
                 seals=request.seals,  # ✅ Pasar sellos al firmador
-                verification_token=request.verification_token  # ✅ Token seguro para el QR
+                verification_token=request.verification_token,  # ✅ Token seguro para el QR
+                signing_time=request.signing_time  # ✅ Fecha real de firma
             )
             logger.info(f"✅ PDF firmado: {len(signed_pdf):,} bytes")
             if request.seals:

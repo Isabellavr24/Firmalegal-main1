@@ -86,7 +86,8 @@ class PythonSignerClient {
                 visible: options.visible !== undefined ? options.visible : true,
                 box: options.box || [10, 10, 210, 60],
                 seals: options.seals || null,  // ✅ Agregar sellos PKI
-                verification_token: options.verificationToken || null  // ✅ Token seguro para QR (no expone ID)
+                verification_token: options.verificationToken || null,  // ✅ Token seguro para QR (no expone ID)
+                signing_time: options.signingTime || null  // ✅ Fecha real de firma (para sellos en descarga)
             };
 
             if (this.verbose) {
