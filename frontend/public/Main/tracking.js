@@ -425,9 +425,9 @@ function renderRecipients(recipients, tvGuidsByGroup, pagareSealed) {
         const divider = document.createElement('div');
         divider.style.cssText = 'display:flex;align-items:center;gap:8px;margin:4px 0;padding:0 4px;';
         divider.innerHTML = `
-          <div style="flex:1;height:1px;background:#e5e7eb;"></div>
-          <span style="font-size:11px;color:#9333ea;font-weight:600;white-space:nowrap;">⚖️ Firmante Definitivo</span>
-          <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+          <div style="flex:1;height:1px;background:#c9b8d0;"></div>
+          <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#2b0e31;font-weight:700;white-space:nowrap;background:#ede8f0;border:1px solid #c9b8d0;border-radius:20px;padding:3px 10px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2b0e31" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="3" x2="12" y2="21"/><polyline points="3 6 12 3 21 6"/><path d="M3 6l4 8a5 5 0 0 0 10 0l4-8"/></svg>Firmante Definitivo</span>
+          <div style="flex:1;height:1px;background:#c9b8d0;"></div>
         `;
         body.appendChild(divider);
         body.appendChild(createRecipientCard(finalSigner));
@@ -504,7 +504,7 @@ function renderRecipients(recipients, tvGuidsByGroup, pagareSealed) {
       divider.style.cssText = 'display:flex;align-items:center;gap:8px;margin:16px 0 6px;padding:0 4px;';
       divider.innerHTML = `
         <div style="flex:1;height:1px;background:#e5e7eb;"></div>
-        <span style="font-size:11px;color:#9333ea;font-weight:600;white-space:nowrap;">⚖️ Firmante Definitivo</span>
+        <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#2b0e31;font-weight:700;white-space:nowrap;background:#ede8f0;border:1px solid #c9b8d0;border-radius:20px;padding:3px 10px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2b0e31" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="3" x2="12" y2="21"/><polyline points="3 6 12 3 21 6"/><path d="M3 6l4 8a5 5 0 0 0 10 0l4-8"/></svg>Firmante Definitivo</span>
         <div style="flex:1;height:1px;background:#e5e7eb;"></div>
       `;
       container.appendChild(divider);
