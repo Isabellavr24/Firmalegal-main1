@@ -1538,7 +1538,7 @@ router.post('/:id/send', requireAuth, async (req, res) => {
                         ec.email_from as sender_email, ec.email_from_name as sender_name
                  FROM documents d
                  INNER JOIN users u ON d.owner_id = u.user_id
-                 LEFT JOIN email_config ec ON u.user_id = ec.user_id
+                 LEFT JOIN email_config ec ON ec.user_id = 1
                  WHERE d.document_id = ? AND d.owner_id = ?`,
                 [documentId, req.userId],
                 (err, results) => {
@@ -1636,31 +1636,17 @@ router.post('/:id/send', requireAuth, async (req, res) => {
         console.log(`   Roles encontrados: ${roles.length}`);
         console.log(`   Firma secuencial: ${signInOrder ? 'SÍ' : 'NO'}`);
 
-        // 4. Configurar SendGrid con la API Key del usuario (fallback al superadmin user_id=1)
-        let apiKeyResults = await new Promise((resolve, reject) => {
+        // 4. Usar siempre la API Key del superadmin (user_id=1) — configuración global del sistema
+        const apiKeyResults = await new Promise((resolve, reject) => {
             db.query(
-                'SELECT sendgrid_api_key FROM email_config WHERE user_id = ?',
-                [req.userId],
+                'SELECT sendgrid_api_key FROM email_config WHERE user_id = 1',
+                [],
                 (err, results) => {
                     if (err) reject(err);
                     else resolve(results);
                 }
             );
         });
-
-        if (apiKeyResults.length === 0 || !apiKeyResults[0].sendgrid_api_key) {
-            // Fallback: usar la API key del superadmin (user_id=1)
-            apiKeyResults = await new Promise((resolve, reject) => {
-                db.query(
-                    'SELECT sendgrid_api_key FROM email_config WHERE user_id = 1',
-                    [],
-                    (err, results) => {
-                        if (err) reject(err);
-                        else resolve(results);
-                    }
-                );
-            });
-        }
 
         if (apiKeyResults.length === 0 || !apiKeyResults[0].sendgrid_api_key) {
             return res.status(400).json({
@@ -2641,13 +2627,13 @@ async function sendEmailsToViewerGroup(viewerGroupId, recipients, document, user
         console.log(`📧 Enviando emails para viewer_group ${viewerGroupId} (${recipients.length} recipient(s))`);
 
         const [emailConfigs] = await db.promise().query(
-            `SELECT * FROM email_config WHERE user_id = ? LIMIT 1`,
-            [userId]
+            `SELECT * FROM email_config WHERE user_id = 1 LIMIT 1`,
+            []
         );
 
         if (emailConfigs.length === 0) {
-            console.warn('⚠️ Usuario no tiene configuración de email, saltando envío');
-            return { success: false, error: 'No hay configuración de email' };
+            console.warn('⚠️ No hay configuración de email del sistema');
+            return { success: false, error: 'No hay configuración de email del sistema' };
         }
 
         const userConfig = emailConfigs[0];
@@ -3112,7 +3098,7 @@ router.post('/:docId/pagare/send-bulk', requireAuth, async (req, res) => {
                     ec.email_from as sender_email, ec.email_from_name as sender_name
              FROM documents d
              INNER JOIN users u ON d.owner_id = u.user_id
-             LEFT JOIN email_config ec ON u.user_id = ec.user_id
+             LEFT JOIN email_config ec ON ec.user_id = 1
              WHERE d.document_id = ?`,
             [docId]
         );
@@ -3126,16 +3112,16 @@ router.post('/:docId/pagare/send-bulk', requireAuth, async (req, res) => {
 
         const document = docs[0];
 
-        // Configurar SendGrid con la API Key del usuario (igual que documentos normales)
+        // Usar siempre la configuración global del sistema (user_id=1)
         const [apiKeyResults] = await db.promise().query(
-            `SELECT sendgrid_api_key FROM email_config WHERE user_id = ?`,
-            [userId]
+            `SELECT sendgrid_api_key FROM email_config WHERE user_id = 1`,
+            []
         );
 
         if (apiKeyResults.length === 0 || !apiKeyResults[0].sendgrid_api_key) {
             return res.status(400).json({
                 success: false,
-                error: 'Debes configurar tu cuenta de SendGrid antes de enviar pagarés'
+                error: 'No hay configuración de email del sistema. Contacta al administrador.'
             });
         }
 

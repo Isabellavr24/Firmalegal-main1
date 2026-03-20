@@ -964,13 +964,23 @@ async function handleAddRecipient() {
   try {
     const balanceRes = await fetch('/api/firmas/mi-balance', { credentials: 'include' });
     const balanceData = await balanceRes.json();
-    if (balanceData.success && balanceData.balance === 0) {
+    if (balanceData.success && !balanceData.ilimitado && balanceData.balance === 0) {
       const tipo = balanceData.tipo === 'equipo' ? `tu equipo "${balanceData.nombre}"` : 'tu cuenta';
-      if (window.ToastManager) {
-        ToastManager.error('Sin firmas disponibles', `No cuentas con firmas disponibles en ${tipo}. Contacta al administrador para recargar tu saldo.`);
-      } else {
-        alert(`No cuentas con firmas disponibles en ${tipo}. Contacta al administrador para recargar tu saldo.`);
-      }
+      // Modal con estética de la marca
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;';
+      overlay.innerHTML = `
+        <div style="background:#fff;border-radius:16px;max-width:420px;width:90%;padding:36px 32px;box-shadow:0 8px 32px rgba(43,14,49,0.18);font-family:inherit;">
+          <div style="width:48px;height:48px;border-radius:50%;background:#fce8f0;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#7a0d3a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          </div>
+          <h3 style="margin:0 0 10px;font-size:1.1rem;font-weight:800;color:#2b0e31;text-align:center;">Sin firmas disponibles</h3>
+          <p style="margin:0 0 28px;font-size:14px;color:#6d6270;line-height:1.6;text-align:center;">No cuentas con firmas disponibles en ${tipo}. Contacta al administrador para recargar tu saldo.</p>
+          <button id="btn-sin-firmas-ok" style="width:100%;padding:12px;background:#2b0e31;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;">Aceptar</button>
+        </div>`;
+      document.body.appendChild(overlay);
+      overlay.querySelector('#btn-sin-firmas-ok').onclick = () => overlay.remove();
+      overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
       return;
     }
   } catch (e) {

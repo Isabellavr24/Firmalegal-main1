@@ -824,14 +824,14 @@ async function notifyFinalSigner(documentId) {
             }
         }
 
-        // Obtener configuración de email del usuario
+        // Usar siempre la configuración global del sistema (user_id=1)
         const [emailConfigs] = await db.promise().query(
-            `SELECT * FROM email_config WHERE user_id = ? LIMIT 1`,
-            [document.user_id]
+            `SELECT * FROM email_config WHERE user_id = 1 LIMIT 1`,
+            []
         );
 
         if (emailConfigs.length === 0) {
-            console.warn('⚠️ Usuario no tiene configuración de email');
+            console.warn('⚠️ No hay configuración de email del sistema');
             return;
         }
 
@@ -3928,22 +3928,36 @@ app.post('/api/public/sign/:token', async (req, res) => {
         try {
             // Verificar si el owner pertenece a un equipo activo
             const ownerTeam = await new Promise((resolve, reject) => {
-                db.query(`SELECT t.team_id FROM team_members tm INNER JOIN teams t ON tm.team_id = t.team_id
-                          WHERE tm.user_id = ? AND t.is_active = 1 LIMIT 1`,
+                db.query(`
+                    SELECT t.team_id,
+                           MAX(CASE WHEN r.role_name = 'Superadministrador' THEN 1 ELSE 0 END) as is_superadmin_team
+                    FROM team_members tm
+                    INNER JOIN teams t ON tm.team_id = t.team_id
+                    LEFT JOIN team_members tm2 ON tm2.team_id = t.team_id
+                    LEFT JOIN users u2 ON u2.user_id = tm2.user_id
+                    LEFT JOIN roles r ON r.role_id = u2.role_id
+                    WHERE tm.user_id = ? AND t.is_active = 1
+                    GROUP BY t.team_id
+                    LIMIT 1`,
                     [recipient.owner_id], (err, r) => { if (err) reject(err); else resolve(r); });
             });
             if (ownerTeam.length > 0) {
-                await new Promise((resolve, reject) => {
-                    db.query('UPDATE teams SET firma_balance = GREATEST(firma_balance - 1, 0) WHERE team_id = ?',
-                        [ownerTeam[0].team_id], (err, r) => { if (err) reject(err); else resolve(r); });
-                });
-                console.log(`💳 [FIRMAS] -1 firma al equipo ${ownerTeam[0].team_id} (owner: ${recipient.owner_id})`);
+                if (ownerTeam[0].is_superadmin_team) {
+                    // Equipo del superadmin: firmas ilimitadas, no descontar
+                    console.log(`[FIRMAS] Equipo superadmin — no se descuenta firma`);
+                } else {
+                    await new Promise((resolve, reject) => {
+                        db.query('UPDATE teams SET firma_balance = GREATEST(firma_balance - 1, 0) WHERE team_id = ?',
+                            [ownerTeam[0].team_id], (err, r) => { if (err) reject(err); else resolve(r); });
+                    });
+                    console.log(`[FIRMAS] -1 firma al equipo ${ownerTeam[0].team_id}`);
+                }
             } else {
                 await new Promise((resolve, reject) => {
                     db.query('UPDATE users SET firma_balance = GREATEST(firma_balance - 1, 0) WHERE user_id = ?',
                         [recipient.owner_id], (err, r) => { if (err) reject(err); else resolve(r); });
                 });
-                console.log(`💳 [FIRMAS] -1 firma al usuario ${recipient.owner_id}`);
+                console.log(`[FIRMAS] -1 firma al usuario ${recipient.owner_id}`);
             }
         } catch (firmaErr) {
             console.error('⚠️ [FIRMAS] Error descontando firma (no bloqueante):', firmaErr.message);
@@ -7627,14 +7641,15 @@ app.get('/api/firmas/dashboard', requireAuth, async (req, res) => {
             return res.status(403).json({ success: false, message: 'Acceso denegado' });
         }
 
-        // Usuarios sin equipo (excluye Superadministrador)
+        // Usuarios que NO están en ningún equipo (excluye Superadministrador)
         const users = await new Promise((resolve, reject) => {
             db.query(`
-                SELECT u.user_id, u.first_name, u.last_name, u.email, r.role_name, u.firma_balance,
-                       (SELECT COUNT(*) FROM team_members tm WHERE tm.user_id = u.user_id) as in_team
+                SELECT u.user_id, u.first_name, u.last_name, u.email, r.role_name, u.firma_balance
                 FROM users u
                 INNER JOIN roles r ON u.role_id = r.role_id
-                WHERE r.role_name != 'Superadministrador' AND u.is_active = 1
+                WHERE r.role_name != 'Superadministrador'
+                  AND u.is_active = 1
+                  AND u.user_id NOT IN (SELECT user_id FROM team_members)
                 ORDER BY r.role_name, u.first_name
             `, [], (err, results) => { if (err) reject(err); else resolve(results); });
         });
@@ -7643,10 +7658,12 @@ app.get('/api/firmas/dashboard', requireAuth, async (req, res) => {
             db.query(`
                 SELECT t.team_id, t.team_name, t.firma_balance,
                        COUNT(tm.user_id) as member_count,
-                       GROUP_CONCAT(CONCAT(u.first_name, ' ', u.last_name) SEPARATOR ', ') as members
+                       GROUP_CONCAT(CONCAT(u.first_name, ' ', u.last_name) SEPARATOR ', ') as members,
+                       MAX(CASE WHEN r.role_name = 'Superadministrador' THEN 1 ELSE 0 END) as is_superadmin_team
                 FROM teams t
                 LEFT JOIN team_members tm ON t.team_id = tm.team_id
                 LEFT JOIN users u ON tm.user_id = u.user_id
+                LEFT JOIN roles r ON u.role_id = r.role_id
                 WHERE t.is_active = 1
                 GROUP BY t.team_id
             `, [], (err, results) => { if (err) reject(err); else resolve(results); });
@@ -7721,10 +7738,15 @@ app.get('/api/firmas/mi-balance', requireAuth, async (req, res) => {
         // Verificar si el usuario pertenece a un equipo
         const teamRows = await new Promise((resolve, reject) => {
             db.query(`
-                SELECT t.team_id, t.team_name, t.firma_balance
+                SELECT t.team_id, t.team_name, t.firma_balance,
+                       MAX(CASE WHEN r.role_name = 'Superadministrador' THEN 1 ELSE 0 END) as is_superadmin_team
                 FROM team_members tm
                 INNER JOIN teams t ON tm.team_id = t.team_id
+                LEFT JOIN team_members tm2 ON tm2.team_id = t.team_id
+                LEFT JOIN users u2 ON u2.user_id = tm2.user_id
+                LEFT JOIN roles r ON r.role_id = u2.role_id
                 WHERE tm.user_id = ? AND t.is_active = 1
+                GROUP BY t.team_id
                 LIMIT 1
             `, [req.userId], (err, results) => { if (err) reject(err); else resolve(results); });
         });
@@ -7732,7 +7754,8 @@ app.get('/api/firmas/mi-balance', requireAuth, async (req, res) => {
         if (teamRows.length > 0) {
             return res.json({
                 success: true,
-                balance: teamRows[0].firma_balance,
+                balance: teamRows[0].is_superadmin_team ? Infinity : teamRows[0].firma_balance,
+                ilimitado: teamRows[0].is_superadmin_team === 1,
                 tipo: 'equipo',
                 nombre: teamRows[0].team_name,
                 team_id: teamRows[0].team_id

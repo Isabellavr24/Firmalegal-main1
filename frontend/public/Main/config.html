@@ -1095,11 +1095,8 @@
       <!-- PLACEHOLDERS (para que el menú funcione sin errores) -->
     
       <section class="set-section" id="sec-sms"><h1 class="page-h1">SMS</h1></section>
-     
-    
 
-    </main>
-  </div>
+
 
   <!-- Modal confirmación vinculación VI -->
   <div id="vi-confirm-modal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,0.45); display:none; align-items:center; justify-content:center;">
@@ -1192,10 +1189,10 @@
     .firmas-table th { text-align: left; padding: 10px 12px; background: #f9f5f2; color: #2b0e31; font-weight: 700; border-bottom: 2px solid #eadfd8; }
     .firmas-table td { padding: 10px 12px; border-bottom: 1px solid #eadfd8; vertical-align: middle; }
     .firmas-table tr:hover td { background: #faf8f7; }
-    .firma-badge { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; }
-    .firma-badge.ok { background: #e9f7f1; color: #065f46; }
-    .firma-badge.low { background: #fef3c7; color: #92400e; }
-    .firma-badge.empty { background: #fde8f0; color: #9b1c3f; }
+    .firma-badge { display: inline-flex; align-items: center; gap: 4px; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 700; }
+    .firma-badge.ok { background: #ede8f0; color: #2b0e31; border: 1px solid #c9b8d0; }
+    .firma-badge.low { background: #fce8f0; color: #7a0d3a; border: 1px solid #e8b0cc; }
+    .firma-badge.empty { background: #f5f0f6; color: #9d8aa3; border: 1px solid #d4c6d9; }
     .firmas-input-row { display: flex; gap: 8px; align-items: center; }
     .firmas-input-row input[type=number] { width: 100px; padding: 6px 10px; border: 1px solid #eadfd8; border-radius: 8px; font-size: 14px; }
     .firmas-btn-asignar { padding: 6px 14px; background: #2b0e31; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; font-family: inherit; transition: opacity .2s; }
@@ -1244,23 +1241,21 @@
 
     function firmaBadge(balance) {
       const cls = balance === 0 ? 'empty' : balance < 50 ? 'low' : 'ok';
-      const icon = balance === 0 ? '⚠️' : balance < 50 ? '⚡' : '✅';
-      return `<span class="firma-badge ${cls}">${icon} ${balance.toLocaleString()} firmas</span>`;
+      return `<span class="firma-badge ${cls}">${balance.toLocaleString()} firmas</span>`;
     }
 
     function renderDashboard(data) {
-      // Usuarios
+      // Operadores individuales (sin equipo)
       const uContainer = document.getElementById('firmas-usuarios-tabla');
       if (!data.users.length) {
-        uContainer.innerHTML = '<p style="color:#6d6270;font-size:13px;">No hay operadores registrados.</p>';
+        uContainer.innerHTML = '<p style="color:#6d6270;font-size:13px;">No hay operadores sin equipo.</p>';
       } else {
         uContainer.innerHTML = `<table class="firmas-table">
-          <thead><tr><th>Nombre</th><th>Email</th><th>Rol</th><th>En equipo</th><th>Saldo</th></tr></thead>
+          <thead><tr><th>Nombre</th><th>Email</th><th>Rol</th><th>Saldo</th></tr></thead>
           <tbody>${data.users.map(u => `<tr>
             <td>${u.first_name} ${u.last_name}</td>
             <td style="color:#6d6270;">${u.email}</td>
             <td>${u.role_name}</td>
-            <td style="text-align:center;">${u.in_team > 0 ? '✅' : '—'}</td>
             <td>${firmaBadge(u.firma_balance)}</td>
           </tr>`).join('')}</tbody>
         </table>`;
@@ -1275,17 +1270,17 @@
           <tbody>${data.teams.map(t => `<tr>
             <td style="font-weight:600;">${t.team_name}</td>
             <td style="color:#6d6270;font-size:12px;">${t.members || '—'}</td>
-            <td>${firmaBadge(t.firma_balance)}</td>
+            <td>${t.is_superadmin_team ? '<span class="firma-badge ok">Ilimitado</span>' : firmaBadge(t.firma_balance)}</td>
           </tr>`).join('')}</tbody>
         </table>`;
       }
     }
 
     function renderRegistrar(data) {
-      // Usuarios
+      // Operadores individuales (sin equipo)
       const uContainer = document.getElementById('firmas-asignar-usuarios');
       if (!data.users.length) {
-        uContainer.innerHTML = '<p style="color:#6d6270;font-size:13px;">No hay operadores.</p>';
+        uContainer.innerHTML = '<p style="color:#6d6270;font-size:13px;">No hay operadores sin equipo. Los miembros de equipos se gestionan desde el equipo.</p>';
       } else {
         uContainer.innerHTML = `<table class="firmas-table">
           <thead><tr><th>Nombre</th><th>Rol</th><th>Saldo actual</th><th>Asignar</th></tr></thead>
@@ -1297,20 +1292,21 @@
               <div class="firmas-input-row">
                 <input type="number" min="0" value="${u.firma_balance}" id="fw-u-${u.user_id}" />
                 <button class="firmas-btn-asignar" onclick="asignarFirmasUsuario(${u.user_id})">Guardar</button>
-                <span class="firmas-save-msg" id="msg-u-${u.user_id}">✓ Guardado</span>
+                <span class="firmas-save-msg" id="msg-u-${u.user_id}">Guardado</span>
               </div>
             </td>
           </tr>`).join('')}</tbody>
         </table>`;
       }
-      // Equipos
+      // Equipos (excluye el equipo del superadmin)
       const eContainer = document.getElementById('firmas-asignar-equipos');
-      if (!data.teams.length) {
-        eContainer.innerHTML = '<p style="color:#6d6270;font-size:13px;">No hay equipos.</p>';
+      const assignableTeams = data.teams.filter(t => !t.is_superadmin_team);
+      if (!assignableTeams.length) {
+        eContainer.innerHTML = '<p style="color:#6d6270;font-size:13px;">No hay equipos con saldo asignable.</p>';
       } else {
         eContainer.innerHTML = `<table class="firmas-table">
           <thead><tr><th>Equipo</th><th>Miembros</th><th>Saldo actual</th><th>Asignar</th></tr></thead>
-          <tbody>${data.teams.map(t => `<tr>
+          <tbody>${assignableTeams.map(t => `<tr>
             <td style="font-weight:600;">${t.team_name}</td>
             <td style="color:#6d6270;font-size:12px;">${t.members || '—'}</td>
             <td>${firmaBadge(t.firma_balance)}</td>
@@ -1318,7 +1314,7 @@
               <div class="firmas-input-row">
                 <input type="number" min="0" value="${t.firma_balance}" id="fw-t-${t.team_id}" />
                 <button class="firmas-btn-asignar" onclick="asignarFirmasEquipo(${t.team_id})">Guardar</button>
-                <span class="firmas-save-msg" id="msg-t-${t.team_id}">✓ Guardado</span>
+                <span class="firmas-save-msg" id="msg-t-${t.team_id}">Guardado</span>
               </div>
             </td>
           </tr>`).join('')}</tbody>
@@ -1382,11 +1378,35 @@
       });
     });
 
-    // Cargar datos cuando se haga click en el nav de firmas
+    // Detectar cuando la sección se vuelve visible
+    let firmasLoaded = false;
+    function checkAndLoad() {
+      const sec = document.getElementById('sec-firmas');
+      if (sec && sec.classList.contains('is-visible') && !firmasLoaded) {
+        firmasLoaded = true;
+        loadFirmasData();
+      }
+    }
+
+    // MutationObserver para cuando settings.js añada is-visible en el futuro
+    const secFirmas = document.getElementById('sec-firmas');
+    if (secFirmas) {
+      const obs = new MutationObserver(checkAndLoad);
+      obs.observe(secFirmas, { attributes: true, attributeFilter: ['class'] });
+    }
+
+    // Verificar inmediatamente (por si settings.js ya activó la sección antes de este script)
+    checkAndLoad();
+
+    // Click en nav: recargar datos frescos
     document.getElementById('navFirmas')?.addEventListener('click', () => {
-      loadFirmasData();
+      firmasLoaded = false;
+      checkAndLoad();
     });
   })();
   </script>
+
+    </main>
+  </div>
 </body>
 </html>

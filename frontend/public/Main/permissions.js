@@ -293,3 +293,54 @@ window.permissions = {
     updateAvatar,
     updateAllAvatars
 };
+
+// Badge de saldo de firmas — aparece en todas las páginas autenticadas (excepto login, public-sign)
+(function() {
+    const skipPages = ['/login.html', '/public-sign.html', '/verify.html'];
+    if (skipPages.some(p => window.location.pathname.endsWith(p))) return;
+
+    function updateFirmaBadge() {
+        const user = window.permissions?.getCurrentUser();
+        if (!user || user.role_name === 'Superadministrador') return;
+
+        fetch('/api/firmas/mi-balance', { credentials: 'include' })
+            .then(r => r.json())
+            .then(data => {
+                if (!data.success) return;
+                let badge = document.getElementById('firma-balance-badge');
+                if (!badge) {
+                    badge = document.createElement('div');
+                    badge.id = 'firma-balance-badge';
+                    badge.style.cssText = 'position:fixed;bottom:16px;right:16px;z-index:9000;border-radius:20px;padding:8px 16px;font-size:13px;font-weight:600;box-shadow:0 2px 12px rgba(0,0,0,0.12);font-family:inherit;pointer-events:none;transition:background .3s,color .3s;';
+                    document.body.appendChild(badge);
+                }
+                let bg, color, border, texto;
+                if (data.ilimitado) {
+                    bg = '#ede8f0'; color = '#2b0e31'; border = '#c9b8d0'; texto = 'Firmas ilimitadas';
+                } else if (data.balance === 0) {
+                    bg = '#fce8f0'; color = '#7a0d3a'; border = '#e8b0cc'; texto = '<strong>0</strong> firmas disponibles';
+                } else if (data.balance < 50) {
+                    bg = '#fef3c7'; color = '#92400e'; border = '#fcd34d'; texto = `<strong>${data.balance}</strong> firmas disponibles`;
+                } else {
+                    bg = '#ede8f0'; color = '#2b0e31'; border = '#c9b8d0'; texto = `<strong>${data.balance}</strong> firmas disponibles`;
+                }
+                badge.style.background = bg;
+                badge.style.color = color;
+                badge.style.border = `1px solid ${border}`;
+                badge.innerHTML = texto;
+            }).catch(() => {});
+    }
+
+    // Carga inicial
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', updateFirmaBadge);
+    } else {
+        updateFirmaBadge();
+    }
+
+    // Actualizar cada 30 segundos y al volver a la pestaña
+    setInterval(updateFirmaBadge, 30000);
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') updateFirmaBadge();
+    });
+})();
