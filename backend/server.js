@@ -3396,8 +3396,28 @@ app.get('/api/public/document/:token', async (req, res) => {
             }
         }
 
+        // 🔒 Detectar modo preview de operador: requiere ?preview=operator EN LA URL + JWT válido
+        // Si no hay JWT, el parámetro se ignora (no se puede falsificar desde fuera de la plataforma)
+        let isOperatorPreview = false;
+        const previewParam = req.query.preview;
+        if (previewParam === 'operator') {
+            const authCookiePreview = req.cookies?.auth_token;
+            if (authCookiePreview) {
+                try {
+                    const decoded = jwt.verify(authCookiePreview, process.env.JWT_SECRET);
+                    if (decoded && decoded.userId) {
+                        isOperatorPreview = true;
+                        console.log(`👁️ [VISTA-OPERADOR] Usuario de plataforma (ID: ${decoded.userId}) abrió en modo preview`);
+                    }
+                } catch (e) {
+                    // Token inválido — continuar como firmante normal
+                }
+            }
+        }
+
         // Si el documento aún no se ha abierto, actualizar estado a opened
-        if (recipient.status === 'sent' && !recipient.opened_at) {
+        // SOLO si no es un operador haciendo preview
+        if (!isOperatorPreview && recipient.status === 'sent' && !recipient.opened_at) {
             await new Promise((resolve, reject) => {
                 db.query(
                     'UPDATE document_recipients SET status = ?, opened_at = NOW() WHERE token = ?',
@@ -3589,6 +3609,7 @@ app.get('/api/public/document/:token', async (req, res) => {
             status: recipient.status,
             viValidatedAt: recipient.vi_validated_at || null,
             hasPersonalizedPdf: hasCustomPdf,
+            isOperatorPreview: isOperatorPreview,
             fields: fields || []
         };
 
@@ -3754,6 +3775,7 @@ app.post('/api/public/sign/:token', async (req, res) => {
         console.log(`✍️ Procesando firma para token: ${token}`);
         console.log(`📝 Campos recibidos: ${fields ? fields.length : 0}`);
 
+
         // Verificar que el token existe y no ha sido completado
         const recipientQuery = `
             SELECT
@@ -3768,7 +3790,8 @@ app.post('/api/public/sign/:token', async (req, res) => {
                 dr.viewer_group_id,
                 dr.is_final_signer,
                 d.file_path,
-                d.title
+                d.title,
+                d.owner_id
             FROM document_recipients dr
             INNER JOIN documents d ON dr.document_id = d.document_id
             WHERE dr.token = ?

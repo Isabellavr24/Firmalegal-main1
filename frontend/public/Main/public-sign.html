@@ -826,7 +826,9 @@ if (!currentToken) {
 // Cargar documento desde el servidor
 async function loadDocument() {
   try {
-    const response = await fetch(`/api/public/document/${currentToken}`);
+    const previewMode = urlParams.get('preview');
+    const previewQuery = previewMode ? `?preview=${previewMode}` : '';
+    const response = await fetch(`/api/public/document/${currentToken}${previewQuery}`);
     
     if (!response.ok) {
       const errData = await response.json().catch(() => ({}));
@@ -850,6 +852,40 @@ async function loadDocument() {
     recipientPartId = currentDocument.recipientPartId; // 🔥 NUEVO: Guardar part_id del destinatario
     isFinalSigner = currentDocument.isFinalSigner || false; // 🔥 NUEVO: Flag de firmante definitivo
     window.isFinalSigner = isFinalSigner; // ✅ También asignar a window para acceso global
+
+    // Actualizar información en el panel izquierdo (siempre, antes de cualquier early return)
+    document.getElementById('docTitle').textContent = currentDocument.title || 'Documento sin título';
+    document.getElementById('senderName').textContent = currentDocument.senderName || '-';
+    document.getElementById('recipientEmail').textContent = currentDocument.recipientEmail || '-';
+    document.getElementById('sentDate').textContent = currentDocument.sentAt ? new Date(currentDocument.sentAt).toLocaleDateString('es-ES') : '-';
+
+    // 🔒 MODO PREVIEW OPERADOR: Si hay sesión activa del dueño, solo lectura
+    if (currentDocument.isOperatorPreview) {
+      console.log('👁️ [PREVIEW] Operador de plataforma — modo solo lectura');
+      // Construir URL completa del PDF
+      let previewPdfUrl = currentDocument.pdfPath;
+      if (!previewPdfUrl.startsWith('http://') && !previewPdfUrl.startsWith('https://')) {
+        const origin = window.location.origin;
+        const path = previewPdfUrl.startsWith('/') ? previewPdfUrl.substring(1) : previewPdfUrl;
+        previewPdfUrl = `${origin}/${path}`;
+      }
+      previewPdfUrl += `?t=${Date.now()}`;
+      await loadPDF(previewPdfUrl);
+      // Mostrar banner informativo
+      const successMsg = document.getElementById('successMsg');
+      if (successMsg) {
+        successMsg.style.display = 'block';
+        successMsg.innerHTML = `<p style="margin:0;color:#856404;font-weight:600;">👁️ Vista de operador — solo lectura. Los firmantes no pueden ver esta vista.</p>`;
+        successMsg.style.background = '#fff3cd';
+        successMsg.style.border = '1px solid #ffc107';
+        successMsg.style.borderRadius = '8px';
+        successMsg.style.padding = '12px 16px';
+      }
+      document.getElementById('sendBtn').style.display = 'none';
+      document.getElementById('initialLoader').style.display = 'none';
+      return;
+    }
+
     // 🔒 Bloquear descarga para TODOS los firmantes de pagaré (solo descargable desde tracking)
     const isPagareViewer = currentDocument.documentType === 'pagare';
 
@@ -859,12 +895,6 @@ async function loadDocument() {
     console.log('🎯 DEBUG - recipientPartId:', recipientPartId);
     console.log('🎯 DEBUG - isFinalSigner:', isFinalSigner); // 🔥 NUEVO
     console.log('🎯 DEBUG - hasPersonalizedPdf:', currentDocument.hasPersonalizedPdf); // 🔥 NUEVO
-
-    // Actualizar información en el panel izquierdo
-    document.getElementById('docTitle').textContent = currentDocument.title || 'Documento sin título';
-    document.getElementById('senderName').textContent = currentDocument.senderName || '-';
-    document.getElementById('recipientEmail').textContent = currentDocument.recipientEmail || '-';
-    document.getElementById('sentDate').textContent = currentDocument.sentAt ? new Date(currentDocument.sentAt).toLocaleDateString('es-ES') : '-';
 
     // ✅ Si el documento está completado Y hay PDF firmado final (todos firmaron), mostrar el PDF firmado final
     if (currentDocument.status === 'completed' && currentDocument.signedPdfUrl) {
@@ -1111,6 +1141,11 @@ async function renderPDFPages() {
 }
 
 // Cargar y renderizar PDF
+// Alias para modo preview de operador — carga el PDF sin campos de firma
+async function renderPdfForPreview(pdfPath) {
+  await loadPDF(pdfPath);
+}
+
 async function loadPDF(pdfPath) {
   try {
     console.log(`📄 Intentando cargar PDF desde: ${pdfPath}`);
@@ -2299,6 +2334,18 @@ async function submitDocument() {
     const data = await response.json();
 
     if (!response.ok) {
+      if (data.code === 'OPERATOR_CANNOT_SIGN') {
+        hideSigningProgress();
+        document.body.innerHTML = `
+          <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f8f9fa;font-family:sans-serif;">
+            <div style="text-align:center;padding:40px;background:white;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,0.1);max-width:420px;">
+              <svg style="width:56px;height:56px;margin-bottom:16px;" viewBox="0 0 24 24" fill="none" stroke="#dc3545" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+              <h2 style="color:#721c24;margin:0 0 12px;">Acceso restringido</h2>
+              <p style="color:#555;font-size:15px;margin:0;">Los operadores de la plataforma no pueden firmar documentos como destinatarios.</p>
+            </div>
+          </div>`;
+        return;
+      }
       // Mostrar mensaje de error específico del servidor
       throw new Error(data.message || 'Error al procesar la firma');
     }

@@ -1491,9 +1491,9 @@ function handleRecipientView(recipientId, status) {
     return;
   }
 
-  // ✅ Redirigir a public-sign.html con el token (funciona tanto para completados como pendientes)
+  // ✅ Redirigir a public-sign.html con el token en modo preview (operador)
   console.log(`📄 Abriendo documento con token: ${token}`);
-  window.location.href = `./public-sign.html?token=${token}`;
+  window.location.href = `./public-sign.html?token=${token}&preview=operator`;
 }
 
 function handleRecipientDelete(recipientId) {
