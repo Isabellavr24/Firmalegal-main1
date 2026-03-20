@@ -835,11 +835,11 @@ async function loadDocument() {
       if (response.status === 403 && errData.code === 'ALREADY_SIGNED') {
         document.getElementById('loadingScreen')?.remove();
         document.body.innerHTML = `
-          <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f8f9fa;font-family:sans-serif;">
-            <div style="text-align:center;padding:40px;background:white;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,0.1);max-width:420px;">
-              <svg style="width:56px;height:56px;margin-bottom:16px;" viewBox="0 0 24 24" fill="none" stroke="#28a745" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-              <h2 style="color:#155724;margin:0 0 12px;">Firma completada</h2>
-              <p style="color:#555;font-size:15px;margin:0;">Ya completaste tu firma en este documento.<br>No se requiere ninguna acción adicional.</p>
+          <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f9f5f2;font-family:sans-serif;padding:16px;box-sizing:border-box;">
+            <div style="text-align:center;padding:40px 32px;background:white;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,0.1);max-width:420px;width:100%;">
+              <svg style="width:56px;height:56px;margin-bottom:16px;" viewBox="0 0 24 24" fill="none" stroke="#2fb67b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              <h2 style="color:#2b0e31;margin:0 0 12px;">Firma completada</h2>
+              <p style="color:#6d6270;font-size:15px;margin:0;">Ya completaste tu firma en este documento.<br>No se requiere ninguna acción adicional.</p>
             </div>
           </div>`;
         return;
@@ -2337,11 +2337,11 @@ async function submitDocument() {
       if (data.code === 'OPERATOR_CANNOT_SIGN') {
         hideSigningProgress();
         document.body.innerHTML = `
-          <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f8f9fa;font-family:sans-serif;">
-            <div style="text-align:center;padding:40px;background:white;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,0.1);max-width:420px;">
-              <svg style="width:56px;height:56px;margin-bottom:16px;" viewBox="0 0 24 24" fill="none" stroke="#dc3545" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-              <h2 style="color:#721c24;margin:0 0 12px;">Acceso restringido</h2>
-              <p style="color:#555;font-size:15px;margin:0;">Los operadores de la plataforma no pueden firmar documentos como destinatarios.</p>
+          <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f9f5f2;font-family:sans-serif;padding:16px;box-sizing:border-box;">
+            <div style="text-align:center;padding:40px 32px;background:white;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,0.1);max-width:420px;width:100%;">
+              <svg style="width:56px;height:56px;margin-bottom:16px;" viewBox="0 0 24 24" fill="none" stroke="#c2185b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+              <h2 style="color:#2b0e31;margin:0 0 12px;">Acceso restringido</h2>
+              <p style="color:#6d6270;font-size:15px;margin:0;">Los operadores de la plataforma no pueden firmar documentos como destinatarios.</p>
             </div>
           </div>`;
         return;
@@ -2634,15 +2634,16 @@ document.getElementById('downloadAuditBtn')?.addEventListener('click', async () 
     border-radius: 20px;
     padding: 40px;
     max-width: 500px;
-    width: 90%;
+    width: calc(100% - 48px);
+    margin: 24px;
     box-shadow: 0 20px 60px rgba(0,0,0,0.3);
     text-align: center;
   ">
     <!-- Icono animado -->
     <div style="margin-bottom: 30px;">
       <svg width="80" height="80" viewBox="0 0 100 100" style="animation: rotate 2s linear infinite;">
-        <circle cx="50" cy="50" r="45" fill="none" stroke="#e0e0e0" stroke-width="8"/>
-        <circle cx="50" cy="50" r="45" fill="none" stroke="#007bff" stroke-width="8"
+        <circle cx="50" cy="50" r="45" fill="none" stroke="#eadfd8" stroke-width="8"/>
+        <circle cx="50" cy="50" r="45" fill="none" stroke="#2b0e31" stroke-width="8"
                 stroke-dasharray="283" stroke-dashoffset="70"
                 stroke-linecap="round"
                 style="transform-origin: center; animation: progress 1.5s ease-in-out infinite;"/>
@@ -2671,14 +2672,14 @@ document.getElementById('downloadAuditBtn')?.addEventListener('click', async () 
       <div id="progressBar" style="
         width: 0%;
         height: 100%;
-        background: linear-gradient(90deg, #007bff, #00c6ff);
+        background: linear-gradient(90deg, #2b0e31, #c2185b);
         transition: width 0.3s ease;
         border-radius: 10px;
       "></div>
     </div>
 
     <!-- Porcentaje -->
-    <p id="progressPercent" style="margin: 0; color: #007bff; font-size: 14px; font-weight: 600;">
+    <p id="progressPercent" style="margin: 0; color: #2b0e31; font-size: 14px; font-weight: 600;">
       0%
     </p>
 

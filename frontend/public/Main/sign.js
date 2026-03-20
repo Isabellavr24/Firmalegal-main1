@@ -514,8 +514,8 @@ function renderFieldOnPage(fieldData) {
       labelColor = '#10b981';
       fieldLabel = '<svg style="width:14px;height:14px;vertical-align:middle;" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Sello PKI';
     } else if (fieldData.type === 'final_signature') {
-      labelColor = '#9333ea';
-      fieldLabel = balanzaSvg.replace('currentColor', '#9333ea').replace(/currentColor/g, '#9333ea') + ' Firma Definitiva';
+      labelColor = '#2b0e31';
+      fieldLabel = balanzaSvg.replace('currentColor', '#2b0e31').replace(/currentColor/g, '#2b0e31') + ' Firma Definitiva';
     } else if (fieldData.roleName && fieldData.roleColor) {
       fieldLabel = `${labels[fieldData.type]}: ${fieldData.roleName}`;
       labelColor = fieldData.roleColor;
@@ -537,10 +537,10 @@ function renderFieldOnPage(fieldData) {
       el.style.background = 'rgba(16, 185, 129, 0.05)';
     } else if (fieldData.type === 'final_signature') {
       el.innerHTML = `
-        <span class="label" style="color:#9333ea;font-weight:600;">${fieldLabel}</span>
+        <span class="label" style="color:#2b0e31;font-weight:600;">${fieldLabel}</span>
         <button class="delete-btn" title="Eliminar">×</button>
       `;
-      el.style.borderColor = '#9333ea';
+      el.style.borderColor = '#2b0e31';
       el.style.borderWidth = '3px';
       el.style.borderStyle = 'solid';
       el.style.background = 'rgba(147, 51, 234, 0.05)';
@@ -1219,8 +1219,8 @@ function initPageOverlays() {
         fieldLabel = '<svg style="width:14px;height:14px;vertical-align:middle;" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Sello PKI';
       } else if (placingFieldType === 'final_signature') {
         // Firma definitiva: estilo especial morado/dorado para el dueño
-        labelColor = '#9333ea'; // Púrpura
-        fieldLabel = '<svg style="width:14px;height:14px;vertical-align:middle;" viewBox="0 0 100 100" fill="none" stroke="#9333ea" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"><line x1="50" y1="8" x2="50" y2="85"/><rect x="28" y="85" width="44" height="8" rx="2" fill="#9333ea" stroke="none"/><line x1="12" y1="20" x2="88" y2="20"/><circle cx="50" cy="20" r="4" fill="#9333ea" stroke="none"/><line x1="20" y1="20" x2="16" y2="48"/><line x1="80" y1="20" x2="84" y2="48"/><path d="M8 48 Q16 60 24 48" fill="#9333ea" stroke="none"/><path d="M76 48 Q84 60 92 48" fill="#9333ea" stroke="none"/></svg> Firma Definitiva';
+        labelColor = '#2b0e31'; // Púrpura
+        fieldLabel = '<svg style="width:14px;height:14px;vertical-align:middle;" viewBox="0 0 100 100" fill="none" stroke="#2b0e31" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"><line x1="50" y1="8" x2="50" y2="85"/><rect x="28" y="85" width="44" height="8" rx="2" fill="#2b0e31" stroke="none"/><line x1="12" y1="20" x2="88" y2="20"/><circle cx="50" cy="20" r="4" fill="#2b0e31" stroke="none"/><line x1="20" y1="20" x2="16" y2="48"/><line x1="80" y1="20" x2="84" y2="48"/><path d="M8 48 Q16 60 24 48" fill="#2b0e31" stroke="none"/><path d="M76 48 Q84 60 92 48" fill="#2b0e31" stroke="none"/></svg> Firma Definitiva';
       } else if (roleName && roleColor) {
         fieldLabel = `${labels[placingFieldType]}: ${roleName}`;
         labelColor = roleColor;
@@ -1240,7 +1240,7 @@ function initPageOverlays() {
         el.style.background = 'rgba(16, 185, 129, 0.05)';
       } else if (placingFieldType === 'final_signature') {
         // Firma Definitiva: borde púrpura especial
-        el.style.borderColor = '#9333ea';
+        el.style.borderColor = '#2b0e31';
         el.style.borderWidth = '3px';
         el.style.borderStyle = 'solid';
         el.style.background = 'rgba(147, 51, 234, 0.05)';
