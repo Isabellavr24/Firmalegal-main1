@@ -524,8 +524,9 @@ async function sealPagaresWithoutFinalSigner(documentId) {
                         }
 
                         // Aplicar sello PKI
+                        const allEmailsForReason = vgAllRecipients.map(r => r.email).filter(Boolean).join(', ');
                         const signedRecPdfBuffer = await pythonSigner.signPdf(recPdfBuffer, {
-                            reason: `Pagaré firmado por todos los participantes — ${documentId}`,
+                            reason: `Firmado por: ${allEmailsForReason}`,
                             location: 'Colombia',
                             signerName: 'PKI Services',
                             contactInfo: recToSeal.email,
@@ -5011,8 +5012,9 @@ app.post('/api/public/sign/:token', async (req, res) => {
                                     .update(`VERIFY-${recipient.document_id}-${process.env.JWT_SECRET || 'firmalegal-secret-key'}`)
                                     .digest('hex')
                                     .substring(0, 32);
+                                const allEmailsVg = [...vgAllRecipients.map(r => r.email), finalSignerEmail].filter(Boolean).join(', ');
                                 const signedRecPdfBuffer = await pythonSigner.signPdf(recPdfBuffer, {
-                                    reason: `Firmante Definitivo: ${finalSignerName} (${finalSignerEmail})`,
+                                    reason: `Firmado por: ${allEmailsVg}`,
                                     location: 'Colombia',
                                     signerName: 'PKI Services',
                                     contactInfo: finalSignerEmail,
@@ -5350,7 +5352,7 @@ app.post('/api/public/sign/:token', async (req, res) => {
                                 .digest('hex')
                                 .substring(0, 32);
                             const signedFinalSignerPdfBuffer = await pythonSigner.signPdf(finalSignerPdfBuffer, {
-                                reason: `Firmante Definitivo: ${finalSignerName} (${finalSignerEmail})`,
+                                reason: `Firmado por: ${finalSignerEmail}`,
                                 location: 'Colombia',
                                 signerName: 'PKI Services',
                                 contactInfo: finalSignerEmail,
@@ -6842,8 +6844,9 @@ async function generateAndCacheCompletePagare(docId, viewerGroupId, docTitle) {
             crypto.createHash('sha256').update(`VERIFY-${docId}-${process.env.JWT_SECRET || 'firmalegal-secret-key'}`).digest('hex').substring(0, 32);
         // Usar completed_at del firmante definitivo (fecha real de firma, en UTC)
         const signingTimeISO = finalSigner.completed_at ? new Date(finalSigner.completed_at).toISOString() : null;
+        const allSignerEmails = [...vgRecipients.map(r => r.email), finalSigner.email].filter(Boolean).join(', ');
         pdfBuffer = await pythonSigner.signPdf(pdfBuffer, {
-            reason: `Pagaré Completo: ${docTitle}`,
+            reason: `Firmado por: ${allSignerEmails}`,
             location: 'Colombia',
             signerName: 'PKI Services',
             contactInfo: fsEmail,
@@ -7084,8 +7087,9 @@ app.get('/api/documents/:docId/pagares/:viewerGroupId/download-complete', requir
             const finalSignedAt = fsMeta[0]?.final_signed_at || null;
             const [docVerifRow] = await db.promise().query('SELECT verification_token FROM documents WHERE document_id = ?', [docId]);
             const verifToken = docVerifRow[0]?.verification_token || crypto.createHash('sha256').update(`VERIFY-${docId}-${process.env.JWT_SECRET || 'firmalegal-secret-key'}`).digest('hex').substring(0, 32);
+            const allSignerEmailsForReason = [...(vgRecipients || []).map(r => r.email), fsEmail].filter(Boolean).join(', ');
             pdfBuffer = await pythonSigner.signPdf(pdfBuffer, {
-                reason: `Pagaré Completo: ${docTitle}`,
+                reason: `Firmado por: ${allSignerEmailsForReason}`,
                 location: 'Colombia',
                 signerName: 'PKI Services',
                 contactInfo: fsEmail,
@@ -7381,8 +7385,9 @@ app.get('/api/documents/:docId/pagares/download-all-zip', requireAuth, async (re
                         }
                     }
 
+                    const zipEmailsReason = [...groupRecipients.map(r => r.email), finalSigner?.email].filter(Boolean).join(', ');
                     finalBuffer = await pythonSigner.signPdf(pdfBuffer, {
-                        reason: `Pagaré ${i + 1} - ${docTitle}`,
+                        reason: `Firmado por: ${zipEmailsReason}`,
                         location: 'Colombia',
                         signerName: 'PKI Services',
                         fieldName: `PagareZip_${docId}_vg${viewerGroupId}`,
