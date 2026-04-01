@@ -75,10 +75,13 @@ app.post('/api/documents/:id/enviar-etitulo', requireAuth, async (req, res) => {
         };
 
         const contactos = recipients.map(r => {
-            const parts = (r.name || '').trim().split(' ');
+            const rawName = (r.name || '').trim();
+            // Si el nombre es igual al email o está vacío, usar el email como nombre completo
+            const fullName = (!rawName || rawName === r.email) ? r.email : rawName;
+            const nameParts = fullName.split(' ');
             return {
-                nombre: parts[0] || r.email,
-                apellido: parts.slice(1).join(' ') || '',
+                nombre: nameParts[0],
+                apellido: nameParts.slice(1).join(' ') || '',
                 rolFirmante: rolMap(r.role_name),
                 tipoDocumento: 'CC',
                 numeroDocumento: '',

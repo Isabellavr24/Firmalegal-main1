@@ -390,6 +390,30 @@
 </head>
 <body>
 
+<!-- Modal OTP WhatsApp -->
+<div id="otpModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(43,14,49,0.7);z-index:10000;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:16px;padding:32px 28px;max-width:400px;width:calc(100% - 48px);box-shadow:0 20px 60px rgba(43,14,49,0.3);font-family:inherit;">
+    <div style="text-align:center;margin-bottom:24px;">
+      <div style="width:56px;height:56px;background:#ede8f0;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2b0e31" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      </div>
+      <h2 style="margin:0 0 8px;font-size:20px;font-weight:700;color:#2b0e31;">Verificacion de identidad</h2>
+      <p id="otpDesc" style="margin:0;font-size:14px;color:#6d6270;line-height:1.5;">Para firmar este documento enviaremos un codigo de verificacion a tu numero de WhatsApp registrado.</p>
+    </div>
+    <div id="otpStep1">
+      <button id="otpSendBtn" onclick="otpEnviar()" style="width:100%;padding:14px;background:#2b0e31;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;">Enviar codigo por WhatsApp</button>
+      <button onclick="window.history.back()" style="width:100%;padding:12px;background:none;border:none;color:#6d6270;font-size:14px;cursor:pointer;margin-top:8px;font-family:inherit;">Cancelar</button>
+    </div>
+    <div id="otpStep2" style="display:none;">
+      <p id="otpPhoneMsg" style="font-size:13px;color:#6d6270;text-align:center;margin:0 0 16px;"></p>
+      <input id="otpInput" type="text" maxlength="6" placeholder="000000" style="width:100%;box-sizing:border-box;text-align:center;font-size:28px;font-weight:700;letter-spacing:8px;padding:16px;border:2px solid #c9b8d0;border-radius:10px;outline:none;color:#2b0e31;font-family:inherit;" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+      <p id="otpError" style="color:#c2185b;font-size:13px;text-align:center;margin:8px 0 0;display:none;"></p>
+      <button onclick="otpVerificar()" style="width:100%;padding:14px;background:#2b0e31;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;margin-top:16px;font-family:inherit;">Verificar codigo</button>
+      <button onclick="otpEnviar(true)" style="width:100%;padding:10px;background:none;border:none;color:#2b0e31;font-size:13px;cursor:pointer;margin-top:4px;text-decoration:underline;font-family:inherit;">Reenviar codigo</button>
+    </div>
+  </div>
+</div>
+
 <!-- Loader inicial -->
 <div id="initialLoader" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(246,241,238,0.98); z-index:9999; display:flex; flex-direction:column; align-items:center; justify-content:center;">
   <div style="width:60px; height:60px; border:4px solid #eadfd8; border-top-color:#2a0d31; border-radius:50%; animation:spin 1s linear infinite;"></div>
@@ -884,6 +908,19 @@ async function loadDocument() {
       document.getElementById('sendBtn').style.display = 'none';
       document.getElementById('initialLoader').style.display = 'none';
       return;
+    }
+
+    // 🔒 OTP WhatsApp para pagarés — verificar antes de mostrar el editor
+    const isPagareDoc = currentDocument.documentType === 'pagare';
+    if (isPagareDoc && !window._otpVerified) {
+      // Mostrar modal OTP, pausar carga del resto
+      document.getElementById('initialLoader').style.display = 'none';
+      const otpModal = document.getElementById('otpModal');
+      otpModal.style.display = 'flex';
+      // Esperar a que el usuario verifique el OTP
+      await new Promise(resolve => { window._otpResolve = resolve; });
+      otpModal.style.display = 'none';
+      document.getElementById('initialLoader').style.display = 'flex';
     }
 
     // 🔒 Bloquear descarga para TODOS los firmantes de pagaré (solo descargable desde tracking)
@@ -2862,6 +2899,100 @@ async function isLastSignerToComplete() {
 }
 
 console.log('✅ Modal de progreso de firma cargado');
+</script>
+
+<script>
+// ==================== OTP WhatsApp ====================
+window._otpVerified = false;
+
+async function otpEnviar(isResend) {
+  const btn = document.getElementById('otpSendBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Enviando...'; }
+
+  const token = new URLSearchParams(window.location.search).get('token');
+  try {
+    const res = await fetch('/api/public/otp/enviar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token })
+    });
+    const data = await res.json();
+
+    if (!data.success) {
+      if (data.needsVI) {
+        // No tiene celular registrado — redirigir a hacer VI
+        document.getElementById('otpDesc').innerHTML = `Para firmar este pagare necesitas completar la validacion de identidad primero. Por favor cierra esta ventana y contacta al remitente del documento.`;
+        document.getElementById('otpStep1').style.display = 'none';
+        return;
+      }
+      document.getElementById('otpDesc').textContent = data.message || 'Error al enviar el codigo';
+      if (btn) { btn.disabled = false; btn.textContent = 'Enviar codigo por WhatsApp'; }
+      return;
+    }
+
+    if (data.skip) {
+      // No es pagare, continuar sin OTP
+      window._otpVerified = true;
+      if (window._otpResolve) window._otpResolve();
+      return;
+    }
+
+    // Mostrar paso 2 — ingresar código
+    document.getElementById('otpStep1').style.display = 'none';
+    document.getElementById('otpStep2').style.display = 'block';
+    document.getElementById('otpPhoneMsg').textContent = `Codigo enviado al numero ${data.phone}. Revisa tu WhatsApp.`;
+    document.getElementById('otpInput').focus();
+
+  } catch(e) {
+    document.getElementById('otpDesc').textContent = 'Error de conexion. Intenta de nuevo.';
+    if (btn) { btn.disabled = false; btn.textContent = 'Enviar codigo por WhatsApp'; }
+  }
+}
+
+async function otpVerificar() {
+  const code = document.getElementById('otpInput').value.trim();
+  const errEl = document.getElementById('otpError');
+  if (code.length !== 6) {
+    errEl.textContent = 'Ingresa los 6 digitos del codigo';
+    errEl.style.display = 'block';
+    return;
+  }
+  errEl.style.display = 'none';
+
+  const token = new URLSearchParams(window.location.search).get('token');
+  try {
+    const res = await fetch('/api/public/otp/verificar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, code })
+    });
+    const data = await res.json();
+
+    if (!data.success) {
+      errEl.textContent = data.message || 'Codigo incorrecto';
+      errEl.style.display = 'block';
+      document.getElementById('otpInput').value = '';
+      document.getElementById('otpInput').focus();
+      return;
+    }
+
+    // Verificado — continuar con la carga del documento
+    window._otpVerified = true;
+    if (window._otpResolve) window._otpResolve();
+
+  } catch(e) {
+    errEl.textContent = 'Error de conexion. Intenta de nuevo.';
+    errEl.style.display = 'block';
+  }
+}
+
+// Permitir confirmar con Enter
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && document.getElementById('otpModal').style.display === 'flex') {
+    const step2 = document.getElementById('otpStep2');
+    if (step2 && step2.style.display !== 'none') otpVerificar();
+  }
+});
 </script>
 
 </body>

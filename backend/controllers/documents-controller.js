@@ -2044,7 +2044,7 @@ router.get('/:id/recipients', requireAuth, async (req, res) => {
                         dr.vi_traza_path,
                         dr.is_final_signer, dr.viewer_group_id
                  FROM document_recipients dr
-                 LEFT JOIN vi_verified_emails vve ON vve.email COLLATE utf8mb4_0900_ai_ci = dr.email COLLATE utf8mb4_0900_ai_ci
+                 LEFT JOIN vi_verified_emails vve ON CONVERT(vve.email USING utf8mb4) = CONVERT(dr.email USING utf8mb4)
                  WHERE dr.document_id = ?
                  ORDER BY dr.viewer_group_id ASC, dr.sent_at ASC`,
                 [documentId],
@@ -3341,20 +3341,21 @@ router.post('/:docId/pagare/send-bulk', requireAuth, async (req, res) => {
                 }
 
                 // Crear recipient
+                const firmanteName = firmante.name || firmante.roleName;
                 const [recipientResult] = await db.promise().query(
                     `INSERT INTO document_recipients
                      (document_id, email, name, viewer_group_id, part_id, status, token, vi_validated_at)
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                    [docId, firmante.email, firmante.roleName, viewerGroupId, realPartId, firmanteStatus, token, viValidatedAt]
+                    [docId, firmante.email, firmanteName, viewerGroupId, realPartId, firmanteStatus, token, viValidatedAt]
                 );
 
                 const recipientId = recipientResult.insertId;
-                console.log(`      📧 Firmante creado: ${firmante.email} (${firmante.roleName}, part: ${firmante.partId}, status: ${firmanteStatus})`);
+                console.log(`      📧 Firmante creado: ${firmante.email} (${firmanteName}, part: ${firmante.partId}, status: ${firmanteStatus})`);
 
                 recipientsCreated.push({
                     recipientId,
                     email: firmante.email,
-                    name: firmante.roleName,
+                    name: firmanteName,
                     token,
                     partId: firmante.partId,
                     needsVI: ownerVinculadoVI && !firmanteVerificado

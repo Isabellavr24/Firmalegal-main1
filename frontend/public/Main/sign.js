@@ -1145,11 +1145,35 @@ function initPageOverlays() {
             best = candidates[0];
           }
           if (best) {
-            // ✅ LIMPIAR guiones bajos y espacios extras del label
-            mappedLabel = best.str
-              .replace(/_+/g, '')  // Eliminar todos los guiones bajos
-              .replace(/\s+/g, ' ') // Normalizar espacios múltiples a uno solo
-              .trim();              // Eliminar espacios al inicio y final
+            // Concatenar fragmentos adyacentes de la misma línea (mismo y ± 4px)
+            // Solo incluir fragmentos que estén a menos de 20px de distancia entre sí,
+            // empezando desde el fragmento más a la izquierda del grupo del best
+            const LINE_TOLERANCE = 4;
+            const sameLineItems = items
+              .filter(t => Math.abs(t.y - best.y) <= LINE_TOLERANCE)
+              .sort((a, b) => a.x - b.x);
+
+            // Encontrar el índice del best en la línea
+            const bestIdx = sameLineItems.findIndex(t => t.idx === best.idx);
+            // Expandir hacia la izquierda y derecha mientras los fragmentos sean adyacentes (gap < 20px)
+            const MAX_GAP = 20;
+            let start = bestIdx, end = bestIdx;
+            while (start > 0 && sameLineItems[start].x - (sameLineItems[start-1].x + sameLineItems[start-1].w) < MAX_GAP) start--;
+            while (end < sameLineItems.length - 1 && sameLineItems[end+1].x - (sameLineItems[end].x + sameLineItems[end].w) < MAX_GAP) end++;
+            const group = sameLineItems.slice(start, end + 1);
+            // Unir con espacio solo si el gap entre fragmentos es > 2px (palabras separadas)
+            // Sin espacio si están pegados (misma palabra partida por PDF.js)
+            let fullLabel = group[0].str;
+            for (let i = 1; i < group.length; i++) {
+              const gap = group[i].x - (group[i-1].x + group[i-1].w);
+              fullLabel += (gap > 2 ? ' ' : '') + group[i].str;
+            }
+
+            // LIMPIAR guiones bajos y espacios extras del label
+            mappedLabel = fullLabel
+              .replace(/_+/g, '')
+              .replace(/\s+/g, ' ')
+              .trim();
 
             console.log('[MAPEO PDF] Campo texto colocado:', {
               id,

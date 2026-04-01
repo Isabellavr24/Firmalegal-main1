@@ -2913,11 +2913,43 @@ app.post('/api/public/vi-callback', async (req, res) => {
                             [recipient.document_id], (err, rows) => { if (err) reject(err); else resolve(rows); });
                     });
                     const ownerId = docOwner[0]?.owner_id || 0;
+
+                    // Obtener celular del firmante desde VI usando validacion_id
+                    let celularFirmante = null;
+                    if (validacion_id) {
+                        try {
+                            const VI_URL_C = process.env.VI_URL || 'http://validacion-identidad-app-1:3000';
+                            const VI_API_KEY_C = process.env.INTERNAL_API_KEY || '';
+                            const celularBytes = await new Promise((resolve, reject) => {
+                                const chunks = [];
+                                const url = new URL(`${VI_URL_C}/validacion/api/validaciones/by-id/${validacion_id}`);
+                                const t = url.protocol === 'https:' ? require('https') : require('http');
+                                const r = t.request({
+                                    hostname: url.hostname,
+                                    port: url.port || 80,
+                                    path: url.pathname,
+                                    method: 'GET',
+                                    headers: { 'X-Internal-Api-Key': VI_API_KEY_C }
+                                }, (resp) => {
+                                    resp.on('data', d => chunks.push(d));
+                                    resp.on('end', () => resolve(Buffer.concat(chunks)));
+                                });
+                                r.on('error', reject);
+                                r.end();
+                            });
+                            const celularData = JSON.parse(celularBytes.toString());
+                            if (celularData.celular) celularFirmante = celularData.celular;
+                            console.log(`📱 [VI-CALLBACK] Celular obtenido para ${recipient.email}: ${celularFirmante || 'no disponible'}`);
+                        } catch (e) {
+                            console.warn(`⚠️ [VI-CALLBACK] No se pudo obtener celular: ${e.message}`);
+                        }
+                    }
+
                     await new Promise((resolve, reject) => {
                         db.query(
-                            `INSERT INTO vi_verified_emails (email, vi_validated_at, owner_user_id) VALUES (?, NOW(), ?)
-                             ON DUPLICATE KEY UPDATE vi_validated_at = NOW()`,
-                            [recipient.email.toLowerCase(), ownerId],
+                            `INSERT INTO vi_verified_emails (email, vi_validated_at, owner_user_id, celular) VALUES (?, NOW(), ?, ?)
+                             ON DUPLICATE KEY UPDATE vi_validated_at = NOW(), celular = COALESCE(VALUES(celular), celular)`,
+                            [recipient.email.toLowerCase(), ownerId, celularFirmante],
                             (err) => { if (err) reject(err); else resolve(); }
                         );
                     });
@@ -2991,14 +3023,19 @@ app.post('/api/recipients/check-vi-status', requireAuth, async (req, res) => {
 
         const verified = {};
 
+        const celular = {};
+
         // 1. Consultar vi_verified_emails (registro persistente — fuente principal)
         await new Promise((resolve) => {
             db.query(
-                `SELECT email, vi_validated_at FROM vi_verified_emails
+                `SELECT email, vi_validated_at, celular FROM vi_verified_emails
                  WHERE email IN (${placeholders}) AND vi_validated_at >= ?`,
                 [...emailsLower, oneYearAgo],
                 (err, rows) => {
-                    if (!err && rows) rows.forEach(r => { verified[r.email.toLowerCase()] = r.vi_validated_at; });
+                    if (!err && rows) rows.forEach(r => {
+                        verified[r.email.toLowerCase()] = r.vi_validated_at;
+                        if (r.celular) celular[r.email.toLowerCase()] = true;
+                    });
                     resolve();
                 }
             );
@@ -3020,7 +3057,7 @@ app.post('/api/recipients/check-vi-status', requireAuth, async (req, res) => {
         });
 
         console.log(`🔍 [CHECK-VI] verified:`, Object.keys(verified));
-        res.json({ verified });
+        res.json({ verified, celular });
     } catch (e) {
         res.json({ verified: {} });
     }
@@ -7782,6 +7819,129 @@ app.get('/api/firmas/mi-balance', requireAuth, async (req, res) => {
     } catch (err) {
         console.error('❌ [FIRMAS] Error mi-balance:', err);
         res.status(500).json({ success: false, message: 'Error al obtener balance' });
+    }
+});
+
+// ==================== OTP WHATSAPP PARA PAGARES ====================
+
+// POST /api/public/otp/enviar — genera y envía OTP por WhatsApp al número registrado en VI
+app.post('/api/public/otp/enviar', async (req, res) => {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ success: false, message: 'Token requerido' });
+
+    try {
+        // 1. Obtener datos del recipient
+        const [rows] = await db.promise().query(
+            `SELECT dr.email, dr.viewer_group_id, dr.is_final_signer, d.document_type
+             FROM document_recipients dr
+             INNER JOIN documents d ON dr.document_id = d.document_id
+             WHERE dr.token = ? AND dr.status IN ('sent','pending','opened')`,
+            [token]
+        );
+        if (!rows.length) return res.status(404).json({ success: false, message: 'Token no válido' });
+        const recipient = rows[0];
+
+        // 2. Solo para pagarés
+        const isPagare = d => d === 'pagare';
+        if (!isPagare(recipient.document_type) && !recipient.viewer_group_id && !recipient.is_final_signer) {
+            return res.json({ success: true, skip: true }); // no es pagaré, no requiere OTP
+        }
+
+        // 3. Obtener celular registrado en VI
+        const [viRows] = await db.promise().query(
+            `SELECT celular FROM vi_verified_emails WHERE email = ? AND celular IS NOT NULL`,
+            [recipient.email.toLowerCase()]
+        );
+        if (!viRows.length || !viRows[0].celular) {
+            return res.status(400).json({ success: false, needsVI: true, message: 'Debes completar la validación de identidad para obtener tu código' });
+        }
+        const celular = viRows[0].celular;
+
+        // 4. Generar código de 6 dígitos y guardarlo en Redis con TTL 5 min
+        const redis = require('redis');
+        const redisClient = redis.createClient({ url: 'redis://firmalegal-redis:6379' });
+        await redisClient.connect();
+        const code = Math.floor(100000 + Math.random() * 900000).toString();
+        const redisKey = `otp:${token}`;
+        await redisClient.setEx(redisKey, 300, code); // 5 minutos
+        await redisClient.quit();
+
+        // 5. Enviar por WhatsApp via Twilio usando template Authentication
+        const accountSid = process.env.TWILIO_ACCOUNT_SID;
+        const authToken = process.env.TWILIO_AUTH_TOKEN;
+        const fromNumber = process.env.TWILIO_WHATSAPP_NUMBER;
+        const otpTemplateSid = 'HX77761f3c0b839ae7bb96e8b317f145c0';
+
+        const params = new URLSearchParams({
+            To: `whatsapp:${celular}`,
+            From: `whatsapp:${fromNumber}`,
+            ContentSid: otpTemplateSid,
+            ContentVariables: JSON.stringify({ '1': code })
+        });
+        const twilioBody = params.toString();
+
+        await new Promise((resolve, reject) => {
+            const auth = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
+            const https = require('https');
+            const reqTwilio = https.request({
+                hostname: 'api.twilio.com',
+                path: `/2010-04-01/Accounts/${accountSid}/Messages.json`,
+                method: 'POST',
+                headers: {
+                    'Authorization': `Basic ${auth}`,
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Content-Length': Buffer.byteLength(twilioBody)
+                }
+            }, (resp) => {
+                const chunks = [];
+                resp.on('data', d => chunks.push(d));
+                resp.on('end', () => {
+                    const data = JSON.parse(Buffer.concat(chunks).toString());
+                    if (data.sid) resolve(data);
+                    else reject(new Error(data.message || 'Twilio error'));
+                });
+            });
+            reqTwilio.on('error', reject);
+            reqTwilio.write(twilioBody);
+            reqTwilio.end();
+        });
+
+        // Enmascarar número para la respuesta
+        const maskedPhone = celular.replace(/(\+\d{2,3})\d+(\d{2})$/, '$1****$2');
+        console.log(`[OTP] Codigo enviado a ${maskedPhone} para token ${token.substring(0,8)}...`);
+        res.json({ success: true, phone: maskedPhone });
+
+    } catch (err) {
+        console.error('[OTP] Error enviando OTP:', err.message);
+        res.status(500).json({ success: false, message: 'Error al enviar el codigo' });
+    }
+});
+
+// POST /api/public/otp/verificar — valida el código ingresado
+app.post('/api/public/otp/verificar', async (req, res) => {
+    const { token, code } = req.body;
+    if (!token || !code) return res.status(400).json({ success: false, message: 'Token y codigo requeridos' });
+
+    try {
+        const redis = require('redis');
+        const redisClient = redis.createClient({ url: 'redis://firmalegal-redis:6379' });
+        await redisClient.connect();
+        const stored = await redisClient.get(`otp:${token}`);
+        await redisClient.quit();
+
+        if (!stored) return res.status(400).json({ success: false, message: 'El codigo ha expirado. Solicita uno nuevo.' });
+        if (stored !== code.trim()) return res.status(400).json({ success: false, message: 'Codigo incorrecto' });
+
+        // Código correcto — eliminar de Redis para que no se reutilice
+        const redisClient2 = redis.createClient({ url: 'redis://firmalegal-redis:6379' });
+        await redisClient2.connect();
+        await redisClient2.del(`otp:${token}`);
+        await redisClient2.quit();
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error('[OTP] Error verificando OTP:', err.message);
+        res.status(500).json({ success: false, message: 'Error al verificar el codigo' });
     }
 });
 

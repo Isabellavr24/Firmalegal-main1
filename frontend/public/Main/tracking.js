@@ -774,7 +774,9 @@ function createRecipientCard(recipient) {
     : '';
 
   // Correo enviado pero identidad no verificada (casos anteriores al flujo VI)
-  const sentWithoutVi = recipient.status === 'sent' && !recipient.vi_validated_at;
+  // Para pagarés (viewer_group_id), sent sin VI es el estado normal — no mostrar como problema
+  const isPagareViewer = !!recipient.viewer_group_id;
+  const sentWithoutVi = recipient.status === 'sent' && !recipient.vi_validated_at && !isPagareViewer;
 
   // Badge de estado
   const badgeHtml = showViBlock
@@ -2090,7 +2092,7 @@ recipientsAddBtn?.addEventListener('click', async (event) => {
 
   // ✅ MODO PAGARÉ: Enviar pagarés masivos
   const currentActiveTab = document.querySelector('.recipients-tab.active')?.dataset.tab;
-  if (currentDocumentType === 'pagare' && currentActiveTab === 'pagare') {
+  if (currentDocumentType === 'pagare') {
     console.log('📋 Modo pagaré detectado - Enviando pagarés masivos');
     await sendPagaresBulk();
     return; // Salir para no ejecutar la lógica normal
@@ -3251,13 +3253,51 @@ async function _processPagareCsvData(results, fileName) {
 
   // Procesar cada fila del CSV
   const pagaresData = [];
+  const allFields = results.meta.fields || [];
+
+  // Detectar columnas de nombre: cualquier columna que contenga "nombre", "apellido", "name"
+  // en cualquier variante, excluyendo columnas de email
+  // Se ordenan por posición en el CSV y se asignan por índice al firmante N
+  const isNameCol = (f) => {
+    const fl = f.toLowerCase().trim();
+    if (f.startsWith('email firma')) return false;
+    return fl.includes('nombre') || fl.includes('apellido') || fl.includes('name');
+  };
+  const nameColumns = allFields.filter(isNameCol);
+
+  // Agrupar columnas de nombre por firmante: las que tengan el mismo "grupo base" se combinan
+  // Ej: "nombre" + "apellido" para firmante 1, "nombre _1" + "apellido _1" para firmante 2
+  // Estrategia: detectar sufijo numérico (_1, _2, :_1, etc.) o sin sufijo = firmante 1
+  const getSuffix = (col) => {
+    const m = col.match(/_(\d+)\s*$|:?\s*_(\d+)\s*$/);
+    return m ? parseInt(m[1] || m[2]) : 0; // 0 = sin sufijo = primer firmante
+  };
+  // Agrupar por sufijo
+  const nameColsBySuffix = {};
+  nameColumns.forEach(col => {
+    const s = getSuffix(col);
+    if (!nameColsBySuffix[s]) nameColsBySuffix[s] = [];
+    nameColsBySuffix[s].push(col);
+  });
+  // Ordenar sufijos: 0 = firmante 1, 1 = firmante 2, etc.
+  const sortedSuffixes = Object.keys(nameColsBySuffix).map(Number).sort((a, b) => a - b);
+
   rows.forEach((row, index) => {
     const firmantes = [];
     let firmIndex = 1;
     while (row[`email firma ${firmIndex}`]) {
       const email = row[`email firma ${firmIndex}`].trim();
       if (email) {
-        firmantes.push({ email, partId: firmIndex, roleName: `Firmante N${firmIndex}` });
+        // El firmante N (índice 1-based) corresponde al sufijo en posición N-1 de sortedSuffixes
+        let nombre = '';
+        const suffixKey = sortedSuffixes[firmIndex - 1];
+        if (suffixKey !== undefined) {
+          const cols = nameColsBySuffix[suffixKey] || [];
+          // Combinar todas las columnas del grupo (ej: nombre + apellido)
+          const parts = cols.map(c => (row[c] || '').trim()).filter(Boolean);
+          nombre = parts.join(' ');
+        }
+        firmantes.push({ email, partId: firmIndex, roleName: `Firmante N${firmIndex}`, name: nombre || email });
       }
       firmIndex++;
     }
@@ -3286,6 +3326,7 @@ async function _processPagareCsvData(results, fileName) {
   // Consultar estado VI
   let ownerVinculadoVI = false;
   let viVerified = {};
+  let viCelular = {};
   try {
     const viResp = await fetch('/api/integration/vi-link-status');
     if (viResp.ok) ownerVinculadoVI = (await viResp.json()).vinculado === true;
@@ -3300,7 +3341,7 @@ async function _processPagareCsvData(results, fileName) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emails: allEmails })
       });
-      if (checkResp.ok) viVerified = (await checkResp.json()).verified || {};
+      if (checkResp.ok) { const d = await checkResp.json(); viVerified = d.verified || {}; viCelular = d.celular || {}; }
     } catch (_) {}
   }
 
@@ -3326,6 +3367,12 @@ async function _processPagareCsvData(results, fileName) {
     const noVerCount = allEmailsList.length - verCount;
     if (verCount > 0) validaciones.push(`✓ ${verCount} email(s) con identidad ya verificada — firmarán sin traza VI`);
     if (noVerCount > 0) validaciones.push(`⚠ ${noVerCount} email(s) sin verificar — generarán trazabilidad VI al firmar`);
+
+    // Resumen OTP WhatsApp
+    const celularCount = allEmailsList.filter(e => !!viCelular[e.toLowerCase()]).length;
+    const sinCelularCount = allEmailsList.length - celularCount;
+    if (celularCount > 0) validaciones.push(`✓ ${celularCount} firmante(s) con número registrado — recibirán OTP por WhatsApp al firmar`);
+    if (sinCelularCount > 0) validaciones.push(`⚠ ${sinCelularCount} firmante(s) sin número registrado — deberán validar identidad para recibir OTP`);
 
     // Solo los NO verificados generan traza VI al firmar → esa traza se incorpora al PDF sellado
     // Los ya verificados omiten el proceso VI y no generan traza nueva
@@ -3465,19 +3512,29 @@ document.addEventListener('DOMContentLoaded', () => {
           if (!resp.ok) { finalSignerViBadge.innerHTML = ''; return; }
           const data = await resp.json();
           const isVerified = !!(data.verified && data.verified[email]);
+          const hasCelular = !!(data.celular && data.celular[email]);
+          let badges = '';
           if (isVerified) {
-            finalSignerViBadge.innerHTML = `
-              <span style="display:inline-flex;align-items:center;gap:4px;background:#dbeafe;color:#1d4ed8;border:1px solid #93c5fd;border-radius:10px;padding:3px 10px;font-size:11px;font-weight:700;">
+            badges += `<span style="display:inline-flex;align-items:center;gap:4px;background:#dbeafe;color:#1d4ed8;border:1px solid #93c5fd;border-radius:10px;padding:3px 10px;font-size:11px;font-weight:700;">
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
                 IDENTIDAD YA VERIFICADA
               </span>`;
           } else {
-            finalSignerViBadge.innerHTML = `
-              <span style="display:inline-flex;align-items:center;gap:4px;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:10px;padding:3px 10px;font-size:11px;font-weight:700;">
+            badges += `<span style="display:inline-flex;align-items:center;gap:4px;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:10px;padding:3px 10px;font-size:11px;font-weight:700;">
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                 NO VERIFICADO — Generará trazabilidad VI al sellar
               </span>`;
           }
+          badges += hasCelular
+            ? ` <span style="display:inline-flex;align-items:center;gap:4px;background:#d1fae5;color:#065f46;border:1px solid #6ee7b7;border-radius:10px;padding:3px 10px;font-size:11px;font-weight:700;">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.01 1.18 2 2 0 012 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 14.92z"/></svg>
+                OTP REGISTRADO
+              </span>`
+            : ` <span style="display:inline-flex;align-items:center;gap:4px;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:10px;padding:3px 10px;font-size:11px;font-weight:700;">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.01 1.18 2 2 0 012 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 14.92z"/></svg>
+                SIN NUMERO OTP
+              </span>`;
+          finalSignerViBadge.innerHTML = badges;
         } catch (_) { finalSignerViBadge.innerHTML = ''; }
       }, 600);
     });
