@@ -401,12 +401,42 @@ router.get('/documents/:id/events', requireAuth, async (req, res) => {
         const derivedEvents = [];
 
         recipients.forEach(recipient => {
-            // Verificar si ya existe un evento de firma para este destinatario
+            // Email enviado
+            const hasSentEvent = events.some(
+                e => e.event_type === 'email_sent' && e.recipient_email === recipient.email
+            );
+            if (recipient.sent_at && !hasSentEvent) {
+                derivedEvents.push({
+                    event_type: 'email_sent',
+                    created_at: recipient.sent_at,
+                    recipient_email: recipient.email,
+                    recipient_name: recipient.name,
+                    role_name: recipient.role_name,
+                    derived: true
+                });
+            }
+
+            // Documento abierto
+            const hasOpenedEvent = events.some(
+                e => e.event_type === 'document_opened' && e.recipient_email === recipient.email
+            );
+            if (recipient.opened_at && !hasOpenedEvent) {
+                derivedEvents.push({
+                    event_type: 'document_opened',
+                    created_at: recipient.opened_at,
+                    recipient_email: recipient.email,
+                    recipient_name: recipient.name,
+                    role_name: recipient.role_name,
+                    ip_address: recipient.ip_address,
+                    user_agent: recipient.user_agent,
+                    derived: true
+                });
+            }
+
+            // Documento firmado
             const hasSignedEvent = events.some(
                 e => e.event_type === 'document_signed' && e.recipient_email === recipient.email
             );
-
-            // Si el destinatario completó pero no hay evento de firma, agregarlo
             if (recipient.completed_at && !hasSignedEvent) {
                 derivedEvents.push({
                     event_type: 'document_signed',
@@ -418,11 +448,9 @@ router.get('/documents/:id/events', requireAuth, async (req, res) => {
                     user_agent: recipient.user_agent,
                     derived: true
                 });
-
-                // Agregar evento de QR generado
                 derivedEvents.push({
                     event_type: 'qr_code_generated',
-                    created_at: new Date(new Date(recipient.completed_at).getTime() + 1000), // 1 segundo después
+                    created_at: new Date(new Date(recipient.completed_at).getTime() + 1000),
                     recipient_email: recipient.email,
                     recipient_name: recipient.name,
                     role_name: recipient.role_name,
@@ -716,7 +744,9 @@ router.get('/documents/:id/audit-pdf', requireAuth, async (req, res) => {
             'reminder_sent': 'Recordatorio enviado',
             'document_completed': 'Documento completado',
             'document_voided': 'Documento anulado',
-            'qr_code_generated': 'Código QR generado'
+            'qr_code_generated': 'Codigo QR generado',
+            'otp_sent': 'OTP enviado por WhatsApp',
+            'otp_verified': 'OTP verificado correctamente'
         };
 
         allEvents.forEach((event, index) => {
@@ -736,6 +766,13 @@ router.get('/documents/:id/audit-pdf', requireAuth, async (req, res) => {
 
             if (event.ip_address) {
                 doc.text(`   IP: ${event.ip_address}`);
+            }
+
+            if ((event.event_type === 'otp_sent' || event.event_type === 'otp_verified') && event.event_data) {
+                try {
+                    const otpData = typeof event.event_data === 'string' ? JSON.parse(event.event_data) : event.event_data;
+                    if (otpData.phone) doc.text(`   Numero WhatsApp: ${otpData.phone}`);
+                } catch(_) {}
             }
 
             doc.moveDown(0.5);

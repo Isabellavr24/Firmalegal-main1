@@ -2042,7 +2042,8 @@ router.get('/:id/recipients', requireAuth, async (req, res) => {
                         dr.sent_at, dr.opened_at, dr.completed_at, dr.rejected_at,
                         COALESCE(dr.vi_validated_at, vve.vi_validated_at) AS vi_validated_at,
                         dr.vi_traza_path,
-                        dr.is_final_signer, dr.viewer_group_id
+                        dr.is_final_signer, dr.viewer_group_id,
+                        vve.celular AS celular_otp
                  FROM document_recipients dr
                  LEFT JOIN vi_verified_emails vve ON CONVERT(vve.email USING utf8mb4) = CONVERT(dr.email USING utf8mb4)
                  WHERE dr.document_id = ?

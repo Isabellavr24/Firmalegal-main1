@@ -7909,6 +7909,26 @@ app.post('/api/public/otp/enviar', async (req, res) => {
         // Enmascarar número para la respuesta
         const maskedPhone = celular.replace(/(\+\d{2,3})\d+(\d{2})$/, '$1****$2');
         console.log(`[OTP] Codigo enviado a ${maskedPhone} para token ${token.substring(0,8)}...`);
+
+        // Registrar evento OTP en trazabilidad
+        try {
+            const [recRows] = await db.promise().query(
+                'SELECT recipient_id, document_id FROM document_recipients WHERE token = ?', [token]
+            );
+            if (recRows.length) {
+                await db.promise().query(
+                    `INSERT INTO signature_events (document_id, recipient_id, event_type, event_data, ip_address, user_agent)
+                     VALUES (?, ?, 'otp_sent', ?, ?, ?)`,
+                    [recRows[0].document_id, recRows[0].recipient_id,
+                     JSON.stringify({ phone: maskedPhone }),
+                     req.ip || req.connection.remoteAddress,
+                     req.get('user-agent') || null]
+                );
+            }
+        } catch (auditErr) {
+            console.error('[OTP] Error guardando evento trazabilidad:', auditErr.message);
+        }
+
         res.json({ success: true, phone: maskedPhone });
 
     } catch (err) {
@@ -7938,10 +7958,69 @@ app.post('/api/public/otp/verificar', async (req, res) => {
         await redisClient2.del(`otp:${token}`);
         await redisClient2.quit();
 
+        // Registrar evento OTP verificado en trazabilidad
+        try {
+            const [recRows2] = await db.promise().query(
+                'SELECT dr.recipient_id, dr.document_id, vve.celular FROM document_recipients dr LEFT JOIN vi_verified_emails vve ON LOWER(vve.email) = LOWER(dr.email) WHERE dr.token = ?', [token]
+            );
+            if (recRows2.length) {
+                const maskedPhone2 = recRows2[0].celular
+                    ? recRows2[0].celular.replace(/(\+\d{2,3})\d+(\d{2})$/, '$1****$2')
+                    : null;
+                await db.promise().query(
+                    `INSERT INTO signature_events (document_id, recipient_id, event_type, event_data, ip_address, user_agent)
+                     VALUES (?, ?, 'otp_verified', ?, ?, ?)`,
+                    [recRows2[0].document_id, recRows2[0].recipient_id,
+                     JSON.stringify({ phone: maskedPhone2 }),
+                     req.ip || req.connection.remoteAddress,
+                     req.get('user-agent') || null]
+                );
+            }
+        } catch (auditErr2) {
+            console.error('[OTP] Error guardando evento verificacion:', auditErr2.message);
+        }
+
         res.json({ success: true });
     } catch (err) {
         console.error('[OTP] Error verificando OTP:', err.message);
         res.status(500).json({ success: false, message: 'Error al verificar el codigo' });
+    }
+});
+
+// POST /api/recipients/set-otp-celular — asigna número de celular OTP a un email verificado
+// Usado cuando el email ya tiene VI pero no tiene celular registrado
+app.post('/api/recipients/set-otp-celular', requireAuth, async (req, res) => {
+    const { email, celular } = req.body;
+    if (!email || !celular) {
+        return res.status(400).json({ success: false, message: 'Email y celular son requeridos' });
+    }
+    // Validar formato básico del celular (solo dígitos, +, espacios)
+    const celularClean = celular.replace(/\s/g, '');
+    if (!/^\+?[\d]{7,15}$/.test(celularClean)) {
+        return res.status(400).json({ success: false, message: 'Número de celular inválido' });
+    }
+    try {
+        const emailLower = email.toLowerCase();
+        // Verificar que el email tenga VI verificada
+        const rows = await new Promise((resolve, reject) => {
+            db.query('SELECT email FROM vi_verified_emails WHERE email = ?', [emailLower], (err, r) => {
+                if (err) reject(err); else resolve(r);
+            });
+        });
+        if (!rows || rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'El email no tiene verificación de identidad registrada' });
+        }
+        // Actualizar el celular
+        await new Promise((resolve, reject) => {
+            db.query('UPDATE vi_verified_emails SET celular = ? WHERE email = ?', [celularClean, emailLower], (err) => {
+                if (err) reject(err); else resolve();
+            });
+        });
+        console.log(`✅ [SET-OTP-CELULAR] Celular registrado para ${emailLower}: ${celularClean}`);
+        return res.json({ success: true, message: 'Número registrado correctamente' });
+    } catch (err) {
+        console.error('❌ [SET-OTP-CELULAR] Error:', err);
+        return res.status(500).json({ success: false, message: 'Error al registrar el número' });
     }
 });
 

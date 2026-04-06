@@ -777,20 +777,27 @@ function createRecipientCard(recipient) {
   // Para pagarés (viewer_group_id), sent sin VI es el estado normal — no mostrar como problema
   const isPagareViewer = !!recipient.viewer_group_id;
   const sentWithoutVi = recipient.status === 'sent' && !recipient.vi_validated_at && !isPagareViewer;
+  // Para pagarés: firmante tiene VI verificada pero no tiene celular OTP registrado
+  const pagareViSinOtp = isPagareViewer && recipient.vi_validated_at && !recipient.celular_otp
+    && (recipient.status === 'sent' || recipient.status === 'completed');
 
   // Badge de estado
   const badgeHtml = showViBlock
     ? `<div class="status-badge" style="background:#fdecea;color:#c0392b;border:1px solid #f5c6cb;">NO VERIFICADO</div>`
-    : sentWithoutVi
-      ? `<div class="status-badge" style="background:#fff3cd;color:#856404;border:1px solid #ffc107;">ENVIADO</div>`
-      : `<div class="status-badge ${statusClass}">${statusText}</div>`;
+    : pagareViSinOtp
+      ? `<div class="status-badge" style="background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;">SIN OTP</div>`
+      : sentWithoutVi
+        ? `<div class="status-badge" style="background:#fff3cd;color:#856404;border:1px solid #ffc107;">ENVIADO</div>`
+        : `<div class="status-badge ${statusClass}">${statusText}</div>`;
 
   // Texto informativo bajo el email
   const viInfoText = showViBlock
     ? `<p style="font-size:11px;color:#c0392b;margin:3px 0 0;font-weight:600;">Identidad no verificada — correo en espera</p>`
-    : sentWithoutVi
-      ? `<p style="font-size:11px;color:#856404;margin:3px 0 0;font-weight:600;">Correo enviado — identidad no verificada</p>`
-      : viValidatedBadge;
+    : pagareViSinOtp
+      ? `<p style="font-size:11px;color:#c2410c;margin:3px 0 0;font-weight:600;">OTP no configurado — sin número de WhatsApp registrado</p>`
+      : sentWithoutVi
+        ? `<p style="font-size:11px;color:#856404;margin:3px 0 0;font-weight:600;">Correo enviado — identidad no verificada</p>`
+        : viValidatedBadge;
 
   // Botones a la derecha: VI cuando no verificado, normales cuando sí
   const actionsHtml = showViBlock
@@ -802,6 +809,13 @@ function createRecipientCard(recipient) {
            omitir validación de identidad
          </button>
        </div>`
+    : pagareViSinOtp
+      ? `<div class="recipient-actions" style="flex-direction:column;align-items:center;gap:8px;min-width:200px;">
+           <button class="otp-registrar-btn recipient-btn" data-email="${recipient.email}"
+             style="padding:11px 18px;background:#c2410c;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;width:100%;text-align:center;">
+             REGISTRAR NUMERO OTP
+           </button>
+         </div>`
     : `<div class="recipient-actions">
          <button class="recipient-btn copy" data-action="copy" data-id="${recipient.id}" data-token="${recipient.token || ''}" title="Copiar enlace de firma">
            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -855,6 +869,12 @@ function createRecipientCard(recipient) {
   const skipBtn = card.querySelector('.vi-skip-btn');
   if (startBtn) startBtn.addEventListener('click', () => handleViStart(recipient));
   if (skipBtn) skipBtn.addEventListener('click', () => handleViSkip(recipient, card));
+
+  // Botón registrar número OTP (pagaré sin celular)
+  const otpRegistrarBtn = card.querySelector('.otp-registrar-btn');
+  if (otpRegistrarBtn) {
+    otpRegistrarBtn.addEventListener('click', () => abrirOtpCelularModalCard(recipient.email));
+  }
 
   // Dropdown de descarga (Con trazabilidad / Sin trazabilidad)
   const mainDownloadBtn = card.querySelector('.download-main-btn');
@@ -2008,6 +2028,13 @@ async function sendPagaresBulk() {
     if (!window.pagareCsvData || window.pagareCsvData.length === 0) {
       ToastManager.error('Error', 'Debes cargar un archivo CSV primero');
       restoreBtn();
+      return;
+    }
+
+    // Bloquear si hay firmantes con VI pero sin celular OTP
+    if (window._pagareCsvSinCelular && window._pagareCsvSinCelular.length > 0) {
+      restoreBtn();
+      abrirOtpCelularModal(window._pagareCsvSinCelular[0]);
       return;
     }
 
@@ -3370,9 +3397,17 @@ async function _processPagareCsvData(results, fileName) {
 
     // Resumen OTP WhatsApp
     const celularCount = allEmailsList.filter(e => !!viCelular[e.toLowerCase()]).length;
-    const sinCelularCount = allEmailsList.length - celularCount;
+    const emailsSinCelular = allEmailsList.filter(e => !!viVerified[e.toLowerCase()] && !viCelular[e.toLowerCase()]);
+    const emailsSinCelularSinVi = allEmailsList.filter(e => !viVerified[e.toLowerCase()] && !viCelular[e.toLowerCase()]);
     if (celularCount > 0) validaciones.push(`✓ ${celularCount} firmante(s) con número registrado — recibirán OTP por WhatsApp al firmar`);
-    if (sinCelularCount > 0) validaciones.push(`⚠ ${sinCelularCount} firmante(s) sin número registrado — deberán validar identidad para recibir OTP`);
+    if (emailsSinCelular.length > 0) {
+      validaciones.push(`✗ ${emailsSinCelular.length} firmante(s) con identidad verificada pero SIN número OTP — no se enviará el correo hasta registrar el número`);
+      // Guardar en window para que sendPagaresBulk pueda acceder
+      window._pagareCsvSinCelular = emailsSinCelular;
+    } else {
+      window._pagareCsvSinCelular = [];
+    }
+    if (emailsSinCelularSinVi.length > 0) validaciones.push(`⚠ ${emailsSinCelularSinVi.length} firmante(s) sin verificar — deberán validar identidad para recibir OTP`);
 
     // Solo los NO verificados generan traza VI al firmar → esa traza se incorpora al PDF sellado
     // Los ya verificados omiten el proceso VI y no generan traza nueva
@@ -3390,7 +3425,7 @@ async function _processPagareCsvData(results, fileName) {
   }
 
   validationEl.innerHTML = validaciones.map(v =>
-    `<div style="margin-bottom:4px;color:${v.startsWith('⚠') ? '#b45309' : '#16a34a'}">${v}</div>`
+    `<div style="margin-bottom:4px;color:${v.startsWith('✗') ? '#dc2626' : v.startsWith('⚠') ? '#b45309' : '#16a34a'};${v.startsWith('✗') ? 'font-weight:700;' : ''}">${v}</div>`
   ).join('');
 
   // Tabla VI por pagaré (solo si el owner está vinculado a VI)
@@ -3622,10 +3657,12 @@ function renderTimelineModal(events, container) {
     'reminder_sent': 'Recordatorio enviado',
     'document_completed': 'Documento completado',
     'document_voided': 'Documento anulado',
-    'qr_code_generated': 'Código QR generado'
+    'qr_code_generated': 'Codigo QR generado',
+    'otp_sent': 'OTP enviado por WhatsApp',
+    'otp_verified': 'OTP verificado correctamente'
   };
 
-  // Mapeo de tipos de eventos a iconos
+  // Mapeo de tipos de eventos a iconos SVG
   const _i = (d) => `<svg style="width:18px;height:18px;vertical-align:middle;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
   const eventTypeIcons = {
     'document_created': _i('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>'),
@@ -3638,7 +3675,9 @@ function renderTimelineModal(events, container) {
     'reminder_sent': _i('<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>'),
     'document_completed': _i('<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>'),
     'document_voided': _i('<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>'),
-    'qr_code_generated': _i('<rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>')
+    'qr_code_generated': _i('<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>'),
+    'otp_sent': _i('<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13.1 19.79 19.79 0 0 1 1.61 4.53 2 2 0 0 1 3.6 2.34h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l.77-.77a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 17z"/>'),
+    'otp_verified': _i('<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13.1 19.79 19.79 0 0 1 1.61 4.53 2 2 0 0 1 3.6 2.34h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l.77-.77a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 17z"/><polyline points="16 2 12 6 10 4"/>')
   };
 
   // Mapeo de tipos de eventos a clases CSS
@@ -3653,7 +3692,9 @@ function renderTimelineModal(events, container) {
     'reminder_sent': 'info',
     'document_completed': 'success',
     'document_voided': 'error',
-    'qr_code_generated': 'info'
+    'qr_code_generated': 'info',
+    'otp_sent': 'warning',
+    'otp_verified': 'success'
   };
 
   // Ordenar eventos por fecha (más recientes primero)
@@ -3699,6 +3740,15 @@ function renderTimelineModal(events, container) {
     if (event.user_agent) {
       const browser = getBrowserFromUserAgent(event.user_agent);
       detailsHTML += `<div><strong>Navegador:</strong> ${browser}</div>`;
+    }
+
+    // Datos extra para OTP (guardados en event_data JSON)
+    if ((event.event_type === 'otp_sent' || event.event_type === 'otp_verified') && event.event_data) {
+      try {
+        const d = typeof event.event_data === 'string' ? JSON.parse(event.event_data) : event.event_data;
+        if (d.phone) detailsHTML += `<div><strong>Numero WhatsApp:</strong> ${d.phone}</div>`;
+        if (d.attempts) detailsHTML += `<div><strong>Intentos:</strong> ${d.attempts}</div>`;
+      } catch(_) {}
     }
 
     detailsHTML += `</div>`;
@@ -3913,4 +3963,132 @@ function showViSolicitudModal() {
     </div>`;
   document.body.appendChild(m);
   m.addEventListener('click', (e) => { if (e.target === m) m.style.display = 'none'; });
+}
+
+// ==================== MODAL REGISTRAR NUMERO OTP ====================
+
+let _otpCelularCurrentEmail = null;
+let _otpCelularPendingList = [];
+
+function abrirOtpCelularModal(email) {
+  _otpCelularCurrentEmail = email;
+  // Calcular pendientes restantes (excluir el que ya abrimos)
+  _otpCelularPendingList = (window._pagareCsvSinCelular || []).filter(e => e !== email);
+  const modal = document.getElementById('otpCelularModal');
+  const emailEl = document.getElementById('otpCelularModalEmail');
+  const input = document.getElementById('otpCelularInput');
+  const errorEl = document.getElementById('otpCelularError');
+  if (!modal) return;
+  if (emailEl) emailEl.textContent = email;
+  if (input) input.value = '';
+  if (errorEl) { errorEl.style.display = 'none'; errorEl.textContent = ''; }
+  modal.style.display = 'flex';
+}
+
+function cerrarOtpCelularModal() {
+  const modal = document.getElementById('otpCelularModal');
+  if (modal) modal.style.display = 'none';
+  _otpCelularCurrentEmail = null;
+}
+
+async function guardarOtpCelular() {
+  const email = _otpCelularCurrentEmail;
+  const input = document.getElementById('otpCelularInput');
+  const errorEl = document.getElementById('otpCelularError');
+  const btn = document.getElementById('otpCelularGuardarBtn');
+  if (!email || !input) return;
+
+  const celular = input.value.trim();
+  if (!celular) {
+    errorEl.textContent = 'Ingresa un número de celular';
+    errorEl.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Guardando...';
+  errorEl.style.display = 'none';
+
+  try {
+    const resp = await fetch('/api/recipients/set-otp-celular', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, celular })
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.success) {
+      errorEl.textContent = data.message || 'Error al guardar el número';
+      errorEl.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Guardar y enviar pagaré';
+      return;
+    }
+
+    // Quitar este email de la lista de pendientes
+    window._pagareCsvSinCelular = (window._pagareCsvSinCelular || []).filter(e => e !== email);
+    cerrarOtpCelularModal();
+
+    // Si quedan más pendientes, abrir el siguiente
+    if (_otpCelularPendingList.length > 0) {
+      abrirOtpCelularModal(_otpCelularPendingList[0]);
+      return;
+    }
+
+    // Todos resueltos — continuar con el envio
+    ToastManager.success('Número registrado', `OTP configurado para ${email}`);
+    await sendPagaresBulk();
+
+  } catch (err) {
+    errorEl.textContent = 'Error de conexión';
+    errorEl.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'Guardar y enviar pagaré';
+  }
+}
+
+// Función para abrir modal desde el botón en recipient card (ya enviado, sin celular)
+function abrirOtpCelularModalCard(email) {
+  _otpCelularPendingList = [];
+  const modal = document.getElementById('otpCelularModal');
+  const emailEl = document.getElementById('otpCelularModalEmail');
+  const input = document.getElementById('otpCelularInput');
+  const errorEl = document.getElementById('otpCelularError');
+  const btn = document.getElementById('otpCelularGuardarBtn');
+  if (!modal) return;
+  _otpCelularCurrentEmail = email;
+  if (emailEl) emailEl.textContent = email;
+  if (input) input.value = '';
+  if (errorEl) { errorEl.style.display = 'none'; }
+  if (btn) btn.textContent = 'Guardar número';
+  // Override guardar: solo guarda, no reenvía
+  btn.onclick = async function() {
+    const celular = input.value.trim();
+    if (!celular) { errorEl.textContent = 'Ingresa un número'; errorEl.style.display = 'block'; return; }
+    btn.disabled = true; btn.textContent = 'Guardando...';
+    try {
+      const resp = await fetch('/api/recipients/set-otp-celular', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, celular })
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.success) {
+        errorEl.textContent = data.message || 'Error';
+        errorEl.style.display = 'block';
+        btn.disabled = false; btn.textContent = 'Guardar número';
+        return;
+      }
+      cerrarOtpCelularModal();
+      ToastManager.success('Número registrado', 'El firmante podrá recibir el OTP al firmar');
+      // Recargar la vista para reflejar el cambio
+      setTimeout(() => window.location.reload(), 1000);
+    } catch(e) {
+      errorEl.textContent = 'Error de conexión';
+      errorEl.style.display = 'block';
+      btn.disabled = false; btn.textContent = 'Guardar número';
+    }
+  };
+  modal.style.display = 'flex';
 }
