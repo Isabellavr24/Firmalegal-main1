@@ -1128,6 +1128,21 @@
     </div>
   </div>
 
+  <!-- Modal confirmacion equipos (reemplaza confirm() nativo) -->
+  <div id="eq-confirm-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:99999;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:16px;padding:32px;max-width:420px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.18);">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px;">
+        <h3 id="eq-confirm-title" style="margin:0;font-size:17px;font-weight:700;color:#2b0e31;"></h3>
+        <button id="eq-confirm-close" style="background:none;border:none;cursor:pointer;color:#9ca3af;font-size:20px;line-height:1;padding:0 0 0 12px;">&times;</button>
+      </div>
+      <p id="eq-confirm-message" style="margin:0 0 24px;font-size:14px;color:#374151;line-height:1.6;"></p>
+      <div style="display:flex;gap:10px;">
+        <button id="eq-confirm-cancel" style="flex:1;padding:11px;background:#f3f4f6;border:none;border-radius:8px;font-size:14px;font-weight:600;color:#374151;cursor:pointer;">Cancelar</button>
+        <button id="eq-confirm-ok" style="flex:2;padding:11px;border:none;border-radius:8px;font-size:14px;font-weight:700;color:#fff;cursor:pointer;">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- JS (misma carpeta que config.html) -->
   <script src="/public/Main/permissions.js"></script>
   <script src="/public/Main/profile.js"></script>

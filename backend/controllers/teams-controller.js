@@ -244,17 +244,28 @@ router.get('/:id', requireAuth, async (req, res) => {
             ORDER BY tm.role = 'owner' DESC, tm.joined_at ASC
         `, [teamId]);
 
-        // Estadísticas del equipo
-        const [docStats] = await dbQuery(db,
-            'SELECT COUNT(*) AS total_docs FROM documents WHERE team_id = ? AND status = "active"',
-            [teamId]
-        );
-        const [folderStats] = await dbQuery(db,
-            'SELECT COUNT(*) AS total_folders FROM folders WHERE team_id = ? AND is_active = TRUE',
-            [teamId]
-        );
+        // Estadísticas del equipo: contar docs/carpetas de los miembros del equipo (excluye al superadmin/owner)
+        const memberIds = members.map(m => m.user_id);
 
-        const myRole = isSuperAdmin ? 'owner' : members.find(m => m.user_id === req.userId)?.role;
+        let totalDocs = 0;
+        let totalFolders = 0;
+
+        if (memberIds.length > 0) {
+            const placeholders = memberIds.map(() => '?').join(',');
+            const [dStats] = await dbQuery(db,
+                `SELECT COUNT(*) AS total_docs FROM documents WHERE owner_id IN (${placeholders}) AND status = "active"`,
+                memberIds
+            );
+            const [fStats] = await dbQuery(db,
+                `SELECT COUNT(*) AS total_folders FROM folders WHERE user_id IN (${placeholders}) AND is_active = TRUE`,
+                memberIds
+            );
+            totalDocs = dStats?.total_docs || 0;
+            totalFolders = fStats?.total_folders || 0;
+        }
+
+        // Si el superadmin no es miembro del equipo, su rol es 'admin' (puede gestionar pero no aparece como dueño)
+        const myRole = members.find(m => m.user_id === req.userId)?.role || (isSuperAdmin ? 'admin' : null);
 
         res.json({
             ok: true,
@@ -265,8 +276,8 @@ router.get('/:id', requireAuth, async (req, res) => {
                 my_role: myRole,
                 stats: {
                     members: members.length,
-                    documents: docStats?.total_docs || 0,
-                    folders: folderStats?.total_folders || 0
+                    documents: totalDocs,
+                    folders: totalFolders
                 }
             }
         });
@@ -307,21 +318,8 @@ router.post('/', requireAuth, async (req, res) => {
 
         const teamId = result.insertId;
 
-        // Agregar al creador como owner del equipo
-        await dbQuery(db,
-            'INSERT INTO team_members (team_id, user_id, role) VALUES (?, ?, ?)',
-            [teamId, req.userId, 'owner']
-        );
-
-        // AUTO-SHARE: asignar team_id a todos los folders y documents del owner
-        await dbQuery(db,
-            'UPDATE folders SET team_id = ? WHERE user_id = ? AND team_id IS NULL AND is_active = TRUE',
-            [teamId, req.userId]
-        );
-        await dbQuery(db,
-            'UPDATE documents SET team_id = ? WHERE owner_id = ? AND team_id IS NULL AND status = "active"',
-            [teamId, req.userId]
-        );
+        // El superadministrador NO se agrega como miembro del equipo ni comparte sus documentos.
+        // El equipo es para los inquilinos — el superadmin solo lo administra externamente.
 
         await logActivity(db, {
             userId: req.userId,
@@ -412,6 +410,9 @@ router.delete('/:id', requireAuth, async (req, res) => {
         await dbQuery(db, 'UPDATE folders SET team_id = NULL WHERE team_id = ?', [teamId]);
         await dbQuery(db, 'UPDATE documents SET team_id = NULL WHERE team_id = ?', [teamId]);
 
+        // Eliminar todos los miembros del equipo para que queden libres
+        await dbQuery(db, 'DELETE FROM team_members WHERE team_id = ?', [teamId]);
+
         // Soft delete
         await dbQuery(db, 'UPDATE teams SET is_active = FALSE WHERE team_id = ?', [teamId]);
 
@@ -469,6 +470,15 @@ router.post('/:id/members', requireAuth, async (req, res) => {
 
         if (!targetUser) {
             return res.status(404).json({ ok: false, error: 'No se encontró el usuario' });
+        }
+
+        // El superadministrador no puede ser agregado como inquilino de un equipo
+        const [targetRole] = await dbQuery(db,
+            'SELECT r.role_name FROM users u LEFT JOIN roles r ON u.role_id = r.role_id WHERE u.user_id = ?',
+            [targetUser.user_id]
+        );
+        if (targetRole && targetRole.role_name === 'Superadministrador') {
+            return res.status(400).json({ ok: false, error: 'El Superadministrador no puede ser agregado como inquilino de un equipo' });
         }
 
         // Verificar que no sea ya miembro de ALGÚN equipo

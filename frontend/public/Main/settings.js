@@ -1102,34 +1102,65 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // -------- Modal de confirmacion elegante (reemplaza confirm() nativo)
+  function eqConfirm({ title, message, confirmText = 'Confirmar', danger = false, onConfirm }) {
+    const modal = document.getElementById('eq-confirm-modal');
+    if (!modal) return;
+    document.getElementById('eq-confirm-title').textContent = title;
+    document.getElementById('eq-confirm-message').textContent = message;
+    const btn = document.getElementById('eq-confirm-ok');
+    btn.textContent = confirmText;
+    btn.style.background = danger ? '#c0392b' : '#2b0e31';
+    modal.style.display = 'flex';
+    const close = () => { modal.style.display = 'none'; };
+    document.getElementById('eq-confirm-cancel').onclick = close;
+    document.getElementById('eq-confirm-close').onclick = close;
+    modal.onclick = (e) => { if (e.target === modal) close(); };
+    btn.onclick = () => { close(); onConfirm(); };
+  }
+
   async function removeMember(teamId, userId, name) {
-    if (!confirm(`¿Quitar a ${name} del equipo? Sus documentos dejarán de compartirse.`)) return;
-    try {
-      const res = await authFetch(`/api/teams/${teamId}/members/${userId}`, { method: 'DELETE' });
-      const json = await res.json();
-      if (json.ok) {
-        showToast(`${name} removido del equipo`);
-        await loadMembers(teamId);
-        await loadTeams();
-      } else { showToast(json.error || 'Error al remover', false); }
-    } catch(e) { showToast('Error de conexión', false); }
+    eqConfirm({
+      title: 'Quitar inquilino',
+      message: `¿Quitar a ${name} del equipo? Sus documentos dejarán de compartirse con el equipo.`,
+      confirmText: 'Quitar',
+      danger: true,
+      onConfirm: async () => {
+        try {
+          const res = await authFetch(`/api/teams/${teamId}/members/${userId}`, { method: 'DELETE' });
+          const json = await res.json();
+          if (json.ok) {
+            showToast(`${name} removido del equipo`);
+            await loadMembers(teamId);
+            await loadTeams();
+          } else { showToast(json.error || 'Error al remover', false); }
+        } catch(e) { showToast('Error de conexión', false); }
+      }
+    });
   }
 
   async function deleteTeam(teamId, name) {
-    if (!confirm(`¿Eliminar el equipo "${name}"? Todos los documentos dejarán de compartirse.`)) return;
-    try {
-      const res = await authFetch(`/api/teams/${teamId}`, { method: 'DELETE' });
-      const json = await res.json();
-      if (json.ok) {
-        showToast('Equipo eliminado');
-        if (selectedTeamId === teamId) {
-          selectedTeamId = null;
-          if (eqRightEmpty) eqRightEmpty.style.display = '';
-          if (eqRightCont)  eqRightCont.style.display = 'none';
-        }
-        await loadTeams();
-      } else { showToast(json.error || 'Error al eliminar', false); }
-    } catch(e) { showToast('Error de conexión', false); }
+    eqConfirm({
+      title: 'Eliminar equipo',
+      message: `¿Eliminar el equipo "${name}"? Todos los documentos dejarán de compartirse y los inquilinos quedarán desasociados.`,
+      confirmText: 'Eliminar equipo',
+      danger: true,
+      onConfirm: async () => {
+        try {
+          const res = await authFetch(`/api/teams/${teamId}`, { method: 'DELETE' });
+          const json = await res.json();
+          if (json.ok) {
+            showToast('Equipo eliminado');
+            if (selectedTeamId === teamId) {
+              selectedTeamId = null;
+              if (eqRightEmpty) eqRightEmpty.style.display = '';
+              if (eqRightCont)  eqRightCont.style.display = 'none';
+            }
+            await loadTeams();
+          } else { showToast(json.error || 'Error al eliminar', false); }
+        } catch(e) { showToast('Error de conexión', false); }
+      }
+    });
   }
 
   // -------- Modal Nuevo Equipo
