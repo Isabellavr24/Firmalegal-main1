@@ -115,76 +115,60 @@ router.get('/', requireAuth, async (req, res) => {
     const db = req.app.locals.db;
 
     try {
-        // Obtener team_id del usuario (si pertenece a un equipo)
-        const teamRows = await new Promise((resolve, reject) => {
+        // Obtener todos los compañeros de equipo del usuario (incluye al propio usuario)
+        const teamMemberRows = await new Promise((resolve, reject) => {
             db.query(
-                'SELECT team_id FROM team_members WHERE user_id = ? LIMIT 1',
+                `SELECT tm2.user_id FROM team_members tm1
+                 JOIN team_members tm2 ON tm1.team_id = tm2.team_id
+                 WHERE tm1.user_id = ?`,
                 [req.userId],
                 (err, rows) => err ? reject(err) : resolve(rows)
             );
         });
-        const userTeamId = teamRows.length > 0 ? teamRows[0].team_id : null;
+
+        const selectFields = `
+                    d.document_id,
+                    d.folder_id,
+                    d.title,
+                    d.file_name,
+                    d.file_path,
+                    d.file_type,
+                    d.file_size,
+                    d.owner_id,
+                    d.is_template,
+                    d.status,
+                    d.document_type,
+                    d.google_drive_url,
+                    d.tags,
+                    d.created_at,
+                    d.updated_at,
+                    d.team_id,
+                    u.first_name,
+                    u.last_name,
+                    CONCAT(u.first_name, ' ', u.last_name) as owner_name,
+                    f.folder_name,
+                    f.folder_slug`;
 
         let query;
         let params;
 
-        if (userTeamId) {
-            // Usuario en equipo: ver sus docs + docs de compañeros de equipo con team_id
+        if (teamMemberRows.length > 0) {
+            // Usuario en equipo: ver docs de todos los miembros del equipo
+            const memberIds = [...new Set(teamMemberRows.map(r => r.user_id))];
+            const placeholders = memberIds.map(() => '?').join(',');
             query = `
-                SELECT
-                    d.document_id,
-                    d.folder_id,
-                    d.title,
-                    d.file_name,
-                    d.file_path,
-                    d.file_type,
-                    d.file_size,
-                    d.owner_id,
-                    d.is_template,
-                    d.status,
-                    d.document_type,
-                    d.google_drive_url,
-                    d.tags,
-                    d.created_at,
-                    d.updated_at,
-                    d.team_id,
-                    u.first_name,
-                    u.last_name,
-                    CONCAT(u.first_name, ' ', u.last_name) as owner_name,
-                    f.folder_name,
-                    f.folder_slug
+                SELECT ${selectFields}
                 FROM documents d
                 LEFT JOIN users u ON d.owner_id = u.user_id
                 LEFT JOIN folders f ON d.folder_id = f.folder_id
                 WHERE d.status = ?
-                  AND (d.owner_id = ? OR d.team_id = ?)
+                  AND d.owner_id IN (${placeholders})
             `;
-            params = [status, req.userId, userTeamId];
+            params = [status, ...memberIds];
         } else {
             // Usuario sin equipo: solo sus docs
             query = `
-                SELECT
-                    d.document_id,
-                    d.folder_id,
-                    d.title,
-                    d.file_name,
-                    d.file_path,
-                    d.file_type,
-                    d.file_size,
-                    d.owner_id,
-                    d.is_template,
-                    d.status,
-                    d.document_type,
-                    d.google_drive_url,
-                    d.tags,
-                    d.created_at,
-                    d.updated_at,
-                    d.team_id,
-                    u.first_name,
-                    u.last_name,
-                    CONCAT(u.first_name, ' ', u.last_name) as owner_name,
-                    f.folder_name,
-                    f.folder_slug
+                SELECT ${selectFields}
                 FROM documents d
                 LEFT JOIN users u ON d.owner_id = u.user_id
                 LEFT JOIN folders f ON d.folder_id = f.folder_id

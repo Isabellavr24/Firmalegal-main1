@@ -77,10 +77,14 @@ router.get('/', requireAuth, async (req, res) => {
 
         // Filtrar por usuario o carpetas compartidas
         if (filter === 'shared') {
-            // Carpetas compartidas CON el usuario actual (via shared_access O via teams)
+            // Carpetas compartidas CON el usuario actual (via shared_access O via compañeros de equipo)
             query += ` AND (
                 f.folder_id IN (SELECT folder_id FROM shared_access WHERE shared_with_user_id = ?)
-                OR (f.team_id IS NOT NULL AND f.team_id IN (SELECT team_id FROM team_members WHERE user_id = ?) AND f.user_id != ?)
+                OR f.user_id IN (
+                    SELECT tm2.user_id FROM team_members tm1
+                    JOIN team_members tm2 ON tm2.team_id = tm1.team_id
+                    WHERE tm1.user_id = ? AND tm2.user_id != ?
+                )
             )`;
             params.push(req.userId, req.userId, req.userId);
         } else if (filter === 'mine') {
@@ -88,12 +92,17 @@ router.get('/', requireAuth, async (req, res) => {
             query += ` AND f.user_id = ?`;
             params.push(req.userId);
         } else {
-            // Filtro '*' (Todas): carpetas propias + carpetas del equipo del usuario
+            // Filtro '*' (Todas): carpetas propias + carpetas de compañeros de equipo
+            // Incluye al usuario mismo + todos los que comparten equipo con él
             query += ` AND (
                 f.user_id = ?
-                OR (f.team_id IS NOT NULL AND f.team_id IN (SELECT team_id FROM team_members WHERE user_id = ?))
+                OR f.user_id IN (
+                    SELECT tm2.user_id FROM team_members tm1
+                    JOIN team_members tm2 ON tm2.team_id = tm1.team_id
+                    WHERE tm1.user_id = ? AND tm2.user_id != ?
+                )
             )`;
-            params.push(req.userId, req.userId);
+            params.push(req.userId, req.userId, req.userId);
         }
 
         // Búsqueda por nombre

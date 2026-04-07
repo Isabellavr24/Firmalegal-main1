@@ -132,45 +132,56 @@ router.get('/shared-with-me/vault', requireAuth, async (req, res) => {
             return res.json({ ok: true, success: true, data: { folders: [], documents: [] } });
         }
 
-        const teamIds = myTeams.map(t => t.team_id);
-        const placeholders = teamIds.map(() => '?').join(',');
+        // Obtener los user_id de los compañeros de equipo (excluyendo al usuario actual)
+        const teamMemberRows = await dbQuery(db, `
+            SELECT DISTINCT tm2.user_id, t.team_name, t.team_color
+            FROM team_members tm1
+            JOIN team_members tm2 ON tm2.team_id = tm1.team_id
+            JOIN teams t ON t.team_id = tm1.team_id AND t.is_active = TRUE
+            WHERE tm1.user_id = ? AND tm2.user_id != ?
+        `, [req.userId, req.userId]);
+
+        if (teamMemberRows.length === 0) {
+            return res.json({ ok: true, success: true, data: { folders: [], documents: [] } });
+        }
+
+        const memberIds = teamMemberRows.map(r => r.user_id);
+        const memberPlaceholders = memberIds.map(() => '?').join(',');
 
         // Carpetas de otros miembros del mismo equipo
         const folders = await dbQuery(db, `
             SELECT f.folder_id, f.folder_name, f.folder_slug, f.folder_description, f.folder_color,
-                   f.parent_id, f.folder_level, f.created_at, f.team_id,
+                   f.parent_id, f.folder_level, f.created_at,
                    CONCAT(u.first_name, ' ', u.last_name) AS owner_name,
                    COUNT(DISTINCT d.document_id) AS doc_count,
-                   t.team_name, t.team_color
+                   (SELECT t2.team_name FROM team_members tm3 JOIN teams t2 ON t2.team_id = tm3.team_id WHERE tm3.user_id = f.user_id AND t2.is_active = TRUE LIMIT 1) AS team_name,
+                   (SELECT t2.team_color FROM team_members tm3 JOIN teams t2 ON t2.team_id = tm3.team_id WHERE tm3.user_id = f.user_id AND t2.is_active = TRUE LIMIT 1) AS team_color
             FROM folders f
             INNER JOIN users u ON f.user_id = u.user_id
             LEFT JOIN documents d ON f.folder_id = d.folder_id AND d.status = 'active'
-            INNER JOIN teams t ON f.team_id = t.team_id AND t.is_active = TRUE
-            WHERE f.team_id IN (${placeholders})
+            WHERE f.user_id IN (${memberPlaceholders})
               AND f.is_active = TRUE
               AND f.folder_level = 0
-              AND f.user_id != ?
             GROUP BY f.folder_id
-            ORDER BY t.team_name ASC, f.created_at ASC
-        `, [...teamIds, req.userId]);
+            ORDER BY f.created_at ASC
+        `, memberIds);
 
         // Documentos sin carpeta de otros miembros del mismo equipo
         const documents = await dbQuery(db, `
             SELECT d.document_id, d.title, d.file_name, d.document_type, d.status,
-                   d.is_template, d.created_at, d.folder_id, d.team_id,
+                   d.is_template, d.created_at, d.folder_id,
                    CONCAT(u.first_name, ' ', u.last_name) AS owner_name,
                    f.folder_name,
-                   t.team_name, t.team_color
+                   (SELECT t2.team_name FROM team_members tm3 JOIN teams t2 ON t2.team_id = tm3.team_id WHERE tm3.user_id = d.owner_id AND t2.is_active = TRUE LIMIT 1) AS team_name,
+                   (SELECT t2.team_color FROM team_members tm3 JOIN teams t2 ON t2.team_id = tm3.team_id WHERE tm3.user_id = d.owner_id AND t2.is_active = TRUE LIMIT 1) AS team_color
             FROM documents d
             INNER JOIN users u ON d.owner_id = u.user_id
             LEFT JOIN folders f ON d.folder_id = f.folder_id
-            INNER JOIN teams t ON d.team_id = t.team_id AND t.is_active = TRUE
-            WHERE d.team_id IN (${placeholders})
+            WHERE d.owner_id IN (${memberPlaceholders})
               AND d.status = 'active'
-              AND d.owner_id != ?
               AND (d.folder_id IS NULL OR d.folder_id = 0)
-            ORDER BY t.team_name ASC, d.created_at DESC
-        `, [...teamIds, req.userId]);
+            ORDER BY d.created_at DESC
+        `, memberIds);
 
         const foldersData = folders.map(f => ({
             id: f.folder_id,
@@ -613,6 +624,16 @@ router.get('/:id/documents', requireAuth, async (req, res) => {
             return res.status(403).json({ ok: false, error: 'No tienes acceso a este equipo' });
         }
 
+        // Obtener miembros del equipo para buscar por owner_id
+        const teamMembers = await dbQuery(db,
+            'SELECT user_id FROM team_members WHERE team_id = ?', [teamId]
+        );
+        const memberIds = teamMembers.map(m => m.user_id);
+        if (memberIds.length === 0) {
+            return res.json({ ok: true, success: true, data: [] });
+        }
+        const memberPlaceholders = memberIds.map(() => '?').join(',');
+
         const documents = await dbQuery(db, `
             SELECT d.document_id, d.title, d.file_name, d.document_type, d.status,
                    d.is_template, d.created_at, d.folder_id,
@@ -621,9 +642,9 @@ router.get('/:id/documents', requireAuth, async (req, res) => {
             FROM documents d
             LEFT JOIN users u ON d.owner_id = u.user_id
             LEFT JOIN folders f ON d.folder_id = f.folder_id
-            WHERE d.team_id = ? AND d.status = 'active'
+            WHERE d.owner_id IN (${memberPlaceholders}) AND d.status = 'active'
             ORDER BY d.created_at DESC
-        `, [teamId]);
+        `, memberIds);
 
         res.json({ ok: true, success: true, data: documents });
     } catch (error) {
@@ -649,6 +670,16 @@ router.get('/:id/folders', requireAuth, async (req, res) => {
             return res.status(403).json({ ok: false, error: 'No tienes acceso a este equipo' });
         }
 
+        // Obtener miembros del equipo para buscar por user_id
+        const teamMembersF = await dbQuery(db,
+            'SELECT user_id FROM team_members WHERE team_id = ?', [teamId]
+        );
+        const memberIdsF = teamMembersF.map(m => m.user_id);
+        if (memberIdsF.length === 0) {
+            return res.json({ ok: true, success: true, data: [] });
+        }
+        const memberPlaceholdersF = memberIdsF.map(() => '?').join(',');
+
         const folders = await dbQuery(db, `
             SELECT f.folder_id, f.folder_name, f.folder_slug, f.folder_description, f.folder_color,
                    f.parent_id, f.folder_level, f.created_at,
@@ -657,10 +688,10 @@ router.get('/:id/folders', requireAuth, async (req, res) => {
             FROM folders f
             LEFT JOIN users u ON f.user_id = u.user_id
             LEFT JOIN documents d ON f.folder_id = d.folder_id AND d.status = 'active'
-            WHERE f.team_id = ? AND f.is_active = TRUE AND f.folder_level = 0
+            WHERE f.user_id IN (${memberPlaceholdersF}) AND f.is_active = TRUE AND f.folder_level = 0
             GROUP BY f.folder_id
             ORDER BY f.created_at ASC
-        `, [teamId]);
+        `, memberIdsF);
 
         const data = folders.map(f => ({
             id: f.folder_id, name: f.folder_name, slug: f.folder_slug,
@@ -682,24 +713,29 @@ router.get('/:id/folders', requireAuth, async (req, res) => {
 router.get('/shared-with-me/documents', requireAuth, async (req, res) => {
     const db = req.app.locals.db;
     try {
-        const myTeams = await dbQuery(db, 'SELECT team_id FROM team_members WHERE user_id = ?', [req.userId]);
-        if (myTeams.length === 0) return res.json({ ok: true, success: true, data: [] });
+        const companionRows = await dbQuery(db, `
+            SELECT DISTINCT tm2.user_id FROM team_members tm1
+            JOIN team_members tm2 ON tm2.team_id = tm1.team_id
+            WHERE tm1.user_id = ? AND tm2.user_id != ?
+        `, [req.userId, req.userId]);
+        if (companionRows.length === 0) return res.json({ ok: true, success: true, data: [] });
 
-        const teamIds = myTeams.map(t => t.team_id);
-        const placeholders = teamIds.map(() => '?').join(',');
+        const memberIds = companionRows.map(r => r.user_id);
+        const placeholders = memberIds.map(() => '?').join(',');
 
         const documents = await dbQuery(db, `
             SELECT d.document_id, d.title, d.file_name, d.document_type, d.status,
-                   d.is_template, d.created_at, d.folder_id, d.team_id,
+                   d.is_template, d.created_at, d.folder_id,
                    CONCAT(u.first_name, ' ', u.last_name) AS owner_name,
-                   f.folder_name, t.team_name, t.team_color
+                   f.folder_name,
+                   (SELECT t2.team_name FROM team_members tm3 JOIN teams t2 ON t2.team_id = tm3.team_id WHERE tm3.user_id = d.owner_id AND t2.is_active = TRUE LIMIT 1) AS team_name,
+                   (SELECT t2.team_color FROM team_members tm3 JOIN teams t2 ON t2.team_id = tm3.team_id WHERE tm3.user_id = d.owner_id AND t2.is_active = TRUE LIMIT 1) AS team_color
             FROM documents d
             LEFT JOIN users u ON d.owner_id = u.user_id
             LEFT JOIN folders f ON d.folder_id = f.folder_id
-            LEFT JOIN teams t ON d.team_id = t.team_id
-            WHERE d.team_id IN (${placeholders}) AND d.status = 'active' AND d.owner_id != ?
+            WHERE d.owner_id IN (${placeholders}) AND d.status = 'active'
             ORDER BY d.created_at DESC
-        `, [...teamIds, req.userId]);
+        `, memberIds);
 
         res.json({ ok: true, success: true, data: documents });
     } catch (error) {
@@ -713,25 +749,30 @@ router.get('/shared-with-me/documents', requireAuth, async (req, res) => {
 router.get('/shared-with-me/folders', requireAuth, async (req, res) => {
     const db = req.app.locals.db;
     try {
-        const myTeams = await dbQuery(db, 'SELECT team_id FROM team_members WHERE user_id = ?', [req.userId]);
-        if (myTeams.length === 0) return res.json({ ok: true, success: true, data: [] });
+        const companionRows = await dbQuery(db, `
+            SELECT DISTINCT tm2.user_id FROM team_members tm1
+            JOIN team_members tm2 ON tm2.team_id = tm1.team_id
+            WHERE tm1.user_id = ? AND tm2.user_id != ?
+        `, [req.userId, req.userId]);
+        if (companionRows.length === 0) return res.json({ ok: true, success: true, data: [] });
 
-        const teamIds = myTeams.map(t => t.team_id);
-        const placeholders = teamIds.map(() => '?').join(',');
+        const memberIds = companionRows.map(r => r.user_id);
+        const placeholders = memberIds.map(() => '?').join(',');
 
         const folders = await dbQuery(db, `
             SELECT f.folder_id, f.folder_name, f.folder_slug, f.folder_description, f.folder_color,
-                   f.parent_id, f.folder_level, f.created_at, f.team_id,
+                   f.parent_id, f.folder_level, f.created_at,
                    CONCAT(u.first_name, ' ', u.last_name) AS owner_name,
-                   COUNT(DISTINCT d.document_id) AS doc_count, t.team_name, t.team_color
+                   COUNT(DISTINCT d.document_id) AS doc_count,
+                   (SELECT t2.team_name FROM team_members tm3 JOIN teams t2 ON t2.team_id = tm3.team_id WHERE tm3.user_id = f.user_id AND t2.is_active = TRUE LIMIT 1) AS team_name,
+                   (SELECT t2.team_color FROM team_members tm3 JOIN teams t2 ON t2.team_id = tm3.team_id WHERE tm3.user_id = f.user_id AND t2.is_active = TRUE LIMIT 1) AS team_color
             FROM folders f
             LEFT JOIN users u ON f.user_id = u.user_id
             LEFT JOIN documents d ON f.folder_id = d.folder_id AND d.status = 'active'
-            LEFT JOIN teams t ON f.team_id = t.team_id
-            WHERE f.team_id IN (${placeholders}) AND f.is_active = TRUE AND f.folder_level = 0 AND f.user_id != ?
+            WHERE f.user_id IN (${placeholders}) AND f.is_active = TRUE AND f.folder_level = 0
             GROUP BY f.folder_id
             ORDER BY f.created_at ASC
-        `, [...teamIds, req.userId]);
+        `, memberIds);
 
         const data = folders.map(f => ({
             id: f.folder_id, name: f.folder_name, slug: f.folder_slug,
