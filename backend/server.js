@@ -3032,7 +3032,7 @@ app.post('/api/recipients/check-vi-status', requireAuth, async (req, res) => {
         await new Promise((resolve) => {
             db.query(
                 `SELECT email, vi_validated_at, celular FROM vi_verified_emails
-                 WHERE email IN (${placeholders}) AND vi_validated_at >= ?`,
+                 WHERE LOWER(email) IN (${placeholders}) AND vi_validated_at >= ?`,
                 [...emailsLower, oneYearAgo],
                 (err, rows) => {
                     if (!err && rows) rows.forEach(r => {
@@ -3048,7 +3048,7 @@ app.post('/api/recipients/check-vi-status', requireAuth, async (req, res) => {
         await new Promise((resolve) => {
             db.query(
                 `SELECT email, vi_validated_at FROM document_recipients
-                 WHERE email IN (${placeholders}) AND vi_validated_at IS NOT NULL AND vi_validated_at >= ?`,
+                 WHERE LOWER(email) IN (${placeholders}) AND vi_validated_at IS NOT NULL AND vi_validated_at >= ?`,
                 [...emailsLower, oneYearAgo],
                 (err, rows) => {
                     if (!err && rows) rows.forEach(r => {
@@ -8004,22 +8004,53 @@ app.post('/api/recipients/set-otp-celular', requireAuth, async (req, res) => {
     }
     try {
         const emailLower = email.toLowerCase();
-        // Verificar que el email tenga VI verificada
-        const rows = await new Promise((resolve, reject) => {
-            db.query('SELECT email FROM vi_verified_emails WHERE email = ?', [emailLower], (err, r) => {
+
+        // 1. Verificar en vi_verified_emails (fuente primaria)
+        const rowsVve = await new Promise((resolve, reject) => {
+            db.query('SELECT email, vi_validated_at FROM vi_verified_emails WHERE LOWER(email) = ?', [emailLower], (err, r) => {
                 if (err) reject(err); else resolve(r);
             });
         });
-        if (!rows || rows.length === 0) {
+
+        if (rowsVve && rowsVve.length > 0) {
+            // Existe: solo actualizar celular
+            await new Promise((resolve, reject) => {
+                db.query('UPDATE vi_verified_emails SET celular = ? WHERE LOWER(email) = ?', [celularClean, emailLower], (err) => {
+                    if (err) reject(err); else resolve();
+                });
+            });
+            console.log(`✅ [SET-OTP-CELULAR] Celular actualizado en vi_verified_emails para ${emailLower}: ${celularClean}`);
+            return res.json({ success: true, message: 'Número registrado correctamente' });
+        }
+
+        // 2. Buscar en document_recipients (validación previa en otro documento)
+        const oneYearAgo = new Date();
+        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+        const rowsDr = await new Promise((resolve, reject) => {
+            db.query(
+                `SELECT dr.email, dr.vi_validated_at, d.owner_id AS owner_user_id
+                 FROM document_recipients dr
+                 JOIN documents d ON d.document_id = dr.document_id
+                 WHERE LOWER(dr.email) = ? AND dr.vi_validated_at IS NOT NULL AND dr.vi_validated_at >= ?
+                 ORDER BY dr.vi_validated_at DESC LIMIT 1`,
+                [emailLower, oneYearAgo],
+                (err, r) => { if (err) reject(err); else resolve(r); }
+            );
+        });
+
+        if (!rowsDr || rowsDr.length === 0) {
             return res.status(404).json({ success: false, message: 'El email no tiene verificación de identidad registrada' });
         }
-        // Actualizar el celular
+
+        // Insertar en vi_verified_emails para registrarlo permanentemente con el celular
         await new Promise((resolve, reject) => {
-            db.query('UPDATE vi_verified_emails SET celular = ? WHERE email = ?', [celularClean, emailLower], (err) => {
-                if (err) reject(err); else resolve();
-            });
+            db.query(
+                'INSERT INTO vi_verified_emails (email, vi_validated_at, owner_user_id, celular) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE celular = VALUES(celular)',
+                [emailLower, rowsDr[0].vi_validated_at, rowsDr[0].owner_user_id, celularClean],
+                (err) => { if (err) reject(err); else resolve(); }
+            );
         });
-        console.log(`✅ [SET-OTP-CELULAR] Celular registrado para ${emailLower}: ${celularClean}`);
+        console.log(`✅ [SET-OTP-CELULAR] Email migrado a vi_verified_emails y celular registrado para ${emailLower}: ${celularClean}`);
         return res.json({ success: true, message: 'Número registrado correctamente' });
     } catch (err) {
         console.error('❌ [SET-OTP-CELULAR] Error:', err);
