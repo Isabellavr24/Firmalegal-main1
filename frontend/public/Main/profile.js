@@ -393,15 +393,14 @@ function setupViLinkButton() {
             if (data.vinculado) {
                 // Mostrar badge de vinculado y ocultar botón de solicitud
                 if (statusEl) {
-                    statusEl.style.display = 'block';
-                    statusEl.style.background = '#e8f5e9';
-                    statusEl.style.color = '#1b5e20';
-                    statusEl.style.border = '1px solid #a5d6a7';
-                    statusEl.style.borderRadius = '8px';
-                    statusEl.style.padding = '12px 16px';
-                    statusEl.style.fontSize = '14px';
-                    statusEl.innerHTML = `<strong style="font-size:15px;">✓ Cuenta vinculada con Validación de Identidad</strong><br>
-                        <span style="color:#2e7d32;font-size:13px;">Tu cuenta FirmaLegal está activa y conectada al sistema biométrico de PKI Services. Puedes iniciar procesos de firma con validación de identidad.</span>`;
+                    const viUserLine = (data.vi_name || data.vi_email)
+                        ? `<br><span style="color:#2e7d32;font-size:13px;margin-top:4px;display:inline-block;">Usuario VI: <strong>${data.vi_name || ''}${data.vi_name && data.vi_email ? ' — ' : ''}${data.vi_email || ''}</strong></span>`
+                        : '';
+                    const fechaLine = data.vinculado_en
+                        ? `<br><span style="color:#4a7c59;font-size:12px;">Vinculado el ${new Date(data.vinculado_en).toLocaleDateString('es-CO', { day:'2-digit', month:'long', year:'numeric' })}</span>`
+                        : '';
+                    statusEl.style.cssText = 'display:block; background:#e8f5e9; color:#1b5e20; border:1px solid #a5d6a7; border-radius:8px; padding:14px 16px; font-size:14px; margin-bottom:16px;';
+                    statusEl.innerHTML = `<strong style="font-size:15px; display:flex; align-items:center; gap:6px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><polyline points="20 6 9 17 4 12"/></svg>Cuenta vinculada con Validación de Identidad</strong>${viUserLine}${fechaLine}`;
                 }
                 btn.style.display = 'none';
             }

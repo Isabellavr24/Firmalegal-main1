@@ -1623,7 +1623,10 @@ app.get('/api/integration/vi-link-status', requireAuth, async (req, res) => {
         });
         return res.json({
             vinculado: result.vinculado === true,
-            validacion_user_id: result.validacion_user_id || null
+            validacion_user_id: result.validacion_user_id || null,
+            vi_name: result.vi_name || null,
+            vi_email: result.vi_email || null,
+            vinculado_en: result.vinculado_en || null,
         });
     } catch (err) {
         return res.json({ vinculado: false, validacion_user_id: null });
