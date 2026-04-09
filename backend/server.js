@@ -5513,7 +5513,13 @@ app.post('/api/public/sign/:token', async (req, res) => {
                         (err, results) => { if (err) reject(err); else resolve([results]); }
                     );
                 });
-                const sealFieldsFinal = allFieldsFinal.filter(f => f.type === 'seal');
+                let sealFieldsFinal = allFieldsFinal.filter(f => f.type === 'seal');
+
+                // Si no hay campos de sello configurados, añadir un sello por defecto en la última página
+                if (sealFieldsFinal.length === 0) {
+                    console.log('   ℹ️ Sin campos de sello configurados — usando sello PKI por defecto en última página');
+                    sealFieldsFinal = [{ page: null, x: 10, y: null, width: 200, height: 80, _defaultSeal: true }];
+                }
 
                 // Construir reason con TODOS los firmantes
                 const completedSigners = allRecipients.filter(r => r.status === 'completed');
@@ -5542,17 +5548,21 @@ app.post('/api/public/sign/:token', async (req, res) => {
                 async function computeSeals(pdfBuf, sealFields) {
                     const { PDFDocument } = require('pdf-lib');
                     const doc = await PDFDocument.load(pdfBuf);
+                    const pageCount = doc.getPageCount();
                     const seals = [];
                     for (const seal of sealFields) {
-                        const idx = (seal.page || 1) - 1;
-                        if (idx < 0 || idx >= doc.getPageCount()) continue;
+                        // Si page es null (_defaultSeal), usar la última página
+                        const pageNum = seal.page != null ? seal.page : pageCount;
+                        const idx = pageNum - 1;
+                        if (idx < 0 || idx >= pageCount) continue;
                         const pg = doc.getPage(idx);
                         const { height: ph } = pg.getSize();
                         const x = parseFloat(seal.x) || 10;
                         const w = parseFloat(seal.width) || 200;
                         const h = parseFloat(seal.height) || 80;
-                        const y = ph - parseFloat(seal.y) - h;
-                        seals.push({ page: seal.page || 1, x, y, width: w, height: h });
+                        // Si _defaultSeal, colocar en la parte inferior de la página (10pt de margen)
+                        const y = seal._defaultSeal ? 10 : ph - parseFloat(seal.y) - h;
+                        seals.push({ page: pageNum, x, y, width: w, height: h });
                     }
                     return seals;
                 }

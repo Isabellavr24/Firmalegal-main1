@@ -607,7 +607,8 @@ class PDFSigner:
 
             # 5. Campo de firma (visible o invisible)
             sig_field_spec = None
-            if visible:
+            use_visible = visible
+            if use_visible:
                 logger.info(f"📋 5. Creando campo visible en última página ({last_page_index + 1}) en {box}")
 
                 # Calcular dimensiones del sello desde box
@@ -648,7 +649,7 @@ class PDFSigner:
                         pdf_in_retry = BytesIO(pdf_bytes)
                         reader_retry = PyHankoPdfReader(pdf_in_retry)
                         w = IncrementalPdfFileWriter.from_reader(reader_retry)
-                    # Usar hora Colombia en el stamp_text de pyHanko, con logo de fondo
+                    # Siempre usar TextStampStyle con logo de PKI Services
                     now_col = datetime.now(TZ_COLOMBIA)
                     ts_col = now_col.strftime("%Y-%m-%d %H:%M:%S")
                     logo_path = '/app/frontend/img/Nuevologo.jpg'
@@ -665,7 +666,7 @@ class PDFSigner:
                             stamp_text=f'Digitally signed by PKI Services.\nTimestamp: {ts_col} COT.',
                             timestamp_format='%Y-%m-%d %H:%M:%S',
                             background=bg,
-                            background_opacity=0.25,
+                            background_opacity=0.7,
                         ),
                         new_field_spec=sig_field_spec,
                     )
