@@ -153,18 +153,30 @@ router.get('/', requireAuth, async (req, res) => {
         let params;
 
         if (teamMemberRows.length > 0) {
-            // Usuario en equipo: ver docs de todos los miembros del equipo
+            // Usuario en equipo: ver docs activos de todos los miembros + sus propios archivados
             const memberIds = [...new Set(teamMemberRows.map(r => r.user_id))];
             const placeholders = memberIds.map(() => '?').join(',');
-            query = `
-                SELECT ${selectFields}
-                FROM documents d
-                LEFT JOIN users u ON d.owner_id = u.user_id
-                LEFT JOIN folders f ON d.folder_id = f.folder_id
-                WHERE d.status = ?
-                  AND d.owner_id IN (${placeholders})
-            `;
-            params = [status, ...memberIds];
+            if (status === 'archived') {
+                // Archivados: solo los propios, nunca los de compañeros
+                query = `
+                    SELECT ${selectFields}
+                    FROM documents d
+                    LEFT JOIN users u ON d.owner_id = u.user_id
+                    LEFT JOIN folders f ON d.folder_id = f.folder_id
+                    WHERE d.owner_id = ? AND d.status = 'archived'
+                `;
+                params = [req.userId];
+            } else {
+                query = `
+                    SELECT ${selectFields}
+                    FROM documents d
+                    LEFT JOIN users u ON d.owner_id = u.user_id
+                    LEFT JOIN folders f ON d.folder_id = f.folder_id
+                    WHERE d.status = ?
+                      AND d.owner_id IN (${placeholders})
+                `;
+                params = [status, ...memberIds];
+            }
         } else {
             // Usuario sin equipo: solo sus docs
             query = `
