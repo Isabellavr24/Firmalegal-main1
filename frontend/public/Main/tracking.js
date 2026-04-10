@@ -3472,6 +3472,40 @@ async function _processPagareCsvData(results, fileName) {
     viTableEl.innerHTML = '';
   }
 
+  // Resumen fiel copia por pagaré (siempre visible para pagarés)
+  const fielCopiaEl = document.getElementById('pagareCsvFielCopia');
+  if (pagaresData.length > 0) {
+    const rows = pagaresData.map((pagare, i) => {
+      const deudorEmail = pagare.firmantes[0] ? pagare.firmantes[0].email : '—';
+      const deudorNombre = pagare.firmantes[0] ? pagare.firmantes[0].name : '';
+      const label = deudorNombre && deudorNombre !== deudorEmail ? `${deudorNombre} &lt;${deudorEmail}&gt;` : deudorEmail;
+      const bg = i % 2 === 0 ? '#fff' : '#f9fafb';
+      return `<tr style="background:${bg};">
+        <td style="padding:5px 10px;font-size:11px;font-weight:600;color:#374151;white-space:nowrap;">Pagaré ${pagare.rowIndex - 1}</td>
+        <td style="padding:5px 10px;font-size:11px;color:#374151;">${label}</td>
+      </tr>`;
+    }).join('');
+    fielCopiaEl.innerHTML = `
+      <div style="border:1px solid #bbf7d0;border-radius:6px;overflow:hidden;margin-top:4px;">
+        <div style="background:#f0fdf4;padding:6px 10px;font-size:11px;font-weight:700;color:#15803d;border-bottom:1px solid #bbf7d0;">
+          Copia fiel (sin sello PKI) — se enviara al deudor (Firmante 1) al finalizar cada pagare:
+        </div>
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr style="background:#f0fdf4;">
+              <th style="padding:5px 10px;font-size:10px;color:#555;text-align:left;border-bottom:2px solid #d1fae5;">Pagare</th>
+              <th style="padding:5px 10px;font-size:10px;color:#555;text-align:left;border-bottom:2px solid #d1fae5;">Deudor (Firmante 1)</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+    fielCopiaEl.style.display = 'block';
+  } else {
+    fielCopiaEl.style.display = 'none';
+    fielCopiaEl.innerHTML = '';
+  }
+
   document.getElementById('pagareCsvUploadZone').style.display = 'none';
   document.getElementById('pagareCsvPreview').style.display = 'block';
 
