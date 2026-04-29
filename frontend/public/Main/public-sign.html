@@ -1318,10 +1318,12 @@ function loadExistingFields(existingFields) {
     // 🔥 NUEVO: Filtrar campos según part_id del destinatario
     if (recipientPartId) {
       const allInteractiveFields = interactiveFields.length;
-      
+      // Comparar como número para evitar fallos por tipo (int vs string)
+      const numericPartId = Number(recipientPartId);
+
       // Filtrar: solo mostrar campos de la parte del destinatario O campos sin parte asignada
       interactiveFields = interactiveFields.filter(field => {
-        return field.part_id === recipientPartId || field.part_id === null;
+        return Number(field.part_id) === numericPartId || field.part_id === null || field.part_id === undefined;
       });
       
       console.log(`🎯 Destinatario asignado a part_id=${recipientPartId}`);
