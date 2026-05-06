@@ -1050,15 +1050,28 @@ router.post('/bulk-send', requireAuth, upload.single('file'), async (req, res) =
                             if (ownerVinculadoVI) {
                                 const oneYearAgo = new Date();
                                 oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-                                const viCheck = await new Promise((res, rej) => {
+                                // Buscar primero en vi_verified_emails (fuente permanente, case-insensitive)
+                                let viCheck = await new Promise((res, rej) => {
                                     db.query(
-                                        `SELECT vi_validated_at FROM document_recipients
-                                         WHERE email = ? AND vi_validated_at IS NOT NULL AND vi_validated_at >= ?
+                                        `SELECT vi_validated_at FROM vi_verified_emails
+                                         WHERE LOWER(email) = LOWER(?) AND vi_validated_at >= ?
                                          ORDER BY vi_validated_at DESC LIMIT 1`,
                                         [recipient.email, oneYearAgo],
                                         (err, rows) => { if (err) rej(err); else res(rows); }
                                     );
                                 });
+                                // Si no está en vi_verified_emails, buscar en document_recipients
+                                if (viCheck.length === 0) {
+                                    viCheck = await new Promise((res, rej) => {
+                                        db.query(
+                                            `SELECT vi_validated_at FROM document_recipients
+                                             WHERE LOWER(email) = LOWER(?) AND vi_validated_at IS NOT NULL AND vi_validated_at >= ?
+                                             ORDER BY vi_validated_at DESC LIMIT 1`,
+                                            [recipient.email, oneYearAgo],
+                                            (err, rows) => { if (err) rej(err); else res(rows); }
+                                        );
+                                    });
+                                }
                                 if (viCheck.length > 0) {
                                     // Email validado en VI — copiar vi_validated_at al recipient recién insertado
                                     await new Promise((res, rej) => {
