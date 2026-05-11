@@ -941,53 +941,38 @@ async function loadDocument() {
       sendBtn.style.display = 'none';
 
       const successMsg = document.getElementById('successMsg');
+      const extraMsg = currentDocument.documentType === 'pagare'
+        ? `<p style="margin:8px 0 0; color:#155724; font-size:13px; opacity:0.85;">
+             El pagare es custodiado por el beneficiario y no esta disponible para descarga.
+           </p>`
+        : currentDocument.documentType === 'normal'
+        ? `<hr style="border:none;border-top:1px solid #c3e6cb;margin:14px 0;">
+           <div style="display:flex;align-items:flex-start;gap:10px;text-align:left;">
+             <svg style="flex-shrink:0;width:18px;height:18px;margin-top:2px;" viewBox="0 0 24 24" fill="none" stroke="#155724" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+               <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+               <polyline points="22,6 12,13 2,6"/>
+             </svg>
+             <p style="margin:0;font-size:13px;color:#155724;line-height:1.5;">
+               Recibiras una <strong>copia fiel</strong> del documento en tu correo electronico
+               con sello PKI, firma visible y estampa de tiempo.
+             </p>
+           </div>`
+        : `<a href="${currentDocument.signedPdfUrl}"
+             download="documento_firmado.pdf"
+             style="display:inline-block;padding:12px 24px;background:#28a745;color:white;
+                    text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;
+                    margin-top:8px;box-shadow:0 2px 8px rgba(40,167,69,0.3);">
+             <svg style="width:16px;height:16px;vertical-align:middle;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Descargar PDF Firmado
+           </a>`;
+
       successMsg.innerHTML = `
         <div style="margin-bottom:12px;"><svg style="width:48px;height:48px;" viewBox="0 0 24 24" fill="none" stroke="#28a745" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
-        <p style="margin:0 0 8px; color:#155724; font-weight:700; font-size:18px;">¡Documento firmado exitosamente!</p>
-        <p style="margin:0 0 16px; color:#155724; font-size:14px;">
+        <p style="margin:0 0 8px; color:#155724; font-weight:700; font-size:18px;">Documento firmado exitosamente</p>
+        <p style="margin:0; color:#155724; font-size:14px;">
           El documento ha sido firmado digitalmente con certificado PKI.<br>
-          Los sellos de certificación están visibles en el PDF.
+          Los sellos de certificacion estan visibles en el PDF.
         </p>
-        ${currentDocument.documentType === 'pagare'
-          ? `<div style="
-               display:inline-flex;align-items:center;gap:10px;
-               padding:12px 18px;background:#d1fae5;border:1px solid #6ee7b7;
-               border-radius:8px;font-size:13px;color:#065f46;margin-top:8px;">
-               <svg style="flex-shrink:0;width:18px;height:18px;" viewBox="0 0 24 24" fill="none" stroke="#065f46" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                 <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-               </svg>
-               <span>El pagare firmado es custodiado por el beneficiario.<br>
-               <strong>No esta disponible para descarga por los firmantes.</strong></span>
-             </div>`
-          : currentDocument.documentType === 'normal'
-          ? `<div style="
-               display:inline-flex;align-items:center;gap:10px;
-               padding:12px 18px;background:#dbeafe;border:1px solid #93c5fd;
-               border-radius:8px;font-size:13px;color:#1e40af;margin-top:8px;">
-               <svg style="flex-shrink:0;width:18px;height:18px;" viewBox="0 0 24 24" fill="none" stroke="#1e40af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                 <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-                 <polyline points="22,6 12,13 2,6"/>
-               </svg>
-               <span>Recibiras una copia fiel del documento firmado en tu correo electronico.<br>
-               <strong>El documento incluye sello PKI y estampa de tiempo.</strong></span>
-             </div>`
-          : `<a href="${currentDocument.signedPdfUrl}"
-               download="documento_firmado.pdf"
-               style="
-                 display: inline-block;
-                 padding: 12px 24px;
-                 background: #28a745;
-                 color: white;
-                 text-decoration: none;
-                 border-radius: 8px;
-                 font-weight: 600;
-                 font-size: 14px;
-                 margin-top: 8px;
-                 box-shadow: 0 2px 8px rgba(40, 167, 69, 0.3);
-               ">
-              <svg style="width:16px;height:16px;vertical-align:middle;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Descargar PDF Firmado
-             </a>`
-        }
+        ${extraMsg}
       `;
       successMsg.style.display = 'block';
       successMsg.style.opacity = '1';
