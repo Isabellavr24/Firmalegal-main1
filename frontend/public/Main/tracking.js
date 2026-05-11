@@ -1052,6 +1052,12 @@ async function handleAddRecipient() {
     });
   }
 
+  // Mostrar aviso de copia fiel solo para documentos normales
+  const fielCopiaNotice = document.getElementById('fielCopiaNotice');
+  if (fielCopiaNotice) {
+    fielCopiaNotice.style.display = currentDocumentType !== 'pagare' ? 'flex' : 'none';
+  }
+
   // Abrir modal de destinatarios
   const modal = document.getElementById('recipientsModal');
   console.log('Modal encontrado:', modal);

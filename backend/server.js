@@ -604,6 +604,168 @@ async function sendFielCopiaAlDeudor(documentId, viewerGroupId, pdfBuffer) {
 }
 
 /**
+ * Genera y envía por email una copia fiel del documento normal a todos los firmantes.
+ * Sin sello PKI ni estampa de tiempo — solo marca de agua y mensaje al pie.
+ */
+async function sendFielCopiaDocumentoNormal(documentId, pdfBuffer) {
+    try {
+        console.log(`\n📄 [FIEL-COPIA-NORMAL] Generando copia fiel para doc=${documentId}...`);
+
+        // Obtener todos los firmantes del documento
+        const [recipients] = await db.promise().query(
+            `SELECT dr.email, dr.name FROM document_recipients dr
+             WHERE dr.document_id = ? AND dr.status = 'completed'`,
+            [documentId]
+        );
+
+        if (!recipients.length) {
+            console.warn(`   ⚠️ [FIEL-COPIA-NORMAL] No se encontraron firmantes para doc=${documentId}`);
+            return;
+        }
+
+        // Título del documento
+        const [docRows] = await db.promise().query(
+            `SELECT title FROM documents WHERE document_id = ?`, [documentId]
+        );
+        const docTitle = docRows[0]?.title || `Documento_${documentId}`;
+
+        // Agregar marca de agua en cada página
+        const { PDFDocument, rgb, StandardFonts, degrees } = require('pdf-lib');
+        const pdfDoc = await PDFDocument.load(pdfBuffer);
+        const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+        const pages = pdfDoc.getPages();
+        const totalPages = pages.length;
+
+        for (let i = 0; i < totalPages; i++) {
+            const page = pages[i];
+            const { width, height } = page.getSize();
+            const watermarkText = 'FIEL COPIA DEL DOCUMENTO ORIGINAL';
+            const fontSize = Math.min(width, height) * 0.055;
+            const textWidth = font.widthOfTextAtSize(watermarkText, fontSize);
+            const cos45 = Math.cos(Math.PI / 4);
+            const sin45 = Math.sin(Math.PI / 4);
+            const cx = width / 2 - (textWidth / 2) * cos45 + (fontSize / 2) * sin45;
+            const cy = height / 2 - (textWidth / 2) * sin45 - (fontSize / 2) * cos45;
+            page.drawText(watermarkText, {
+                x: cx, y: cy, size: fontSize, font,
+                color: rgb(0.65, 0.65, 0.65), opacity: 0.30, rotate: degrees(45),
+            });
+        }
+
+        // Mensaje final en la última página
+        const lastPage = pages[totalPages - 1];
+        const { width: lw } = lastPage.getSize();
+        const msgFontSize = 9;
+        const msgFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        const msgBoldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+        const msg1 = 'Este documento no es el original, pero si corresponde a una representacion';
+        const msg2 = 'grafica fiel tomada del documento original firmado electronicamente.';
+        const boxPadding = 12;
+        const boxW = lw * 0.72;
+        const boxH = 50;
+        const boxX = (lw - boxW) / 2;
+        const boxY = 18;
+        lastPage.drawRectangle({
+            x: boxX, y: boxY, width: boxW, height: boxH,
+            color: rgb(0.98, 0.98, 0.98),
+            borderColor: rgb(0.7, 0.7, 0.7),
+            borderWidth: 0.6, opacity: 1,
+        });
+        const msg1W = msgBoldFont.widthOfTextAtSize(msg1, msgFontSize);
+        const msg2W = msgFont.widthOfTextAtSize(msg2, msgFontSize);
+        lastPage.drawText(msg1, {
+            x: boxX + (boxW - msg1W) / 2,
+            y: boxY + boxH - boxPadding - msgFontSize,
+            size: msgFontSize, font: msgBoldFont, color: rgb(0.2, 0.2, 0.2),
+        });
+        lastPage.drawText(msg2, {
+            x: boxX + (boxW - msg2W) / 2,
+            y: boxY + boxH - boxPadding - msgFontSize * 2.5,
+            size: msgFontSize, font: msgFont, color: rgb(0.3, 0.3, 0.3),
+        });
+
+        const copiaBytes = await pdfDoc.save();
+        const copiaBuffer = Buffer.from(copiaBytes);
+
+        // Obtener config de email
+        const [emailConfigs] = await db.promise().query(
+            `SELECT * FROM email_config WHERE user_id = (SELECT owner_id FROM documents WHERE document_id = ?) LIMIT 1`,
+            [documentId]
+        );
+        if (!emailConfigs.length || !emailConfigs[0].sendgrid_api_key) {
+            console.warn('   ⚠️ [FIEL-COPIA-NORMAL] Sin configuración de email — no se envía copia');
+            return;
+        }
+        const userConfig = emailConfigs[0];
+
+        const sgMail = require('@sendgrid/mail');
+        sgMail.setApiKey(userConfig.sendgrid_api_key);
+
+        const safeTitle = docTitle.replace(/[^a-zA-Z0-9\-_. ]/g, '_');
+        const fileName = `Copia_Fiel_${safeTitle}.pdf`;
+        const attachmentContent = copiaBuffer.toString('base64');
+
+        for (const rec of recipients) {
+            const recipientName = rec.name || rec.email;
+            const htmlBody = `<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:30px 20px;background:#f5f5f5;font-family:Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
+    <div style="background:#2b0e31;padding:28px 30px;text-align:center;">
+      <img src="https://firmalegalonline.com/img/Nuevologo.jpg" alt="PKI Services" style="height:48px;margin-bottom:10px;display:block;margin-left:auto;margin-right:auto;">
+      <h1 style="margin:0;color:#ffffff;font-size:20px;font-weight:700;letter-spacing:0.3px;">Copia Fiel del Documento</h1>
+      <p style="margin:6px 0 0;color:rgba(255,255,255,0.75);font-size:13px;">Firma Electronica — PKI Services</p>
+    </div>
+    <div style="padding:30px;">
+      <p style="margin:0 0 16px;color:#333;font-size:15px;">Estimado/a <strong>${recipientName}</strong>,</p>
+      <p style="margin:0 0 20px;color:#444;font-size:14px;line-height:1.6;">
+        Adjunto encontrara una <strong>copia fiel</strong> del documento <em>"${docTitle}"</em>
+        que ha sido firmado exitosamente por todos los participantes del proceso.
+      </p>
+      <div style="background:#f8f9fa;border-left:4px solid #2b0e31;border-radius:6px;padding:16px 20px;margin:20px 0;">
+        <p style="margin:0 0 6px;font-size:13px;color:#2b0e31;font-weight:700;">Importante</p>
+        <p style="margin:0;font-size:13px;color:#444;line-height:1.6;">
+          Este documento es una representacion grafica fiel del original.
+          El documento original con firma digital certificada esta en custodia del beneficiario.
+        </p>
+      </div>
+      <p style="margin:24px 0 0;font-size:12px;color:#999;line-height:1.6;">
+        &copy; ${new Date().getFullYear()} PKI Services S.A.S. &mdash; FirmaLegal Online<br>
+        Este mensaje y sus archivos adjuntos van dirigidos exclusivamente a su destinatario.
+      </p>
+    </div>
+    <div style="background:#f9f9f9;border-top:1px solid #e0e0e0;padding:18px 30px;text-align:center;">
+      <p style="margin:0;font-size:12px;color:#aaa;">FirmaLegal Online &mdash; Plataforma de Firma Electronica Certificada</p>
+      <p style="margin:4px 0 0;font-size:11px;color:#bbb;">&copy; ${new Date().getFullYear()} PKI Services S.A.S. - Todos los derechos reservados</p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+            const msg = {
+                to: rec.email,
+                from: { email: userConfig.email_from, name: userConfig.email_from_name || 'FirmaLegal Online' },
+                subject: `Copia Fiel del Documento — ${docTitle}`,
+                text: `Estimado/a ${recipientName},\n\nAdjunto encontrará una copia fiel del documento "${docTitle}" firmado por todos los participantes.\n\nEste documento es una representación gráfica fiel del original.\n\n© ${new Date().getFullYear()} PKI Services S.A.S.`,
+                html: htmlBody,
+                attachments: [{ content: attachmentContent, filename: fileName, type: 'application/pdf', disposition: 'attachment' }]
+            };
+
+            try {
+                await sgMail.send(msg);
+                console.log(`   ✅ [FIEL-COPIA-NORMAL] Copia fiel enviada a ${rec.email}`);
+            } catch (sendErr) {
+                console.error(`   ❌ [FIEL-COPIA-NORMAL] Error enviando a ${rec.email}:`, sendErr.message);
+            }
+        }
+
+    } catch (err) {
+        console.error(`   ❌ [FIEL-COPIA-NORMAL] Error general doc=${documentId}:`, err.message);
+    }
+}
+
+/**
  * Sellar todos los pagarés directamente cuando no hay firmante definitivo
  */
 async function sealPagaresWithoutFinalSigner(documentId) {
@@ -5894,11 +6056,33 @@ app.post('/api/public/sign/:token', async (req, res) => {
                         });
                     }
 
+                    // Enviar copia fiel a todos los firmantes (modo individual)
+                    // Re-leer custom_pdf_path actualizado (ya tiene sello PKI) para cada destinatario
+                    try {
+                        const updatedRecs = await new Promise((resolve, reject) => {
+                            db.query(
+                                'SELECT recipient_id, email, custom_pdf_path FROM document_recipients WHERE document_id = ?',
+                                [recipient.document_id],
+                                (err, rows) => { if (err) reject(err); else resolve(rows); }
+                            );
+                        });
+                        const firstRecWithPdf = updatedRecs.find(r => r.custom_pdf_path);
+                        if (firstRecWithPdf) {
+                            const copiaPdfPath = resolveFromRoot(firstRecWithPdf.custom_pdf_path.replace(/^\/+/, ''));
+                            if (fs.existsSync(copiaPdfPath)) {
+                                await sendFielCopiaDocumentoNormal(recipient.document_id, fs.readFileSync(copiaPdfPath));
+                            }
+                        }
+                    } catch (copiaErr) {
+                        console.warn(`   ⚠️ [FIEL-COPIA-NORMAL] Error enviando copia fiel individual: ${copiaErr.message}`);
+                    }
+
                 } else {
                     // ===== MODO PDF COMPARTIDO (sin datos individuales): sellar único =====
                     if (!allDocRecipientsFinal[0]?.custom_pdf_path) {
                         throw new Error('No se encontró el PDF intermedio con las firmas');
                     }
+                    let sharedSignedPdfBuffer = null;
 
                     // Si hay destinatarios con traza VI, el custom_pdf_path puede ser vi_personal (PDF+traza).
                     // Para el sellado PKI debemos usar el PDF sin traza (solo firmas), ya que la traza
@@ -5941,6 +6125,7 @@ app.post('/api/public/sign/:token', async (req, res) => {
                         seals: sealsForPython.length > 0 ? sealsForPython : null,
                         verificationToken
                     });
+                    sharedSignedPdfBuffer = signedPdfBuffer;
 
                     console.log(`✅ PDF firmado con PKI: ${(signedPdfBuffer.length / 1024).toFixed(2)} KB`);
 
@@ -6008,6 +6193,15 @@ app.post('/api/public/sign/:token', async (req, res) => {
                         }
                     } catch (trazaErr) {
                         console.error('⚠️ [VI-TRAZA] Error procesando trazabilidades VI (no crítico):', trazaErr.message);
+                    }
+
+                    // Enviar copia fiel a todos los firmantes (modo compartido)
+                    try {
+                        if (sharedSignedPdfBuffer) {
+                            await sendFielCopiaDocumentoNormal(recipient.document_id, sharedSignedPdfBuffer);
+                        }
+                    } catch (copiaErr) {
+                        console.warn(`   ⚠️ [FIEL-COPIA-NORMAL] Error enviando copia fiel compartida: ${copiaErr.message}`);
                     }
                 }
 
