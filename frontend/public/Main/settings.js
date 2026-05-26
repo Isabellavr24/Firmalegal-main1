@@ -1374,6 +1374,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Mostrar sección Gestionar Firmas solo para Superadministrador
     const navFirmas = document.getElementById('navFirmas');
     if (navFirmas) navFirmas.style.display = '';
+    const navEtitulo = document.getElementById('navEtitulo');
+    if (navEtitulo) navEtitulo.style.display = '';
   }
 })();
 

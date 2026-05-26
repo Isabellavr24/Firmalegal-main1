@@ -71,6 +71,7 @@
         <button class="sn-item" data-section="usuarios">Usuarios</button>
         <button class="sn-item" data-section="equipos">Equipos e Inquilinos</button>
         <button class="sn-item" data-section="firmas" id="navFirmas" style="display:none;">Gestionar Firmas</button>
+        <button class="sn-item" data-section="etitulo" id="navEtitulo" style="display:none;">Subir a e-Titulo</button>
       </nav>
     </aside>
 
@@ -1420,6 +1421,731 @@
     });
   })();
   </script>
+
+    <!-- ===================== SECCIÓN SUBIR A E-TITULO ===================== -->
+    <style>
+      /* ── Zona de drop ── */
+      .etitulo-drop-zone {
+        border: 2px dashed #c9b8d0;
+        border-radius: 14px;
+        padding: 28px 24px;
+        text-align: center;
+        cursor: pointer;
+        transition: border-color 0.15s, background 0.15s;
+        background: #faf8fd;
+        position: relative;
+      }
+      .etitulo-drop-zone:hover, .etitulo-drop-zone.drag-over {
+        border-color: #c2185b;
+        background: #fdf0f4;
+      }
+      .etitulo-drop-zone.disabled-zone {
+        opacity: 0.45;
+        pointer-events: none;
+        cursor: not-allowed;
+      }
+      .etitulo-drop-zone input[type=file] {
+        position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer;
+      }
+      .etitulo-drop-label { font-size: 14px; color: #6d6270; pointer-events: none; }
+      .etitulo-drop-label strong { color: #2b0e31; }
+
+      /* ── Tabla de pagarés del Excel ── */
+      .etitulo-excel-loaded {
+        margin-top: 12px; padding: 14px 16px;
+        background: #f3eef7; border: 1px solid #c9b8d0; border-radius: 10px;
+        font-size: 13px; color: #2a0d31; font-weight: 600;
+        display: flex; align-items: center; gap: 10px;
+      }
+      .etitulo-tabla-wrap {
+        margin-top: 16px;
+        border: 1px solid #eadfd8; border-radius: 14px;
+        overflow: hidden;
+        max-height: 420px;
+        overflow-y: auto;
+      }
+      .etitulo-tabla {
+        width: 100%; border-collapse: collapse; font-size: 12.5px;
+      }
+      .etitulo-tabla thead th {
+        background: #f9f5f2; color: #2b0e31; font-weight: 700;
+        padding: 10px 12px; text-align: left;
+        border-bottom: 2px solid #eadfd8;
+        position: sticky; top: 0; z-index: 1;
+      }
+      .etitulo-tabla tbody tr { border-bottom: 1px solid #f5f0ed; }
+      .etitulo-tabla tbody tr:last-child { border-bottom: none; }
+      .etitulo-tabla tbody tr:hover td { background: #faf6f3; }
+      .etitulo-tabla td { padding: 9px 12px; vertical-align: middle; color: #374151; }
+      .etitulo-tabla td.num { font-weight: 700; color: #2b0e31; }
+      .etitulo-tabla td.muted { color: #9b8fa0; font-size: 11.5px; }
+
+      /* Badge PDF */
+      .et-pdf-badge {
+        display: inline-flex; align-items: center; gap: 5px;
+        padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 700;
+        white-space: nowrap;
+      }
+      .et-pdf-badge.has-pdf {
+        background: #f3eef7; color: #2a0d31; border: 1px solid #c9b8d0;
+      }
+      .et-pdf-badge.no-pdf {
+        background: #fdf6f0; color: #7a3000; border: 1px solid #e8c9a0;
+      }
+      .et-pdf-badge.uploaded {
+        background: #fdf0f4; color: #2b0e31; border: 1px solid #e8b0cc;
+      }
+
+      /* Resumen de carga */
+      .etitulo-pdf-summary {
+        display: flex; gap: 12px; flex-wrap: wrap;
+        margin-top: 10px; margin-bottom: 16px;
+      }
+      .etitulo-pdf-stat {
+        padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 700;
+      }
+      .etitulo-pdf-stat.ok { background: #f3eef7; color: #2a0d31; border: 1px solid #c9b8d0; }
+      .etitulo-pdf-stat.missing { background: #fdf6f0; color: #7a3000; border: 1px solid #e8c9a0; }
+
+      /* Progreso */
+      .etitulo-progress-wrap { margin-top: 20px; display: none; }
+      .etitulo-progress-bar-bg {
+        background: #eadfd8; border-radius: 8px; height: 10px; overflow: hidden;
+      }
+      .etitulo-progress-bar {
+        background: linear-gradient(90deg, #c2185b, #2a0d31); height: 100%;
+        border-radius: 8px; transition: width 0.3s; width: 0%;
+      }
+      .etitulo-progress-text {
+        font-size: 12px; color: #6d6270; margin-top: 6px; text-align: center;
+      }
+
+      /* Resultados finales */
+      .etitulo-result-list {
+        margin-top: 16px; max-height: 340px; overflow-y: auto;
+        border: 1px solid #eadfd8; border-radius: 12px; font-size: 13px;
+        display: none;
+      }
+      .etitulo-result-row {
+        display: grid; grid-template-columns: 22px 80px 1fr 1fr;
+        align-items: center; gap: 10px; padding: 9px 14px;
+        border-bottom: 1px solid #f5f0ed;
+      }
+      .etitulo-result-row:last-child { border-bottom: none; }
+      .etitulo-result-row.ok   { background: #f9f5f2; }
+      .etitulo-result-row.err  { background: #fce8f0; }
+      .etitulo-result-row.skip { background: #fdf6f0; }
+      .etitulo-result-icon { font-size: 15px; }
+      .etitulo-result-num { font-weight: 700; color: #2b0e31; }
+      .etitulo-result-msg { color: #6d6270; }
+      .etitulo-result-guid { font-size: 11px; color: #c2185b; font-family: monospace; }
+
+      /* Resumen box final */
+      .etitulo-resumen-box {
+        display: none; margin-top: 14px; padding: 14px 18px;
+        border-radius: 10px; font-size: 14px; font-weight: 600;
+      }
+
+      /* Step indicators */
+      .etitulo-steps {
+        display: flex; gap: 0; margin-bottom: 28px;
+      }
+      .etitulo-step {
+        display: flex; align-items: center; gap: 8px; flex: 1;
+        padding: 10px 16px; border-radius: 10px;
+        font-size: 13px; font-weight: 600; color: #9b8fa0;
+        background: #f5f0ed;
+      }
+      .etitulo-step + .etitulo-step { margin-left: 8px; }
+      .etitulo-step.active { background: #fce8f0; color: #2b0e31; }
+      .etitulo-step.done   { background: #f3eef7; color: #2a0d31; }
+      .etitulo-step-num {
+        width: 24px; height: 24px; border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 12px; font-weight: 800;
+        background: #c9b8d0; color: #fff; flex-shrink: 0;
+      }
+      .etitulo-step.active .etitulo-step-num { background: #c2185b; }
+      .etitulo-step.done   .etitulo-step-num { background: #2a0d31; }
+    </style>
+
+    <section class="set-section" id="sec-etitulo" aria-labelledby="sec-etitulo-h">
+      <h1 class="page-h1" id="sec-etitulo-h">Subir a e-Titulo</h1>
+      <p style="color:#6d6270;font-size:14px;margin-bottom:20px;">
+        Carga masiva de pagares ya firmados al baul de e-Titulo.
+        Solo accesible para el Superadministrador.
+      </p>
+
+      <!-- Indicadores de paso -->
+      <div class="etitulo-steps">
+        <div class="etitulo-step active" id="etStep1">
+          <div class="etitulo-step-num">1</div>
+          <span>Subir metadata (Excel o CSV)</span>
+        </div>
+        <div class="etitulo-step" id="etStep2">
+          <div class="etitulo-step-num">2</div>
+          <span>Cargar PDFs firmados</span>
+        </div>
+        <div class="etitulo-step" id="etStep3">
+          <div class="etitulo-step-num">3</div>
+          <span>Enviar al baul</span>
+        </div>
+      </div>
+
+      <!-- ── PASO 1: Excel / CSV ── -->
+      <div id="etPaso1">
+        <div class="field" style="margin-bottom:16px;">
+          <label style="font-weight:600; color:#2b0e31; display:block; margin-bottom:8px;">Archivo de metadata (Excel .xlsx/.xls o CSV .csv)</label>
+          <div class="etitulo-drop-zone" id="etituloExcelZone">
+            <input type="file" id="etituloExcelInput" accept=".xlsx,.xls,.csv" />
+            <div class="etitulo-drop-label">
+              <svg style="width:26px;height:26px;display:block;margin:0 auto 8px;" viewBox="0 0 24 24" fill="none" stroke="#9b8fa0" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+              <strong>Arrastra el archivo aqui</strong> o haz clic para seleccionarlo
+            </div>
+          </div>
+        </div>
+
+        <!-- Resultado lectura Excel -->
+        <div id="etExcelResult" style="display:none;">
+          <div class="etitulo-excel-loaded" id="etExcelBanner">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            <span id="etExcelBannerText"></span>
+          </div>
+          <div class="etitulo-tabla-wrap" style="margin-top:14px;">
+            <table class="etitulo-tabla" id="etTabla">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Num. Pagare</th>
+                  <th>Deudor</th>
+                  <th>Codeudor</th>
+                  <th style="text-align:right;">Monto</th>
+                  <th>Moneda</th>
+                  <th>Documento</th>
+                  <th style="text-align:center;">PDF</th>
+                </tr>
+              </thead>
+              <tbody id="etTablaTbody"></tbody>
+            </table>
+          </div>
+          <button type="button" id="etCambiarExcelBtn" style="margin-top:10px;background:none;border:none;color:#c2185b;font-size:12px;font-weight:600;cursor:pointer;padding:0;">
+            Cambiar archivo
+          </button>
+        </div>
+      </div>
+
+      <!-- ── PASO 2: PDFs (se habilita tras leer Excel) ── -->
+      <div id="etPaso2" style="margin-top:24px;">
+        <div class="field" style="margin-bottom:8px;">
+          <label style="font-weight:600; color:#2b0e31; display:block; margin-bottom:8px;" id="etPdfsLabel">
+            PDFs firmados
+            <span style="font-size:12px;color:#9b8fa0;font-weight:400;"> — Primero sube el archivo de metadata</span>
+          </label>
+          <div class="etitulo-drop-zone disabled-zone" id="etituloPdfsZone">
+            <input type="file" id="etituloPdfsInput" accept=".pdf" multiple disabled />
+            <div class="etitulo-drop-label">
+              <svg style="width:26px;height:26px;display:block;margin:0 auto 8px;" viewBox="0 0 24 24" fill="none" stroke="#9b8fa0" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              <strong>Arrastra los PDFs aqui</strong> o haz clic para seleccionarlos
+              <div style="font-size:11px;color:#b0a0bc;margin-top:4px;">Seleccion multiple — puedes subir todos a la vez</div>
+            </div>
+          </div>
+        </div>
+        <div class="etitulo-pdf-summary" id="etPdfSummary" style="display:none;"></div>
+      </div>
+
+      <!-- ── PASO 3: Configuracion y envio ── -->
+      <div id="etPaso3" style="margin-top:24px; display:none;">
+        <div class="field" style="max-width:320px; margin-bottom:20px;">
+          <label for="etitulo-baul-id" style="font-weight:600; color:#2b0e31;">ID del Baul (BeneficiarioId)</label>
+          <input id="etitulo-baul-id" type="number" class="input-pill" placeholder="Ej: 1234" />
+          <small style="color:#6d6270;display:block;margin-top:6px;font-size:12px;">
+            ID del beneficiario en el sistema e-Titulo.
+          </small>
+        </div>
+
+        <button type="button" id="etituloSubirBtn" class="btn-primary-xl" style="margin-bottom:0;">
+          SUBIR AL BAUL E-TITULO
+        </button>
+      </div>
+
+    </section>
+
+    <!-- ── Modal de progreso / resultados e-Titulo ── -->
+    <div id="etituloModal" style="display:none;position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.55);align-items:center;justify-content:center;">
+      <div style="background:#fff;border-radius:20px;width:90%;max-width:680px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,0.22);overflow:hidden;">
+
+        <!-- Header -->
+        <div style="padding:22px 28px 16px;border-bottom:1px solid #eadfd8;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+          <div>
+            <h3 id="etModalTitle" style="margin:0;font-size:17px;font-weight:800;color:#2a0d31;">Subiendo al baul e-Titulo...</h3>
+            <p id="etModalSubtitle" style="margin:4px 0 0;font-size:13px;color:#6d6270;"></p>
+          </div>
+          <button id="etModalClose" style="display:none;background:none;border:none;color:#9b8fa0;font-size:22px;cursor:pointer;line-height:1;padding:0 0 0 16px;">&times;</button>
+        </div>
+
+        <!-- Barra de progreso -->
+        <div style="padding:18px 28px 0;flex-shrink:0;">
+          <div style="background:#eadfd8;border-radius:8px;height:10px;overflow:hidden;">
+            <div id="etModalBar" style="background:linear-gradient(90deg,#c2185b,#2a0d31);height:100%;border-radius:8px;transition:width 0.4s;width:0%;"></div>
+          </div>
+          <div id="etModalBarText" style="font-size:12px;color:#6d6270;margin-top:6px;text-align:center;">Preparando archivos...</div>
+        </div>
+
+        <!-- Lista de resultados (scrollable) -->
+        <div id="etModalResults" style="flex:1;overflow-y:auto;margin:14px 28px 0;border:1px solid #eadfd8;border-radius:12px;font-size:13px;display:none;"></div>
+
+        <!-- Resumen final -->
+        <div id="etModalResumen" style="display:none;margin:14px 28px 0;padding:13px 16px;border-radius:10px;font-size:14px;font-weight:600;"></div>
+
+        <!-- Footer -->
+        <div style="padding:16px 28px;flex-shrink:0;display:flex;gap:10px;">
+          <button id="etModalCancelar" style="display:none;flex:1;height:44px;background:#fff;color:#c2185b;border:2px solid #c2185b;border-radius:12px;font-size:14px;font-weight:800;cursor:pointer;letter-spacing:.02em;">
+            CANCELAR
+          </button>
+          <button id="etModalCerrar" style="display:none;flex:1;height:44px;background:#2a0d31;color:#fff;border:none;border-radius:12px;font-size:14px;font-weight:800;cursor:pointer;letter-spacing:.02em;">
+            CERRAR
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    (function() {
+      // Estado global de la sección
+      const state = {
+        pagares: [],      // [{numeroPagare, nombreDeudor, codeudor, monto, moneda, nombreDoc, fechaExp, fechaVen, cedDeudor, cedCod}]
+        pdfFiles: {},     // { numeroPagare: File }
+        excelFile: null
+      };
+
+      // ── Helpers ──
+      function setStep(n) {
+        [1,2,3].forEach(i => {
+          const el = document.getElementById(`etStep${i}`);
+          if (!el) return;
+          el.classList.remove('active','done');
+          if (i < n) el.classList.add('done');
+          else if (i === n) el.classList.add('active');
+        });
+      }
+
+      function formatMonto(v) {
+        if (!v && v !== 0) return '—';
+        return Number(v).toLocaleString('es-CO', {minimumFractionDigits: 0});
+      }
+
+      function updateTablaRow(numeroPagare) {
+        const row = document.querySelector(`tr[data-pagare="${numeroPagare}"]`);
+        if (!row) return;
+        const badge = row.querySelector('.et-pdf-badge');
+        if (!badge) return;
+        if (state.pdfFiles[numeroPagare]) {
+          badge.className = 'et-pdf-badge has-pdf';
+          badge.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Con PDF`;
+        } else {
+          badge.className = 'et-pdf-badge no-pdf';
+          badge.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Sin PDF`;
+        }
+      }
+
+      function renderTabla() {
+        const tbody = document.getElementById('etTablaTbody');
+        if (!tbody) return;
+        tbody.innerHTML = state.pagares.map((p, i) => `
+          <tr data-pagare="${p.numeroPagare}">
+            <td class="muted">${i + 1}</td>
+            <td class="num">${p.numeroPagare}</td>
+            <td>${p.nombreDeudor || '—'}${p.cedDeudor ? `<div class="muted">CC ${p.cedDeudor}</div>` : ''}</td>
+            <td>${p.codeudor ? p.codeudor : '<span class="muted">—</span>'}${p.cedCod ? `<div class="muted">CC ${p.cedCod}</div>` : ''}</td>
+            <td style="text-align:right;">${formatMonto(p.monto)}</td>
+            <td>${p.moneda || 'COP'}</td>
+            <td class="muted" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${p.nombreDoc || ''}">${p.nombreDoc || '—'}</td>
+            <td style="text-align:center;"><span class="et-pdf-badge no-pdf"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Sin PDF</span></td>
+          </tr>`).join('');
+      }
+
+      function updatePdfSummary() {
+        const total = state.pagares.length;
+        const conPdf = Object.keys(state.pdfFiles).length;
+        const sinPdf = total - conPdf;
+        const summaryEl = document.getElementById('etPdfSummary');
+        if (!summaryEl) return;
+        summaryEl.style.display = 'flex';
+        summaryEl.innerHTML = `
+          <div class="etitulo-pdf-stat ok" style="${conPdf > 10 ? 'background:#fce8f0;color:#7a0d3a;border-color:#e8b0cc;' : ''}">${conPdf} con PDF${conPdf > 10 ? ' — maximo 10 por lote' : ''}</div>
+          ${sinPdf > 0 ? `<div class="etitulo-pdf-stat missing">${sinPdf} sin PDF — no se enviaran</div>` : ''}
+          <div class="etitulo-pdf-stat" style="background:#faf6f3;color:#2b0e31;border:1px solid #eadfd8;">${total} total en metadata</div>`;
+
+        // Mostrar paso 3 si hay al menos un PDF
+        if (conPdf > 0) {
+          document.getElementById('etPaso3').style.display = '';
+          setStep(3);
+        }
+      }
+
+      // ── Leer Excel / CSV ──
+      async function parseExcelBuffer(buffer, fileName) {
+        if (fileName.toLowerCase().endsWith('.csv')) {
+          return parseCSVBuffer(buffer);
+        }
+        // Usar xlsx desde CDN si no está disponible globalmente
+        // xlsx ya está disponible en el backend; aquí usamos la versión del navegador
+        if (typeof XLSX === 'undefined') {
+          throw new Error('Libreria XLSX no disponible. Recarga la pagina.');
+        }
+        const wb = XLSX.read(buffer, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        return XLSX.utils.sheet_to_json(ws, { header: 1 });
+      }
+
+      function parseCSVBuffer(buffer) {
+        const text = new TextDecoder('utf-8').decode(buffer);
+        const lines = text.split(/\r?\n/).filter(l => l.trim());
+        return lines.map(l => l.split(',').map(c => c.replace(/^"|"$/g,'').trim()));
+      }
+
+      function normalizeHeader(h) {
+        return String(h || '').trim().toUpperCase().replace(/\s+/g,' ');
+      }
+
+      function processRows(rows) {
+        const headers = (rows[0] || []).map(normalizeHeader);
+        const col = (name) => headers.findIndex(h => h.includes(name));
+
+        const iNum   = col('NUMERO PAGARE');
+        const iNomD  = col('NOMBRE DEUDOR');
+        const iApD   = col('APELLIDOS DEUDOR');
+        const iCedD  = col('CEDULA DEUDOR');
+        const iNomC  = col('NOMBRE CODEUDOR');
+        const iApC   = col('APELLIDOS CODEUDOR');
+        const iCedC  = col('CEDULA CODEUDOR');
+        const iMonto = col('MONTO');
+        const iMon   = col('TIPO MONEDA');
+        const iFExp  = col('FECHA EXPEDICION');
+        const iFVen  = col('FECHA VENCIMIENTO');
+        const iNDoc  = col('NOMBRE DOCUMENTO');
+
+        if (iNum < 0) throw new Error('No se encontro la columna NUMERO PAGARE en el archivo.');
+
+        // Limpia un valor de celda: devuelve '' si es N/A, null, undefined o vacio
+        function cleanCell(v) {
+          const s = String(v || '').trim();
+          return /^n\/a$/i.test(s) ? '' : s;
+        }
+
+        // Arma nombre completo solo con las partes que existen (sin N/A)
+        function buildName(nom, ap) {
+          const parts = [cleanCell(nom), cleanCell(ap)].filter(Boolean);
+          return parts.join(' ');
+        }
+
+        // Agrupar por numero pagare
+        const map = {};
+        rows.slice(1).forEach(row => {
+          if (!row || row.length < 2) return;
+          const num = String(row[iNum] || '').trim();
+          if (!num || num === 'undefined') return;
+          if (!map[num]) {
+            map[num] = {
+              numeroPagare: num,
+              nombreDeudor: buildName(row[iNomD], row[iApD]),
+              cedDeudor: cleanCell(row[iCedD]),
+              codeudores: [],
+              monto: parseFloat(row[iMonto]) || 0,
+              moneda: cleanCell(row[iMon]) || 'COP',
+              fechaExp: cleanCell(row[iFExp]),
+              fechaVen: cleanCell(row[iFVen]),
+              nombreDoc: cleanCell(row[iNDoc])
+            };
+          }
+          const nomC = buildName(row[iNomC], row[iApC]);
+          const cedC = cleanCell(row[iCedC]);
+          if (nomC) {
+            map[num].codeudores.push({ nombre: nomC, cedula: cedC });
+          }
+        });
+
+        return Object.values(map).map(p => ({
+          ...p,
+          codeudor: p.codeudores.map(c => c.nombre).join(', '),
+          cedCod: p.codeudores.map(c => c.cedula).filter(Boolean).join(', ')
+        }));
+      }
+
+      // ── Drag & drop Excel ──
+      const excelZone = document.getElementById('etituloExcelZone');
+      excelZone?.addEventListener('dragover', e => { e.preventDefault(); excelZone.classList.add('drag-over'); });
+      excelZone?.addEventListener('dragleave', () => excelZone.classList.remove('drag-over'));
+      excelZone?.addEventListener('drop', e => { e.preventDefault(); excelZone.classList.remove('drag-over'); });
+
+      // ── Drag & drop PDFs ──
+      const pdfsZone = document.getElementById('etituloPdfsZone');
+      pdfsZone?.addEventListener('dragover', e => { e.preventDefault(); if (!pdfsZone.classList.contains('disabled-zone')) pdfsZone.classList.add('drag-over'); });
+      pdfsZone?.addEventListener('dragleave', () => pdfsZone.classList.remove('drag-over'));
+      pdfsZone?.addEventListener('drop', e => {
+        e.preventDefault(); pdfsZone.classList.remove('drag-over');
+        if (pdfsZone.classList.contains('disabled-zone')) return;
+        const files = Array.from(e.dataTransfer?.files || []).filter(f => f.name.toLowerCase().endsWith('.pdf'));
+        processPdfs(files);
+      });
+
+      // ── Change Excel ──
+      document.getElementById('etituloExcelInput')?.addEventListener('change', async function() {
+        if (!this.files.length) return;
+        const file = this.files[0];
+        state.excelFile = file;
+        try {
+          const buf = await file.arrayBuffer();
+          const rows = await parseExcelBuffer(new Uint8Array(buf), file.name);
+          state.pagares = processRows(rows);
+          if (!state.pagares.length) {
+            alert('No se encontraron pagares en el archivo. Verifica que tenga la columna NUMERO PAGARE.');
+            return;
+          }
+          // Resetear PDFs al cambiar Excel
+          state.pdfFiles = {};
+
+          // Mostrar tabla
+          renderTabla();
+          document.getElementById('etExcelBannerText').textContent =
+            `${file.name} — ${state.pagares.length} pagares encontrados`;
+          document.getElementById('etExcelResult').style.display = '';
+
+          // Habilitar zona PDFs
+          const pdfsZone = document.getElementById('etituloPdfsZone');
+          const pdfsInput = document.getElementById('etituloPdfsInput');
+          pdfsZone.classList.remove('disabled-zone');
+          pdfsInput.disabled = false;
+          document.getElementById('etPdfsLabel').innerHTML =
+            `PDFs firmados <span style="font-size:12px;color:#9b8fa0;font-weight:400;"> — el nombre debe ser {numero}_firmado.pdf</span>`;
+
+          // Ocultar paso 3 hasta cargar PDFs
+          document.getElementById('etPaso3').style.display = 'none';
+          document.getElementById('etPdfSummary').style.display = 'none';
+          document.getElementById('etModalResults').style.display = 'none';
+          document.getElementById('etModalResumen').style.display = 'none';
+
+          setStep(2);
+        } catch(e) {
+          alert('Error leyendo el archivo: ' + e.message);
+        }
+      });
+
+      // ── Cambiar Excel ──
+      document.getElementById('etCambiarExcelBtn')?.addEventListener('click', () => {
+        document.getElementById('etituloExcelInput').value = '';
+        document.getElementById('etExcelResult').style.display = 'none';
+        document.getElementById('etPaso3').style.display = 'none';
+        document.getElementById('etPdfSummary').style.display = 'none';
+        const pdfsZone = document.getElementById('etituloPdfsZone');
+        pdfsZone.classList.add('disabled-zone');
+        document.getElementById('etituloPdfsInput').disabled = true;
+        document.getElementById('etituloPdfsInput').value = '';
+        state.pagares = [];
+        state.pdfFiles = {};
+        setStep(1);
+      });
+
+      // ── Change PDFs input ──
+      document.getElementById('etituloPdfsInput')?.addEventListener('change', function() {
+        processPdfs(Array.from(this.files));
+      });
+
+      function processPdfs(files) {
+        files.forEach(f => {
+          const match = f.name.match(/^(\d+)_firmado\.pdf$/i);
+          if (match) {
+            const num = match[1];
+            // Solo aceptar si existe en metadata
+            if (state.pagares.some(p => p.numeroPagare === num)) {
+              state.pdfFiles[num] = f;
+              updateTablaRow(num);
+            }
+          }
+        });
+        updatePdfSummary();
+      }
+
+      // ── Helpers modal ──
+      function openModal(title, subtitle) {
+        const m = document.getElementById('etituloModal');
+        document.getElementById('etModalTitle').textContent = title;
+        document.getElementById('etModalSubtitle').textContent = subtitle || '';
+        document.getElementById('etModalBar').style.width = '0%';
+        document.getElementById('etModalBarText').textContent = 'Preparando archivos...';
+        document.getElementById('etModalResults').style.display = 'none';
+        document.getElementById('etModalResults').innerHTML = '';
+        document.getElementById('etModalResumen').style.display = 'none';
+        document.getElementById('etModalClose').style.display = 'none';
+        document.getElementById('etModalCerrar').style.display = 'none';
+        m.style.display = 'flex';
+      }
+      function setModalProgress(pct, text) {
+        document.getElementById('etModalBar').style.width = pct + '%';
+        document.getElementById('etModalBarText').textContent = text;
+      }
+      function finalizeModal(ok, err, skip, results) {
+        setModalProgress(100, `Completado — ${ok} subidos, ${skip} omitidos, ${err} errores`);
+        const resultList = document.getElementById('etModalResults');
+        resultList.style.display = 'block';
+        results.filter(r => r.status !== 'skip').forEach(r => {
+          let cls, icon, detail;
+          if (r.status === 'ok') {
+            cls = 'ok'; icon = '✓';
+            detail = `<span class="etitulo-result-guid">GUID: ${r.guidId}</span>`;
+          } else {
+            cls = 'err'; icon = '✗';
+            detail = `<span class="etitulo-result-msg">${r.message}</span>`;
+          }
+          resultList.innerHTML += `<div class="etitulo-result-row ${cls}">
+            <span class="etitulo-result-icon">${icon}</span>
+            <span class="etitulo-result-num">#${r.numeroPagare}</span>
+            <span class="etitulo-result-msg">${r.nombreDeudor || ''}</span>
+            ${detail}
+          </div>`;
+        });
+        const resumen = document.getElementById('etModalResumen');
+        resumen.style.display = 'block';
+        if (err === 0) {
+          resumen.style.cssText = 'display:block;margin:14px 0 0;padding:13px 16px;border-radius:10px;font-size:14px;font-weight:600;background:#f3eef7;border:1px solid #c9b8d0;color:#2a0d31;';
+          resumen.textContent = `${ok} pagare(s) enviados exitosamente al baul e-Titulo.${skip ? ` ${skip} omitido(s).` : ''}`;
+        } else {
+          resumen.style.cssText = 'display:block;margin:14px 0 0;padding:13px 16px;border-radius:10px;font-size:14px;font-weight:600;background:#fce8f0;border:1px solid #e8b0cc;color:#7a0d3a;';
+          resumen.textContent = `${ok} enviados, ${err} con error, ${skip} omitidos.`;
+        }
+        document.getElementById('etModalTitle').textContent = err === 0 ? 'Proceso completado' : 'Proceso finalizado con errores';
+        document.getElementById('etModalCerrar').style.display = 'block';
+        document.getElementById('etModalClose').style.display = 'block';
+      }
+      function closeModal() {
+        document.getElementById('etituloModal').style.display = 'none';
+      }
+      document.getElementById('etModalClose')?.addEventListener('click', closeModal);
+      document.getElementById('etModalCerrar')?.addEventListener('click', closeModal);
+      document.getElementById('etModalCancelar')?.addEventListener('click', function() {
+        if (window._etituloXHR) window._etituloXHR.abort();
+        document.getElementById('etModalCancelar').style.display = 'none';
+        document.getElementById('etModalTitle').textContent = 'Subida cancelada';
+        setModalProgress(100, 'La subida fue cancelada por el usuario.');
+        document.getElementById('etModalBarText').style.color = '#c2185b';
+        document.getElementById('etModalCerrar').style.display = 'block';
+        document.getElementById('etModalClose').style.display = 'block';
+      });
+      // Click fuera del modal no cierra — la subida puede estar en curso
+
+      // ── Subir al baul ──
+      document.getElementById('etituloSubirBtn')?.addEventListener('click', async function() {
+        const baulId = document.getElementById('etitulo-baul-id')?.value.trim();
+        if (!baulId || isNaN(parseInt(baulId))) {
+          alert('Ingresa un ID de baul valido.');
+          return;
+        }
+        if (!state.pagares.length) {
+          alert('Carga el archivo de metadata primero.');
+          return;
+        }
+        const pdfKeys = Object.keys(state.pdfFiles);
+        if (!pdfKeys.length) {
+          alert('Carga al menos un PDF firmado.');
+          return;
+        }
+        if (pdfKeys.length > 10) {
+          alert(`Solo puedes subir hasta 10 PDFs a la vez. Tienes ${pdfKeys.length} cargados.\nDivide en lotes de máximo 10.`);
+          return;
+        }
+
+        const btn = this;
+        btn.disabled = true;
+        btn.textContent = 'Subiendo...';
+
+        openModal('Subiendo al baul e-Titulo...', `${pdfKeys.length} pagares — ID baul: ${baulId}`);
+
+        const formData = new FormData();
+        formData.append('beneficiarioId', baulId);
+        formData.append('excel', state.excelFile);
+        pdfKeys.forEach(num => formData.append('pdfs', state.pdfFiles[num]));
+
+        try {
+          setModalProgress(2, `Enviando ${pdfKeys.length} PDF(s) al servidor...`);
+          document.getElementById('etModalCancelar').style.display = 'block';
+
+          const rawText = await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            window._etituloXHR = xhr;
+            xhr.open('POST', '/api/etitulo/subir-masivo');
+            xhr.withCredentials = true;
+            xhr.upload.onprogress = function(e) {
+              if (e.lengthComputable) {
+                const pct = Math.round((e.loaded / e.total) * 60);
+                const mb = (e.loaded / 1048576).toFixed(1);
+                const total = (e.total / 1048576).toFixed(1);
+                setModalProgress(pct, `Subiendo... ${mb} MB de ${total} MB`);
+              }
+            };
+            xhr.onload = function() { resolve(xhr.responseText); };
+            xhr.onerror = function() { reject(new Error('Error de red')); };
+            xhr.onabort = function() { reject(new Error('CANCELADO')); };
+            xhr.send(formData);
+          });
+
+          document.getElementById('etModalCancelar').style.display = 'none';
+          setModalProgress(70, 'Procesando en e-Titulo...');
+
+          let data;
+          try {
+            data = JSON.parse(rawText);
+          } catch(parseErr) {
+            document.getElementById('etModalTitle').textContent = 'Error del servidor';
+            document.getElementById('etModalSubtitle').textContent = '';
+            setModalProgress(100, 'El servidor devolvio una respuesta inesperada.');
+            document.getElementById('etModalBarText').style.color = '#c2185b';
+            document.getElementById('etModalCerrar').style.display = 'block';
+            document.getElementById('etModalClose').style.display = 'block';
+            console.error('Respuesta no JSON:', rawText.substring(0, 500));
+            return;
+          }
+
+          if (!data.success && !data.results) {
+            document.getElementById('etModalTitle').textContent = 'Error';
+            setModalProgress(100, data.message || 'Error desconocido');
+            document.getElementById('etModalBarText').style.color = '#c2185b';
+            document.getElementById('etModalCerrar').style.display = 'block';
+            document.getElementById('etModalClose').style.display = 'block';
+            return;
+          }
+
+          const results = data.results || [];
+          const ok   = results.filter(r => r.status === 'ok').length;
+          const err  = results.filter(r => r.status === 'error').length;
+          const skip = results.filter(r => r.status === 'skip').length;
+          finalizeModal(ok, err, skip, results);
+          setStep(err === 0 ? 3 : 2);
+
+        } catch(e) {
+          document.getElementById('etModalCancelar').style.display = 'none';
+          if (e.message !== 'CANCELADO') {
+            document.getElementById('etModalTitle').textContent = 'Error de conexion';
+            setModalProgress(100, e.message);
+            document.getElementById('etModalBarText').style.color = '#c2185b';
+            document.getElementById('etModalCerrar').style.display = 'block';
+            document.getElementById('etModalClose').style.display = 'block';
+          }
+        } finally {
+          btn.disabled = false;
+          btn.textContent = 'SUBIR AL BAUL E-TITULO';
+        }
+      });
+    })();
+    </script>
+
+    <!-- XLSX para el navegador (necesario para leer .xlsx en el cliente) -->
+    <script>
+    if (typeof XLSX === 'undefined') {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
+      document.head.appendChild(s);
+    }
+    </script>
 
     </main>
   </div>

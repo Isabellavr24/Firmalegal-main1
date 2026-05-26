@@ -8898,6 +8898,240 @@ app.post('/api/recipients/set-otp-celular', requireAuth, async (req, res) => {
     }
 });
 
+// ==================== SUBIDA MASIVA E-TITULO (SUPERADMIN) ====================
+
+const XLSX = require('xlsx');
+
+// Multer en memoria para el endpoint masivo (Excel + PDFs)
+const etituloUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 100 * 1024 * 1024, files: 60 }
+});
+
+// POST /api/etitulo/subir-masivo
+app.post('/api/etitulo/subir-masivo', requireAuth, etituloUpload.fields([
+    { name: 'excel', maxCount: 1 },
+    { name: 'pdfs', maxCount: 10 }
+]), async (req, res) => {
+    try {
+        // Solo Superadministrador
+        const [reqUserRows] = await db.promise().query(
+            'SELECT r.role_name FROM users u INNER JOIN roles r ON u.role_id = r.role_id WHERE u.user_id = ?',
+            [req.userId]
+        );
+        if (!reqUserRows?.length || reqUserRows[0].role_name !== 'Superadministrador') {
+            return res.status(403).json({ success: false, message: 'Acceso denegado' });
+        }
+
+        const { beneficiarioId } = req.body;
+        if (!beneficiarioId || isNaN(parseInt(beneficiarioId))) {
+            return res.status(400).json({ success: false, message: 'beneficiarioId requerido' });
+        }
+
+        if (!req.files?.excel?.length) {
+            return res.status(400).json({ success: false, message: 'Archivo Excel requerido' });
+        }
+        if (!req.files?.pdfs?.length) {
+            return res.status(400).json({ success: false, message: 'PDFs requeridos' });
+        }
+
+        // Parsear Excel
+        const wb = XLSX.read(req.files.excel[0].buffer, { type: 'buffer' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+
+        // Fila 0 = cabeceras
+        const headers = (rows[0] || []).map(h => String(h || '').trim().toUpperCase());
+        const col = (name) => headers.findIndex(h => h.includes(name));
+
+        // Limpia celda: devuelve '' si es N/A, null o vacío
+        const cleanCell = (v) => { const s = String(v || '').trim(); return /^n\/a$/i.test(s) ? '' : s; };
+        // Arma nombre solo con partes no vacías
+        const buildName = (nom, ap) => [cleanCell(nom), cleanCell(ap)].filter(Boolean).join(' ');
+
+        const iNumPagare   = col('NUMERO PAGARE');
+        const iNomDeudor   = col('NOMBRE DEUDOR');
+        const iApelDeudor  = col('APELLIDOS DEUDOR');
+        const iCedDeudor   = col('CEDULA DEUDOR');
+        const iNomCod      = col('NOMBRE CODEUDOR');
+        const iApelCod     = col('APELLIDOS CODEUDOR');
+        const iCedCod      = col('CEDULA CODEUDOR');
+        const iMonto       = col('MONTO');
+        const iMoneda      = col('TIPO MONEDA');
+        const iFechaExp    = col('FECHA EXPEDICION');
+        const iFechaVen    = col('FECHA VENCIMIENTO');
+        const iNomDoc      = col('NOMBRE DOCUMENTO');
+
+        // Construir mapa PDF: numeroPagare -> buffer
+        const pdfMap = {};
+        req.files.pdfs.forEach(f => {
+            // Nombre esperado: {numero}_firmado.pdf
+            const match = f.originalname.match(/^(\d+)_firmado\.pdf$/i);
+            if (match) pdfMap[match[1]] = f.buffer;
+        });
+
+        const TV_API_URL = process.env.TV_API_URL || 'https://ra.pkiservices.co/api';
+
+        // Obtener token TV una sola vez
+        const tokenResp = await fetch(`${TV_API_URL}/Token`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ usuario: process.env.TV_API_USUARIO, clave: process.env.TV_API_CLAVE })
+        });
+        const tokenData = await tokenResp.json();
+        if (!tokenData.dato) {
+            return res.status(500).json({ success: false, message: 'Error obteniendo token e-titulo', detail: tokenData });
+        }
+        let tvToken = tokenData.dato;
+        let tokenObtainedAt = Date.now();
+
+        const results = [];
+
+        // Agrupar filas por numero de pagare (puede haber codeudores en filas separadas)
+        const pagaresMap = {};
+        rows.slice(1).forEach(row => {
+            if (!row || !row[iNumPagare]) return;
+            const num = String(row[iNumPagare]).trim();
+            if (!num) return;
+            if (!pagaresMap[num]) pagaresMap[num] = [];
+            pagaresMap[num].push(row);
+        });
+
+        for (const [numeroPagare, filas] of Object.entries(pagaresMap)) {
+            const fila = filas[0]; // primera fila = datos principales
+
+            const pdfBuffer = pdfMap[numeroPagare];
+            if (!pdfBuffer) {
+                results.push({ numeroPagare, status: 'skip', message: 'PDF no encontrado (esperado: ' + numeroPagare + '_firmado.pdf)' });
+                continue;
+            }
+
+            const nombreDeudor = buildName(fila[iNomDeudor], fila[iApelDeudor]);
+            const cedDeudor    = cleanCell(fila[iCedDeudor]);
+            const monto        = parseFloat(fila[iMonto]) || 0;
+            const moneda       = cleanCell(fila[iMoneda]) || 'COP';
+            const nombreDoc    = cleanCell(fila[iNomDoc]) || `PAGARE_${numeroPagare}`;
+
+            // Fecha expedicion: puede ser número serial Excel o string
+            let fechaExp = '', fechaVen = '';
+            const rawExp = fila[iFechaExp];
+            const rawVen = fila[iFechaVen];
+            if (rawExp && !String(rawExp).match(/N\/A/i)) {
+                if (typeof rawExp === 'number') {
+                    const d = XLSX.SSF.parse_date_code(rawExp);
+                    fechaExp = `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;
+                } else {
+                    fechaExp = String(rawExp).trim();
+                }
+            }
+            if (rawVen && !String(rawVen).match(/N\/A/i)) {
+                if (typeof rawVen === 'number') {
+                    const d = XLSX.SSF.parse_date_code(rawVen);
+                    fechaVen = `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;
+                } else {
+                    fechaVen = String(rawVen).trim();
+                }
+            }
+
+            // Construir contactos (deudor + codeudores de todas las filas)
+            const contactos = [];
+            filas.forEach((f, idx) => {
+                const cedD = cleanCell(f[iCedDeudor]);
+                const nomD = cleanCell(f[iNomDeudor]);
+                const apD  = cleanCell(f[iApelDeudor]);
+                if (idx === 0 && (nomD || apD)) {
+                    contactos.push({
+                        nombre: nomD,
+                        apellido: apD,
+                        rolFirmante: 'DEUDOR',
+                        tipoDocumento: 'CC',
+                        numeroDocumento: cedD,
+                        correo: '',
+                        telefono: ''
+                    });
+                }
+                const nomC = cleanCell(f[iNomCod]);
+                const apC  = cleanCell(f[iApelCod]);
+                const cedC = cleanCell(f[iCedCod]);
+                if (nomC || apC) {
+                    contactos.push({
+                        nombre: nomC,
+                        apellido: apC,
+                        rolFirmante: 'CODEUDOR',
+                        tipoDocumento: 'CC',
+                        numeroDocumento: cedC,
+                        correo: '',
+                        telefono: ''
+                    });
+                }
+            });
+
+            if (!contactos.length) {
+                contactos.push({ nombre: 'Deudor', apellido: '', rolFirmante: 'DEUDOR', tipoDocumento: 'CC', numeroDocumento: '', correo: '', telefono: '' });
+            }
+
+            const pdfBase64 = pdfBuffer.toString('base64');
+            const hashDocumento = crypto.createHash('sha256').update(pdfBase64).digest('hex').toUpperCase();
+
+            const payload = {
+                BeneficiarioId: parseInt(beneficiarioId),
+                numero: numeroPagare,
+                estado: 'ARCHIVO_Y_CONSERVACION',
+                nombreDocumento: nombreDoc,
+                montoDelPagare: monto,
+                tipoMoneda: moneda,
+                fechaExpedicion: fechaExp,
+                fechaVencimiento: fechaVen,
+                documentoB64: pdfBase64,
+                hashDocumento,
+                cantidadAdicional: 0,
+                ArregloAdicionales: [],
+                contactos
+            };
+
+            // Refrescar token cada 25 minutos
+            if (Date.now() - tokenObtainedAt > 25 * 60 * 1000) {
+                const rr = await fetch(`${TV_API_URL}/Token`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ usuario: process.env.TV_API_USUARIO, clave: process.env.TV_API_CLAVE })
+                });
+                const rd = await rr.json();
+                if (rd.dato) { tvToken = rd.dato; tokenObtainedAt = Date.now(); }
+            }
+
+            try {
+                const pagarResp = await fetch(`${TV_API_URL}/pagare/pagareCustodia`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tvToken}` },
+                    body: JSON.stringify(payload)
+                });
+                const pagarData = await pagarResp.json();
+                console.log(`[ETITULO-MASIVO] #${numeroPagare}: HTTP=${pagarResp.status} resp=${JSON.stringify(pagarData).substring(0,400)}`);
+
+                if (pagarData.code === 1000 && pagarData.pagare?.guidId) {
+                    results.push({ numeroPagare, status: 'ok', guidId: pagarData.pagare.guidId, nombreDeudor });
+                } else {
+                    results.push({ numeroPagare, status: 'error', message: pagarData.message || JSON.stringify(pagarData).substring(0,200), nombreDeudor });
+                }
+            } catch (err) {
+                results.push({ numeroPagare, status: 'error', message: err.message, nombreDeudor });
+            }
+        }
+
+        const ok   = results.filter(r => r.status === 'ok').length;
+        const err  = results.filter(r => r.status === 'error').length;
+        const skip = results.filter(r => r.status === 'skip').length;
+        console.log(`[ETITULO-MASIVO] Completado: ${ok} ok, ${err} errores, ${skip} omitidos`);
+
+        res.json({ success: true, results, summary: { ok, err, skip } });
+
+    } catch (error) {
+        console.error('❌ [ETITULO-MASIVO] Error:', error.message);
+        res.status(500).json({ success: false, message: 'Error interno', error: error.message });
+    }
+});
+
 // ==================== INICIAR SERVIDOR ====================
 const PORT = process.env.PORT || 3000;
 
