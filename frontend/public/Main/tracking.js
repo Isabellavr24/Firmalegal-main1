@@ -7,6 +7,7 @@ console.log('🔖 tracking.js v20260317b cargado');
 // ====== VARIABLES GLOBALES ======
 let currentDocumentType = 'normal'; // ✅ Tipo de documento actual: 'normal' o 'pagare'
 let _viOwnerVinculado = null; // Cache: null=no consultado, true/false
+let _verifiedRolesGlobal = {}; // roleId → email con VI verificada (para pre-inserción al enviar)
 
 // ====== SISTEMA DE TOASTS ======
 const ToastManager = {
@@ -172,6 +173,49 @@ function renderRecipients(recipients, tvGuidsByGroup, pagareSealed) {
   const normals = recipients.filter(r => !r.viewer_group_id && !r.is_final_signer);
 
   // ── Sección normal (documentos sin pagaré) ──
+
+  // Botón DESCARGAR DOCUMENTO COMPLETO cuando todos firmaron
+  if (normals.length > 0 && normals.every(r => r.status === 'completed')) {
+    const docId = getDocumentDataFromURL().id;
+    const sectionActions = document.querySelector('.section-actions');
+    if (sectionActions && docId && !document.getElementById('downloadNormalCompleteBtn')) {
+      const completeBtn = document.createElement('button');
+      completeBtn.id = 'downloadNormalCompleteBtn';
+      completeBtn.className = 'action-btn secondary';
+      completeBtn.innerHTML = `
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        DESCARGAR DOCUMENTO COMPLETO
+      `;
+      sectionActions.insertBefore(completeBtn, sectionActions.firstChild);
+
+      completeBtn.addEventListener('click', () => {
+        const origin = window.location.origin;
+        // Preferir recipient con traza VI (tiene traza + sello PKI)
+        // Si no, usar cualquier recipient completado
+        const viRec = normals.find(r => r.vi_traza_path && r.status === 'completed' && r.custom_pdf_path);
+        const anyRec = normals.find(r => r.status === 'completed' && r.custom_pdf_path);
+        const rec = viRec || anyRec;
+        if (!rec || !rec.custom_pdf_path) {
+          ToastManager.show({ type: 'warning', title: 'No disponible', message: 'El documento aun no tiene PDF final sellado' });
+          return;
+        }
+        const dlUrl = `${origin}/${rec.custom_pdf_path.replace(/^\/+/, '')}`;
+        const docName = document.querySelector('.document-title')?.textContent?.trim() || `documento_${docId}`;
+        const link = document.createElement('a');
+        link.href = dlUrl;
+        link.download = `${docName}_completo.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        ToastManager.show({ type: 'success', title: 'Descarga iniciada', message: 'Documento completo con sello PKI y trazabilidad' });
+      });
+    }
+  }
+
   normals.forEach(recipient => {
     container.appendChild(createRecipientCard(recipient));
   });
@@ -795,9 +839,11 @@ function createRecipientCard(recipient) {
     ? `<p style="font-size:11px;color:#c0392b;margin:3px 0 0;font-weight:600;">Identidad no verificada — correo en espera</p>`
     : pagareViSinOtp
       ? `<p style="font-size:11px;color:#c2410c;margin:3px 0 0;font-weight:600;">OTP no configurado — sin número de WhatsApp registrado</p>`
-      : sentWithoutVi
-        ? `<p style="font-size:11px;color:#856404;margin:3px 0 0;font-weight:600;">Correo enviado — identidad no verificada</p>`
-        : viValidatedBadge;
+      : recipient.status === 'waiting'
+        ? `<p style="font-size:11px;color:#64748b;margin:3px 0 0;font-weight:600;">Correo pendiente — recibirá notificación cuando el firmante anterior complete su firma</p>`
+        : sentWithoutVi
+          ? `<p style="font-size:11px;color:#856404;margin:3px 0 0;font-weight:600;">Correo enviado — identidad no verificada</p>`
+          : viValidatedBadge;
 
   // Botones a la derecha: VI cuando no verificado, normales cuando sí
   const actionsHtml = showViBlock
@@ -914,11 +960,12 @@ function createRecipientCard(recipient) {
 
 function getStatusClass(status) {
   const statusMap = {
-    'sent': 'pending',        // Enviado → azul
-    'opened': 'viewed',       // Abierto → amarillo
-    'completed': 'completed', // Completado → verde
-    'rejected': 'rejected',   // Rechazado → rojo
-    'pending': 'pending'      // Por si acaso
+    'sent': 'pending',
+    'opened': 'viewed',
+    'completed': 'completed',
+    'rejected': 'rejected',
+    'pending': 'pending',
+    'waiting': 'waiting'
   };
   return statusMap[status?.toLowerCase()] || 'pending';
 }
@@ -929,7 +976,8 @@ function getStatusText(status) {
     'opened': 'ABIERTO',
     'completed': 'COMPLETADO',
     'rejected': 'RECHAZADO',
-    'pending': 'PENDIENTE'
+    'pending': 'PENDIENTE',
+    'waiting': 'EN ESPERA'
   };
   return statusTextMap[status?.toLowerCase()] || 'PENDIENTE';
 }
@@ -1325,6 +1373,23 @@ function renderEmailTabWithRoles() {
     return _viOwnerVinculado;
   }
 
+  // Mapa roleId → email verificado (para el aviso global del modal)
+  // Usa la variable global para que el handler de ENVIAR pueda leerla
+  const verifiedRoles = _verifiedRolesGlobal;
+
+  function updateTrazaViNotice() {
+    const notice = document.getElementById('trazaViNotice');
+    const list = document.getElementById('trazaViNoticeList');
+    if (!notice || !list) return;
+    const verifiedEmails = Object.values(verifiedRoles).filter(Boolean);
+    if (verifiedEmails.length > 0) {
+      list.textContent = verifiedEmails.join(', ');
+      notice.style.display = 'block';
+    } else {
+      notice.style.display = 'none';
+    }
+  }
+
   // Verificar VI de un email y actualizar badge
   async function checkAndShowViBadge(email, roleId) {
     const badge = document.querySelector(`.vi-status-badge[data-role-id="${roleId}"]`);
@@ -1333,11 +1398,13 @@ function renderEmailTabWithRoles() {
     const isValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
     if (!email || !isValid) {
       badge.style.display = 'none';
+      delete verifiedRoles[roleId];
+      updateTrazaViNotice();
       return;
     }
 
     const vinculado = await getOwnerVinculado();
-    if (!vinculado) return; // Owner no usa VI — no mostrar nada
+    if (!vinculado) return;
 
     badge.style.display = 'flex';
     badge.innerHTML = `<span style="opacity:0.6">Verificando...</span>`;
@@ -1353,14 +1420,28 @@ function renderEmailTabWithRoles() {
 
       if (verifiedAt) {
         const fecha = new Date(verifiedAt).toLocaleDateString('es-CO', { day:'2-digit', month:'short', year:'numeric' });
-        badge.style.cssText = 'display:flex; align-items:center; gap:6px; margin-top:6px; font-size:12px; padding:5px 10px; border-radius:20px; background:#d1fae5; color:#065f46; border:1px solid #6ee7b7; width:fit-content;';
-        badge.innerHTML = `<svg style="width:13px;height:13px;flex-shrink:0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Identidad verificada <span style="opacity:0.7">${fecha}</span>`;
+        badge.style.cssText = 'display:flex; flex-direction:column; gap:4px; margin-top:6px; width:fit-content;';
+        badge.innerHTML = `
+          <div style="display:flex; align-items:center; gap:6px; font-size:12px; padding:5px 10px; border-radius:20px; background:#d1fae5; color:#065f46; border:1px solid #6ee7b7;">
+            <svg style="width:13px;height:13px;flex-shrink:0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            Identidad verificada <span style="opacity:0.7">${fecha}</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:6px; font-size:11px; padding:4px 10px; border-radius:20px; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe;">
+            <svg style="width:11px;height:11px;flex-shrink:0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+            Su trazabilidad se incluira en el documento
+          </div>
+        `;
+        verifiedRoles[roleId] = email;
       } else {
         badge.style.cssText = 'display:flex; align-items:center; gap:6px; margin-top:6px; font-size:12px; padding:5px 10px; border-radius:20px; background:#fff7ed; color:#92400e; border:1px solid #fcd34d; width:fit-content;';
         badge.innerHTML = `<svg style="width:13px;height:13px;flex-shrink:0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Identidad no verificada`;
+        delete verifiedRoles[roleId];
       }
+      updateTrazaViNotice();
     } catch (_) {
       badge.style.display = 'none';
+      delete verifiedRoles[roleId];
+      updateTrazaViNotice();
     }
   }
 
@@ -1982,6 +2063,11 @@ function closeRecipientsModal() {
     document.querySelectorAll('.role-email-input').forEach(input => {
       input.value = '';
     });
+
+    // Ocultar aviso de trazabilidades VI y limpiar estado
+    const trazaNotice = document.getElementById('trazaViNotice');
+    if (trazaNotice) trazaNotice.style.display = 'none';
+    Object.keys(_verifiedRolesGlobal).forEach(k => delete _verifiedRolesGlobal[k]);
   }
 }
 
@@ -2067,6 +2153,30 @@ async function sendPagaresBulk() {
     const docData = getDocumentDataFromURL();
     const userStr = localStorage.getItem('currentUser');
     const user = JSON.parse(userStr);
+
+    // Pre-insertar trazabilidades VI en el PDF antes de enviar los correos
+    // Incluir también el firmante definitivo si está presente
+    const allPagareEmails = [...new Set([
+      ...(window.pagareCsvData || []).flatMap(p => (p.firmantes || []).map(f => f.email).filter(Boolean)),
+      ...(finalSignerEmail ? [finalSignerEmail] : [])
+    ])];
+    if (allPagareEmails.length > 0) {
+      if (sendBtn) sendBtn.textContent = 'Verificando trazabilidades...';
+      try {
+        const preResp = await fetch(`/api/documents/${docData.id}/pre-insert-trazas`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ emails: allPagareEmails })
+        });
+        if (preResp.ok) {
+          const preData = await preResp.json();
+          if (preData.inserted > 0) console.log(`[PRE-TRAZA] ${preData.inserted} traza(s) insertada(s):`, preData.emails);
+        }
+      } catch (preErr) {
+        console.warn('[PRE-TRAZA] Error al pre-insertar, continuando:', preErr);
+      }
+      if (sendBtn) sendBtn.textContent = 'PROCESANDO...';
+    }
 
     // Enviar al backend
     const response = await fetch(`/api/documents/${docData.id}/pagare/send-bulk?user_id=${user.user_id}`, {
@@ -2341,6 +2451,37 @@ recipientsAddBtn?.addEventListener('click', async (event) => {
   }
   
   try {
+    // Pre-insertar trazabilidades VI antes de enviar correos.
+    // Recolectar todos los emails que se van a enviar y consultar al backend
+    // cuáles tienen traza VI disponible.
+    const allEmailsToSend = recipients.map(r => r.email).filter(Boolean);
+    console.log(`🔐 [PRE-TRAZA] Verificando trazas para ${allEmailsToSend.length} email(s):`, allEmailsToSend);
+
+    if (allEmailsToSend.length > 0) {
+      const sendBtn = document.getElementById('recipientsAdd');
+      if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = 'Verificando trazabilidades...'; }
+      try {
+        const preResp = await fetch(`/api/documents/${docData.id}/pre-insert-trazas`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ emails: allEmailsToSend })
+        });
+        if (preResp.ok) {
+          const preData = await preResp.json();
+          if (preData.inserted > 0) {
+            console.log(`✅ [PRE-TRAZA] ${preData.inserted} traza(s) insertada(s):`, preData.emails);
+          } else {
+            console.log(`ℹ️ [PRE-TRAZA] Sin trazas disponibles para estos emails`);
+          }
+        } else {
+          console.warn(`⚠️ [PRE-TRAZA] Error ${preResp.status}, continuando con envío...`);
+        }
+      } catch (preErr) {
+        console.warn(`⚠️ [PRE-TRAZA] Error, continuando con envío:`, preErr);
+      }
+      if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = 'ENVIAR'; }
+    }
+
     // Enviar al backend
     const response = await fetch(`/api/documents/${docData.id}/send?user_id=${user.user_id}`, {
       method: 'POST',
@@ -3374,7 +3515,7 @@ async function _processPagareCsvData(results, fileName) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emails: allEmails })
       });
-      if (checkResp.ok) { const d = await checkResp.json(); viVerified = d.verified || {}; viCelular = d.celular || {}; }
+      if (checkResp.ok) { const d = await checkResp.json(); viVerified = d.verified || {}; viCelular = d.celular || {}; window._viVerifiedCache = viVerified; }
     } catch (_) {}
   }
 
@@ -3398,7 +3539,7 @@ async function _processPagareCsvData(results, fileName) {
     const allEmailsList = [...new Set(pagaresData.flatMap(p => p.firmantes.map(f => f.email)))];
     const verCount = allEmailsList.filter(e => !!viVerified[e.toLowerCase()]).length;
     const noVerCount = allEmailsList.length - verCount;
-    if (verCount > 0) validaciones.push(`✓ ${verCount} email(s) con identidad ya verificada — firmarán sin traza VI`);
+    if (verCount > 0) validaciones.push(`✓ ${verCount} email(s) con identidad ya verificada — sus trazabilidades se incluiran en el documento`);
     if (noVerCount > 0) validaciones.push(`⚠ ${noVerCount} email(s) sin verificar — generarán trazabilidad VI al firmar`);
 
     // Resumen OTP WhatsApp
@@ -3512,6 +3653,22 @@ async function _processPagareCsvData(results, fileName) {
     fielCopiaEl.innerHTML = '';
   }
 
+  // Aviso de trazabilidades VI para pagaré
+  const trazaNoticeEl = document.getElementById('pagareCsvTrazaNotice');
+  const trazaNoticeListEl = document.getElementById('pagareCsvTrazaNoticeList');
+  if (trazaNoticeEl && trazaNoticeListEl && ownerVinculadoVI) {
+    const allEmailsList = [...new Set(pagaresData.flatMap(p => p.firmantes.map(f => f.email)))];
+    const verifiedEmails = allEmailsList.filter(e => !!viVerified[e.toLowerCase()]);
+    if (verifiedEmails.length > 0) {
+      trazaNoticeListEl.textContent = verifiedEmails.join(', ');
+      trazaNoticeEl.style.display = 'block';
+    } else {
+      trazaNoticeEl.style.display = 'none';
+    }
+  } else if (trazaNoticeEl) {
+    trazaNoticeEl.style.display = 'none';
+  }
+
   document.getElementById('pagareCsvUploadZone').style.display = 'none';
   document.getElementById('pagareCsvPreview').style.display = 'block';
 
@@ -3610,6 +3767,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 SIN NUMERO OTP
               </span>`;
           finalSignerViBadge.innerHTML = badges;
+
+          // Actualizar aviso azul de trazas para incluir/excluir el firmante definitivo
+          const trazaNoticeEl = document.getElementById('pagareCsvTrazaNotice');
+          const trazaNoticeListEl = document.getElementById('pagareCsvTrazaNoticeList');
+          if (trazaNoticeEl && trazaNoticeListEl) {
+            const csvEmails = [...new Set((window.pagareCsvData || []).flatMap(p =>
+              (p.firmantes || []).map(f => f.email).filter(Boolean)
+            ))];
+            const allVerified = [...new Set([
+              ...csvEmails.filter(e => !!(window._viVerifiedCache && window._viVerifiedCache[e.toLowerCase()])),
+              ...(isVerified ? [email] : [])
+            ])];
+            if (allVerified.length > 0) {
+              trazaNoticeListEl.textContent = allVerified.join(', ');
+              trazaNoticeEl.style.display = 'block';
+            } else {
+              trazaNoticeEl.style.display = 'none';
+            }
+          }
         } catch (_) { finalSignerViBadge.innerHTML = ''; }
       }, 600);
     });

@@ -1459,6 +1459,109 @@ router.put('/:id/file', requireAuth, async (req, res) => {
     }
 });
 
+// NOTE: pre-insert-trazas endpoint is defined in server.js (needs db scope)
+router.post('/:id/pre-insert-trazas-DISABLED', requireAuth, async (req, res) => {
+    const documentId = req.params.id;
+    const { emails = [] } = req.body;
+    const { PDFDocument: PDFDoc } = require('pdf-lib');
+    const { resolveFromRoot } = require('../config/paths');
+
+    try {
+        console.log(`\n🔐 [PRE-TRAZA] Documento ${documentId} — insertando trazas de: ${emails.join(', ')}`);
+
+        if (!emails.length) {
+            return res.json({ ok: true, inserted: 0, message: 'Sin emails verificados' });
+        }
+
+        // Obtener el documento base
+        const docRows = await new Promise((resolve, reject) => {
+            db.query('SELECT file_path, doc_only_path FROM documents WHERE document_id = ?',
+                [documentId], (err, rows) => { if (err) reject(err); else resolve(rows); });
+        });
+        if (!docRows.length) {
+            return res.status(404).json({ ok: false, error: 'Documento no encontrado' });
+        }
+
+        // Obtener la traza VI más reciente de cada email (de cualquier documento anterior)
+        const placeholders = emails.map(() => '?').join(',');
+        const allTrazas = await new Promise((resolve, reject) => {
+            db.query(
+                `SELECT email, vi_traza_path
+                 FROM document_recipients
+                 WHERE email IN (${placeholders}) AND vi_traza_path IS NOT NULL
+                 ORDER BY completed_at DESC`,
+                emails, (err, rows) => { if (err) reject(err); else resolve(rows); }
+            );
+        });
+        // Deduplicar: quedarse solo con la primera traza por email (la más reciente)
+        const seen = new Set();
+        const uniqueTrazas = allTrazas.filter(r => {
+            const key = r.email.toLowerCase();
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+
+        const trazasToInsert = uniqueTrazas.filter(r => r.vi_traza_path);
+        if (!trazasToInsert.length) {
+            console.log(`   ℹ️ [PRE-TRAZA] No se encontraron archivos de trazabilidad para insertar`);
+            return res.json({ ok: true, inserted: 0, message: 'Sin trazas disponibles' });
+        }
+
+        // PDF base: preferir doc_only_path (PDF limpio con firmas sin traza), luego file_path
+        const basePdfRel = (docRows[0].doc_only_path || docRows[0].file_path || '').replace(/^\/+/, '');
+        const basePdfAbs = resolveFromRoot(basePdfRel);
+        if (!fs.existsSync(basePdfAbs)) {
+            return res.status(500).json({ ok: false, error: 'PDF base no encontrado: ' + basePdfRel });
+        }
+
+        const basePdf = await PDFDoc.load(fs.readFileSync(basePdfAbs));
+        const insertedEmails = [];
+
+        for (const rec of trazasToInsert) {
+            const trazaAbs = resolveFromRoot(rec.vi_traza_path.replace(/^\/+/, ''));
+            if (!fs.existsSync(trazaAbs)) {
+                console.warn(`   ⚠️ [PRE-TRAZA] Archivo no encontrado: ${trazaAbs}`);
+                continue;
+            }
+            const trazaPdf = await PDFDoc.load(fs.readFileSync(trazaAbs));
+            const pages = await basePdf.copyPages(trazaPdf, trazaPdf.getPageIndices());
+            pages.forEach(p => basePdf.addPage(p));
+            insertedEmails.push(rec.email);
+            console.log(`   ✅ [PRE-TRAZA] Traza de ${rec.email} fusionada`);
+        }
+
+        if (!insertedEmails.length) {
+            return res.json({ ok: true, inserted: 0, message: 'Sin archivos de traza accesibles' });
+        }
+
+        // Guardar PDF fusionado y actualizar file_path del documento
+        const mergedBytes = Buffer.from(await basePdf.save());
+        const uploadsDir = resolveFromRoot('uploads', 'signed');
+        if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+        const mergedFilename = `pre_traza_${documentId}_${Date.now()}.pdf`;
+        const mergedAbsPath = path.join(uploadsDir, mergedFilename);
+        const mergedRelPath = `uploads/signed/${mergedFilename}`;
+        fs.writeFileSync(mergedAbsPath, mergedBytes);
+        console.log(`   📄 [PRE-TRAZA] PDF fusionado guardado: ${mergedAbsPath}`);
+
+        // Actualizar file_path del documento para que los correos salgan con el PDF fusionado
+        // doc_only_path mantiene el PDF sin trazas como base limpia para el sellado PKI
+        await new Promise((resolve, reject) => {
+            db.query('UPDATE documents SET file_path = ? WHERE document_id = ?',
+                [mergedRelPath, documentId], (err) => { if (err) reject(err); else resolve(); });
+        });
+        console.log(`   ✅ [PRE-TRAZA] file_path actualizado: ${mergedRelPath}`);
+
+        res.json({ ok: true, inserted: insertedEmails.length, emails: insertedEmails });
+
+    } catch (error) {
+        console.error('❌ [PRE-TRAZA] Error:', error);
+        res.status(500).json({ ok: false, error: 'Error al pre-insertar trazas: ' + error.message });
+    }
+});
+
 /**
  * =============================================
  * ENDPOINT: ENVIAR DOCUMENTO A DESTINATARIOS
@@ -1768,13 +1871,17 @@ router.post('/:id/send', requireAuth, async (req, res) => {
                 console.log(`   ✅ [VI] ${recipient.email} validado — enviando email de firma`);
             }
 
+            // Firma secuencial: orden 1 → 'sent' (recibe email), resto → 'waiting' (espera su turno)
+            const isFirstSigner = (signingOrder === 1 || signingOrder === null);
+            const recipientStatus = isFirstSigner ? 'sent' : 'waiting';
+
             // 🔥 Insertar en la base de datos con part_id, role_id, signing_order y can_sign_at
             const result = await new Promise((resolve, reject) => {
                 db.query(
                     `INSERT INTO document_recipients
                      (document_id, email, name, token, status, part_id, role_id, signing_order, can_sign_at, vi_validated_at)
-                     VALUES (?, ?, ?, ?, 'sent', ?, ?, ?, ?, ?)`,
-                    [documentId, recipient.email, recipient.name || recipient.email, token, partId, roleId, signingOrder, canSignAt, viValidatedAt],
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [documentId, recipient.email, recipient.name || recipient.email, token, recipientStatus, partId, roleId, signingOrder, canSignAt, viValidatedAt],
                     (err, result) => {
                         if (err) reject(err);
                         else resolve(result);
@@ -1790,6 +1897,12 @@ router.post('/:id/send', requireAuth, async (req, res) => {
                 roleId,
                 signingOrder
             });
+
+            // Solo enviar email al primer firmante (firma secuencial)
+            if (!isFirstSigner) {
+                console.log(`   ⏳ [SECUENCIAL] ${recipient.email} (orden ${signingOrder}) — en espera, no se envía email ahora`);
+                continue;
+            }
 
             // Preparar email
             const signatureUrl = `${req.protocol}://${req.get('host')}/public-sign.html?token=${token}`;
@@ -2037,13 +2150,13 @@ router.get('/:id/recipients', requireAuth, async (req, res) => {
                 `SELECT dr.recipient_id as id, dr.email, dr.name, dr.token, dr.status,
                         dr.sent_at, dr.opened_at, dr.completed_at, dr.rejected_at,
                         COALESCE(dr.vi_validated_at, vve.vi_validated_at) AS vi_validated_at,
-                        dr.vi_traza_path,
+                        dr.vi_traza_path, dr.custom_pdf_path,
                         dr.is_final_signer, dr.viewer_group_id,
                         vve.celular AS celular_otp
                  FROM document_recipients dr
                  LEFT JOIN vi_verified_emails vve ON CONVERT(vve.email USING utf8mb4) = CONVERT(dr.email USING utf8mb4)
                  WHERE dr.document_id = ?
-                 ORDER BY dr.viewer_group_id ASC, dr.sent_at ASC`,
+                 ORDER BY dr.viewer_group_id ASC, COALESCE(dr.signing_order, 9999) ASC, dr.sent_at ASC`,
                 [documentId],
                 (err, results) => {
                     if (err) reject(err);
@@ -2895,10 +3008,15 @@ async function generateAndSendPagares(docId, document, viewerGroups, allFields, 
             // Preparar emails para todos los recipients del grupo
             console.log(`   📧 Preparando emails para ${vg.recipients.length} recipient(s)...`);
 
-            // Preparar email para cada firmante del viewer group (omitir los que requieren VI primero)
+            // Preparar email para cada firmante del viewer group (omitir los que requieren VI o están en espera secuencial)
             for (const recipient of vg.recipients) {
                 if (recipient.needsVI) {
                     console.log(`   ⏸️ [VI] ${recipient.email} — email en espera (requiere validación de identidad)`);
+                    continue;
+                }
+                // Firma secuencial: solo enviar email al Firmante 1 (deudor)
+                if (recipient.signingOrder > 1) {
+                    console.log(`   ⏳ [SECUENCIAL] ${recipient.email} (orden ${recipient.signingOrder}) — en espera`);
                     continue;
                 }
                 try {
@@ -3304,9 +3422,12 @@ router.post('/:docId/pagare/send-bulk', requireAuth, async (req, res) => {
 
                 console.log(`      🔗 Mapeando partId ${firmante.partId} -> part_id real: ${realPartId}`);
 
-                // Determinar status: 'pending' si owner vinculado a VI y el firmante no está verificado
+                // Determinar status: firma secuencial — solo el Firmante 1 (deudor) recibe email inmediatamente
                 const firmanteVerificado = ownerVinculadoVI ? !!viVerifiedEmails[firmante.email.toLowerCase()] : true;
-                const firmanteStatus = (ownerVinculadoVI && !firmanteVerificado) ? 'pending' : 'sent';
+                const isFirstFirmante = firmante.partId === 1;
+                const firmanteStatus = (ownerVinculadoVI && !firmanteVerificado)
+                    ? 'pending'
+                    : isFirstFirmante ? 'sent' : 'waiting';
 
                 // Si ya verificado, copiar vi_validated_at previo
                 let viValidatedAt = null;
@@ -3337,13 +3458,13 @@ router.post('/:docId/pagare/send-bulk', requireAuth, async (req, res) => {
                     }
                 }
 
-                // Crear recipient
+                // Crear recipient con signing_order = partId (1=deudor primero, 2=codeudor después)
                 const firmanteName = firmante.name || firmante.roleName;
                 const [recipientResult] = await db.promise().query(
                     `INSERT INTO document_recipients
-                     (document_id, email, name, viewer_group_id, part_id, status, token, vi_validated_at)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                    [docId, firmante.email, firmanteName, viewerGroupId, realPartId, firmanteStatus, token, viValidatedAt]
+                     (document_id, email, name, viewer_group_id, part_id, status, token, vi_validated_at, signing_order)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [docId, firmante.email, firmanteName, viewerGroupId, realPartId, firmanteStatus, token, viValidatedAt, firmante.partId]
                 );
 
                 const recipientId = recipientResult.insertId;
@@ -3355,6 +3476,7 @@ router.post('/:docId/pagare/send-bulk', requireAuth, async (req, res) => {
                     name: firmanteName,
                     token,
                     partId: firmante.partId,
+                    signingOrder: firmante.partId,
                     needsVI: ownerVinculadoVI && !firmanteVerificado
                 });
 

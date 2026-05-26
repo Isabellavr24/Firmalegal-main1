@@ -1652,6 +1652,101 @@ app.use(requestLogger);
 // console.log('✅ Rutas de roles registradas');
 
 // =============================================
+// PRE-INSERTAR TRAZABILIDADES VI (antes del documentsController para no ser interceptado)
+// POST /api/documents/:id/pre-insert-trazas
+// =============================================
+app.post('/api/documents/:id/pre-insert-trazas', async (req, res) => {
+    const documentId = req.params.id;
+    const { emails = [] } = req.body;
+    const { PDFDocument: PDFDoc } = require('pdf-lib');
+
+    try {
+        console.log(`\n[PRE-TRAZA] Documento ${documentId} — emails: ${emails.join(', ')}`);
+
+        if (!emails.length) {
+            return res.json({ ok: true, inserted: 0 });
+        }
+
+        const [docRows] = await db.promise().query(
+            'SELECT file_path, doc_only_path FROM documents WHERE document_id = ?',
+            [documentId]
+        );
+        if (!docRows.length) {
+            return res.status(404).json({ ok: false, error: 'Documento no encontrado' });
+        }
+
+        const placeholders = emails.map(() => '?').join(',');
+        const [allTrazas] = await db.promise().query(
+            `SELECT email, vi_traza_path
+             FROM document_recipients
+             WHERE email IN (${placeholders}) AND vi_traza_path IS NOT NULL
+             ORDER BY COALESCE(completed_at, sent_at) DESC`,
+            emails
+        );
+
+        const seen = new Set();
+        const trazasToInsert = allTrazas.filter(r => {
+            const key = r.email.toLowerCase();
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+
+        if (!trazasToInsert.length) {
+            console.log(`   [PRE-TRAZA] Sin trazas disponibles para estos emails`);
+            return res.json({ ok: true, inserted: 0 });
+        }
+
+        const basePdfRel = (docRows[0].doc_only_path || docRows[0].file_path || '').replace(/^\/+/, '');
+        const basePdfAbs = resolveFromRoot(basePdfRel);
+        if (!fs.existsSync(basePdfAbs)) {
+            console.error(`   [PRE-TRAZA] PDF base no encontrado: ${basePdfAbs}`);
+            return res.status(500).json({ ok: false, error: 'PDF base no encontrado' });
+        }
+
+        const basePdf = await PDFDoc.load(fs.readFileSync(basePdfAbs));
+        const insertedEmails = [];
+
+        for (const rec of trazasToInsert) {
+            const trazaAbs = resolveFromRoot(rec.vi_traza_path.replace(/^\/+/, ''));
+            if (!fs.existsSync(trazaAbs)) {
+                console.warn(`   [PRE-TRAZA] Archivo no encontrado: ${trazaAbs}`);
+                continue;
+            }
+            const trazaPdf = await PDFDoc.load(fs.readFileSync(trazaAbs));
+            const pages = await basePdf.copyPages(trazaPdf, trazaPdf.getPageIndices());
+            pages.forEach(p => basePdf.addPage(p));
+            insertedEmails.push(rec.email);
+            console.log(`   [PRE-TRAZA] Traza de ${rec.email} fusionada`);
+        }
+
+        if (!insertedEmails.length) {
+            return res.json({ ok: true, inserted: 0 });
+        }
+
+        const mergedBytes = Buffer.from(await basePdf.save());
+        const uploadsSignedDir = resolveFromRoot('uploads', 'signed');
+        if (!fs.existsSync(uploadsSignedDir)) fs.mkdirSync(uploadsSignedDir, { recursive: true });
+        const mergedFilename = `pre_traza_${documentId}_${Date.now()}.pdf`;
+        const mergedAbsPath = path.join(uploadsSignedDir, mergedFilename);
+        const mergedRelPath = `uploads/signed/${mergedFilename}`;
+        fs.writeFileSync(mergedAbsPath, mergedBytes);
+
+        await db.promise().query(
+            'UPDATE documents SET file_path = ? WHERE document_id = ?',
+            [mergedRelPath, documentId]
+        );
+        console.log(`   [PRE-TRAZA] file_path actualizado -> ${mergedRelPath} (${insertedEmails.length} traza(s))`);
+
+        res.json({ ok: true, inserted: insertedEmails.length, emails: insertedEmails });
+
+    } catch (error) {
+        console.error('[PRE-TRAZA] Error:', error);
+        res.status(500).json({ ok: false, error: error.message });
+    }
+});
+
+// =============================================
 // NUEVAS RUTAS DE CARPETAS Y DOCUMENTOS
 // =============================================
 console.log('📁 Registrando rutas de carpetas y documentos...');
@@ -4162,7 +4257,8 @@ app.get('/api/public/document-recipients/:token', async (req, res) => {
                     email,
                     status,
                     is_final_signer,
-                    viewer_group_id
+                    viewer_group_id,
+                    vi_traza_path
                  FROM document_recipients
                  WHERE document_id = ? AND (is_final_signer = 0 OR is_final_signer IS NULL)`,
                 [documentId],
@@ -4217,6 +4313,109 @@ app.get('/api/public/document-recipients/:token', async (req, res) => {
             success: false,
             message: 'Error al obtener destinatarios'
         });
+    }
+});
+
+// POST /api/public/sign/pre-insert-trazas/:token
+// Genera un PDF de visualización que incluye todas las trazas VI disponibles sobre el PDF actual.
+// Este PDF se usa SOLO para mostrar al firmante antes de que firme — NO modifica la DB.
+// El flujo de firma sigue usando el custom_pdf_path original, y el sellado PKI inserta las trazas.
+app.post('/api/public/sign/pre-insert-trazas/:token', async (req, res) => {
+    const { token } = req.params;
+    const { PDFDocument: PDFDoc } = require('pdf-lib');
+
+    try {
+        // Obtener documento y destinatario actual
+        const [currentRows] = await db.promise().query(
+            `SELECT dr.recipient_id, dr.document_id, dr.email, dr.custom_pdf_path, dr.personal_pdf_path,
+                    d.file_path, d.document_type, d.doc_only_path
+             FROM document_recipients dr
+             INNER JOIN documents d ON dr.document_id = d.document_id
+             WHERE dr.token = ?`,
+            [token]
+        );
+
+        if (!currentRows.length) {
+            return res.status(404).json({ success: false, message: 'Token no encontrado' });
+        }
+
+        const current = currentRows[0];
+        const documentId = current.document_id;
+
+        // Obtener todos los destinatarios con trazas VI
+        const [allRecipients] = await db.promise().query(
+            `SELECT recipient_id, email, vi_traza_path, custom_pdf_path, personal_pdf_path
+             FROM document_recipients
+             WHERE document_id = ? AND (is_final_signer = 0 OR is_final_signer IS NULL)`,
+            [documentId]
+        );
+
+        const withTraza = allRecipients.filter(r => r.vi_traza_path);
+
+        if (!withTraza.length) {
+            return res.json({ success: true, inserted: 0, emails: [], pdfUrl: null });
+        }
+
+        // PDF base: usar personal_pdf_path si existe (PDF con datos CSV, sin traza), o
+        // custom_pdf_path de un recipient sin traza (para evitar duplicar trazas que ya están en el PDF base),
+        // o en último caso el file_path del documento.
+        const currentRecipientData = allRecipients.find(r => r.recipient_id === current.recipient_id);
+        const currentHasTraza = !!(currentRecipientData && currentRecipientData.vi_traza_path);
+        const recipWithoutTraza = allRecipients.find(r => !r.vi_traza_path && r.custom_pdf_path);
+
+        let basePdfSource;
+        if (current.personal_pdf_path) {
+            // Modo bulk: usar PDF con datos del CSV (sin traza)
+            basePdfSource = current.personal_pdf_path.replace(/^\/+/, '');
+        } else if (currentHasTraza && recipWithoutTraza) {
+            // El firmante ya tiene traza en su custom_pdf_path: usar el de otro recipient limpio
+            basePdfSource = recipWithoutTraza.custom_pdf_path.replace(/^\/+/, '');
+        } else if (current.custom_pdf_path) {
+            basePdfSource = current.custom_pdf_path.replace(/^\/+/, '');
+        } else {
+            basePdfSource = (current.file_path || '').replace(/^\/+/, '');
+        }
+        const basePdfAbs = resolveFromRoot(basePdfSource);
+        if (!fs.existsSync(basePdfAbs)) {
+            return res.status(500).json({ success: false, message: 'PDF base no encontrado: ' + basePdfSource });
+        }
+
+        // Fusionar todas las trazas encima del PDF base (solo para visualización)
+        const basePdf = await PDFDoc.load(fs.readFileSync(basePdfAbs));
+        const insertedEmails = [];
+
+        for (const rec of withTraza) {
+            const trazaAbs = resolveFromRoot(rec.vi_traza_path.replace(/^\/+/, ''));
+            if (!fs.existsSync(trazaAbs)) {
+                console.warn(`⚠️ [PRE-TRAZA] Archivo no encontrado: ${trazaAbs}`);
+                continue;
+            }
+            const trazaPdf = await PDFDoc.load(fs.readFileSync(trazaAbs));
+            const pages = await basePdf.copyPages(trazaPdf, trazaPdf.getPageIndices());
+            pages.forEach(p => basePdf.addPage(p));
+            insertedEmails.push(rec.email);
+            console.log(`✅ [PRE-TRAZA] Traza de ${rec.email} fusionada para visualización`);
+        }
+
+        if (!insertedEmails.length) {
+            return res.json({ success: true, inserted: 0, emails: [], pdfUrl: null });
+        }
+
+        // Guardar PDF temporal de visualización (no se referencia en DB)
+        const mergedBytes = Buffer.from(await basePdf.save());
+        const uploadsSignedDir = resolveFromRoot('uploads', 'signed');
+        if (!fs.existsSync(uploadsSignedDir)) fs.mkdirSync(uploadsSignedDir, { recursive: true });
+        const mergedFileName = `pre_traza_view_${documentId}_${Date.now()}.pdf`;
+        const mergedAbsPath = path.join(uploadsSignedDir, mergedFileName);
+        fs.writeFileSync(mergedAbsPath, mergedBytes);
+        console.log(`📄 [PRE-TRAZA] PDF de visualización guardado: ${mergedAbsPath} (${insertedEmails.length} traza(s))`);
+
+        const pdfUrl = `/uploads/signed/${mergedFileName}`;
+        res.json({ success: true, inserted: insertedEmails.length, emails: insertedEmails, pdfUrl });
+
+    } catch (error) {
+        console.error('❌ [PRE-TRAZA] Error:', error);
+        res.status(500).json({ success: false, message: 'Error al pre-insertar trazas' });
     }
 });
 
@@ -4421,6 +4620,74 @@ app.post('/api/public/sign/:token', async (req, res) => {
         if (recipient.viewer_group_id) {
             console.log(`📋 Pagaré detectado - Viewer Group: ${recipient.viewer_group_id}`);
             await checkPagareCompletion(recipient.viewer_group_id, recipient.document_id);
+
+            // FIRMA SECUENCIAL DE PAGARÉ: activar siguiente firmante del mismo viewer_group
+            try {
+                const [signerRow] = await new Promise((resolve, reject) => {
+                    db.query('SELECT signing_order FROM document_recipients WHERE token = ?',
+                        [token], (err, r) => { if (err) reject(err); else resolve([r]); });
+                });
+                const currentOrder = signerRow.length ? (signerRow[0].signing_order || 1) : 1;
+                const nextOrder = currentOrder + 1;
+
+                const [nextInGroup] = await new Promise((resolve, reject) => {
+                    db.query(
+                        `SELECT recipient_id, email, name, token FROM document_recipients
+                         WHERE viewer_group_id = ? AND signing_order = ? AND status = 'waiting'`,
+                        [recipient.viewer_group_id, nextOrder],
+                        (err, r) => { if (err) reject(err); else resolve([r]); }
+                    );
+                });
+
+                if (nextInGroup.length > 0) {
+                    await new Promise((resolve, reject) => {
+                        db.query(
+                            `UPDATE document_recipients SET status = 'sent', sent_at = NOW()
+                             WHERE viewer_group_id = ? AND signing_order = ? AND status = 'waiting'`,
+                            [recipient.viewer_group_id, nextOrder],
+                            (err) => { if (err) reject(err); else resolve(); }
+                        );
+                    });
+
+                    const [ownerRows] = await new Promise((resolve, reject) => {
+                        db.query(
+                            `SELECT u.first_name, u.last_name, u.email as owner_email,
+                                    ec.email_from_name as sender_name, ec.email_from as custom_sender_email, ec.sendgrid_api_key
+                             FROM users u LEFT JOIN email_config ec ON ec.user_id = u.user_id
+                             WHERE u.user_id = ?`,
+                            [recipient.owner_id], (err, r) => { if (err) reject(err); else resolve([r]); }
+                        );
+                    });
+                    const owner = ownerRows.length ? ownerRows[0] : {};
+                    const senderName = owner.sender_name || `${owner.first_name || ''} ${owner.last_name || ''}`.trim() || 'FirmaLegal';
+                    const fromEmail = owner.custom_sender_email || owner.owner_email || 'firmalegalonline@pkiservices.co';
+                    const docTitle = recipient.title || 'Pagaré';
+                    const appUrl = process.env.APP_URL || 'https://firmalegalonline.com';
+
+                    const signatureRequestTemplate = require('./lib/email/templates/signature-request-bulk');
+                    const sendgridLib = require('./lib/email/sendgrid');
+                    if (owner.sendgrid_api_key) sendgridLib.configureSendGrid(owner.sendgrid_api_key);
+
+                    const emailsSeqP = nextInGroup.map(next => {
+                        const signatureUrl = `${appUrl}/public-sign.html?token=${next.token}`;
+                        return {
+                            to: next.email,
+                            from: fromEmail,
+                            fromName: `${senderName} (FirmaLegal)`,
+                            replyTo: fromEmail,
+                            subject: `Solicitud de firma: ${docTitle}`,
+                            html: signatureRequestTemplate({ recipientName: next.name || next.email, documentTitle: docTitle, senderName, signatureUrl, appUrl }),
+                            text: `Estimado(a) ${next.name || next.email},\n\nEs tu turno de firmar el documento "${docTitle}".\n\nEnlace para firmar: ${signatureUrl}\n\nAtentamente,\n${senderName}`,
+                            categories: ['signature-request', 'sequential-signing-pagare'],
+                            customArgs: { document_id: String(recipient.document_id), recipient_id: String(next.recipient_id) }
+                        };
+                    });
+                    await sendgridLib.sendBatchEmails(emailsSeqP);
+                    console.log(`   [SECUENCIAL-PAGARE] Notificado firmante orden ${nextOrder} en viewer_group ${recipient.viewer_group_id}`);
+                }
+            } catch (seqPErr) {
+                console.error('[SECUENCIAL-PAGARE] Error:', seqPErr.message);
+            }
         }
 
         // 🔥 NUEVO: Verificar si todas las partes han firmado (DESPUÉS de actualizar estado)
@@ -4509,6 +4776,102 @@ app.post('/api/public/sign/:token', async (req, res) => {
             } else {
                 console.log(`⏳ Esperando a ${totalRecipients - completedRecipients} destinatario(s) más...`);
                 console.log(`   📋 Firmados: ${completedRecipients}/${totalRecipients}`);
+
+                // FIRMA SECUENCIAL: activar y notificar al siguiente firmante en orden
+                try {
+                    // Obtener signing_order del firmante que acaba de completar
+                    const [signerInfo] = await new Promise((resolve, reject) => {
+                        db.query(
+                            'SELECT signing_order FROM document_recipients WHERE token = ?',
+                            [token], (err, r) => { if (err) reject(err); else resolve([r]); }
+                        );
+                    });
+                    const currentOrder = signerInfo.length ? (signerInfo[0].signing_order || 1) : 1;
+                    const nextOrder = currentOrder + 1;
+
+                    // Buscar el siguiente firmante en espera
+                    const [nextRecipients] = await new Promise((resolve, reject) => {
+                        db.query(
+                            `SELECT dr.recipient_id, dr.email, dr.name, dr.token
+                             FROM document_recipients dr
+                             WHERE dr.document_id = ? AND dr.signing_order = ? AND dr.status = 'waiting'`,
+                            [recipient.document_id, nextOrder],
+                            (err, r) => { if (err) reject(err); else resolve([r]); }
+                        );
+                    });
+
+                    if (nextRecipients.length > 0) {
+                        // Activar todos los del siguiente orden (puede haber múltiples en el mismo orden)
+                        await new Promise((resolve, reject) => {
+                            db.query(
+                                `UPDATE document_recipients SET status = 'sent', sent_at = NOW()
+                                 WHERE document_id = ? AND signing_order = ? AND status = 'waiting'`,
+                                [recipient.document_id, nextOrder],
+                                (err) => { if (err) reject(err); else resolve(); }
+                            );
+                        });
+
+                        // Obtener datos del owner para el email
+                        const [ownerRows] = await new Promise((resolve, reject) => {
+                            db.query(
+                                `SELECT u.first_name, u.last_name, u.email as owner_email,
+                                        ec.email_from_name as sender_name, ec.email_from as custom_sender_email, ec.sendgrid_api_key
+                                 FROM users u
+                                 LEFT JOIN email_config ec ON ec.user_id = u.user_id
+                                 WHERE u.user_id = ?`,
+                                [recipient.owner_id],
+                                (err, r) => { if (err) reject(err); else resolve([r]); }
+                            );
+                        });
+                        const owner = ownerRows.length ? ownerRows[0] : {};
+                        const senderName = owner.sender_name || `${owner.first_name || ''} ${owner.last_name || ''}`.trim() || 'FirmaLegal';
+                        const fromEmail = owner.custom_sender_email || owner.owner_email || 'firmalegalonline@pkiservices.co';
+                        const docTitle = recipient.title || 'Documento';
+                        const appUrl = `${process.env.APP_URL || 'https://firmalegalonline.com'}`;
+
+                        const emailsSeq = [];
+                        const signatureRequestTemplate = require('./lib/email/templates/signature-request-bulk');
+                        const sendgridLib = require('./lib/email/sendgrid');
+
+                        for (const next of nextRecipients) {
+                            const signatureUrl = `${appUrl}/public-sign.html?token=${next.token}`;
+                            const htmlContent = signatureRequestTemplate({
+                                recipientName: next.name || next.email,
+                                documentTitle: docTitle,
+                                senderName,
+                                signatureUrl,
+                                appUrl
+                            });
+                            emailsSeq.push({
+                                to: next.email,
+                                from: fromEmail,
+                                fromName: `${senderName} (FirmaLegal)`,
+                                replyTo: fromEmail,
+                                subject: `Solicitud de firma: ${docTitle}`,
+                                html: htmlContent,
+                                text: `Estimado(a) ${next.name || next.email},\n\nEs tu turno de firmar el documento "${docTitle}".\n\nEnlace para firmar: ${signatureUrl}\n\nAtentamente,\n${senderName}`,
+                                categories: ['signature-request', 'sequential-signing'],
+                                customArgs: { document_id: String(recipient.document_id), recipient_id: String(next.recipient_id) }
+                            });
+                            console.log(`   [SECUENCIAL] Notificando a siguiente firmante (orden ${nextOrder}): ${next.email}`);
+                        }
+
+                        // Obtener API key del owner para enviar con su cuenta SendGrid
+                        const [ownerApiKey] = await new Promise((resolve, reject) => {
+                            db.query(
+                                'SELECT sendgrid_api_key FROM email_config WHERE user_id = ? LIMIT 1',
+                                [recipient.owner_id], (err, r) => { if (err) reject(err); else resolve([r]); }
+                            );
+                        });
+                        if (ownerApiKey.length && ownerApiKey[0].sendgrid_api_key) {
+                            sendgridLib.configureSendGrid(ownerApiKey[0].sendgrid_api_key);
+                        }
+                        await sendgridLib.sendBatchEmails(emailsSeq);
+                        console.log(`   [SECUENCIAL] ${emailsSeq.length} email(s) enviado(s) al orden ${nextOrder}`);
+                    }
+                } catch (seqErr) {
+                    console.error('[SECUENCIAL] Error activando siguiente firmante:', seqErr.message);
+                }
             }
         }
 
@@ -6145,7 +6508,7 @@ app.post('/api/public/sign/:token', async (req, res) => {
                         );
                     });
 
-                    // Actualizar custom_pdf_path: sin VI = mismo final; con VI = final + traza
+                    // Actualizar custom_pdf_path para destinatarios sin traza VI
                     await new Promise((resolve, reject) => {
                         db.query(
                             'UPDATE document_recipients SET custom_pdf_path = ? WHERE document_id = ? AND vi_traza_path IS NULL',
@@ -6155,10 +6518,9 @@ app.post('/api/public/sign/:token', async (req, res) => {
                     });
                     console.log('✅ PDF compartido actualizado (destinatarios sin traza VI)');
 
-                    // Trazabilidad VI: mezclar final + traza para cada destinatario con VI
+                    // Trazabilidad VI: fusionar traza ANTES del sello PKI para mantener firma válida
                     try {
                         const { PDFDocument: PDFDoc } = require('pdf-lib');
-                        const finalAbsPath = resolveFromRoot(relativeFinalPath);
                         const recipientsWithTraza = allDocRecipientsFinal.filter(r => r.vi_traza_path);
 
                         for (const rec of recipientsWithTraza) {
@@ -6168,16 +6530,32 @@ app.post('/api/public/sign/:token', async (req, res) => {
                                     console.warn(`⚠️ [VI-TRAZA] Archivo traza no encontrado para ${rec.email}`);
                                     continue;
                                 }
-                                const finalPdf = await PDFDoc.load(fs.readFileSync(finalAbsPath));
+
+                                // Fusionar PDF intermedio (con firmas, sin PKI) + traza
+                                const intermediatePdfForRec = resolveFromRoot(intermediatePdfSource);
+                                const basePdf = await PDFDoc.load(fs.readFileSync(intermediatePdfForRec));
                                 const trazaPdf = await PDFDoc.load(fs.readFileSync(trazaAbsPath));
-                                const pages = await finalPdf.copyPages(trazaPdf, trazaPdf.getPageIndices());
-                                pages.forEach(p => finalPdf.addPage(p));
-                                const mergedBytes = await finalPdf.save();
+                                const pages = await basePdf.copyPages(trazaPdf, trazaPdf.getPageIndices());
+                                pages.forEach(p => basePdf.addPage(p));
+                                const mergedBytes = await basePdf.save();
+
+                                // Sellar el PDF fusionado con PKI
+                                const sealsForRec = await computeSeals(Buffer.from(mergedBytes), sealFieldsFinal);
+                                const signedViPdfBuffer = await pythonSigner.signPdf(Buffer.from(mergedBytes), {
+                                    reason: reasonText,
+                                    location: 'Colombia',
+                                    signerName: 'PKI Services',
+                                    contactInfo,
+                                    fieldName: `Signature_${recipient.document_id}_vi_${rec.recipient_id}`,
+                                    visible: true,
+                                    seals: sealsForRec.length > 0 ? sealsForRec : null,
+                                    verificationToken
+                                });
 
                                 const personalFilename = `final_${recipient.document_id}_recipient_${rec.recipient_id}_vi_${Date.now()}.pdf`;
                                 const personalAbsPath = path.join(intermediatePdfDir, personalFilename);
                                 const personalRelPath = path.join('uploads', 'signed', personalFilename).replace(/\\/g, '/');
-                                fs.writeFileSync(personalAbsPath, mergedBytes);
+                                fs.writeFileSync(personalAbsPath, signedViPdfBuffer);
 
                                 await new Promise((resolve, reject) => {
                                     db.query(
@@ -6186,7 +6564,7 @@ app.post('/api/public/sign/:token', async (req, res) => {
                                         (err) => { if (err) reject(err); else resolve(); }
                                     );
                                 });
-                                console.log(`✅ [VI-TRAZA] PDF personal con trazabilidad para ${rec.email}: ${personalFilename}`);
+                                console.log(`✅ [VI-TRAZA] PDF con trazabilidad sellado con PKI para ${rec.email}: ${personalFilename}`);
                             } catch (recErr) {
                                 console.error(`⚠️ [VI-TRAZA] Error para ${rec.email}:`, recErr.message);
                             }

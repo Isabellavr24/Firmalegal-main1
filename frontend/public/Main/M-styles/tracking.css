@@ -294,6 +294,12 @@
   color: #1e40af;
 }
 
+.status-badge.waiting {
+  background: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #cbd5e1;
+}
+
 .recipient-emails {
   flex: 1;
   min-width: 0;
@@ -565,6 +571,31 @@
 
 .modal-back .modal-recipients {
   max-width: 700px;
+  max-height: 90vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border-radius: 16px;
+}
+
+.modal-back .modal-recipients .modal-body {
+  max-height: none;
+}
+
+/* Forzar que el border-radius se respete cuando hay scroll */
+.modal-back .modal-recipients .modal-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #fff;
+  border-radius: 16px 16px 0 0;
+}
+
+.modal-back .modal-recipients .modal-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: #fafafa;
+  border-radius: 0 0 16px 16px;
 }
 
 .modal-header {

@@ -563,6 +563,16 @@
                     <div id="pagareCsvViTable" style="display:none; margin-top:10px;"></div>
                     <!-- Resumen de fiel copia por pagaré -->
                     <div id="pagareCsvFielCopia" style="display:none; margin-top:10px;"></div>
+                    <!-- Aviso trazabilidades VI se incluiran en el documento -->
+                    <div id="pagareCsvTrazaNotice" style="display:none; margin-top:10px; padding: 10px 14px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px;">
+                      <div style="display:flex; align-items:flex-start; gap:8px;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1d4ed8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                        <div>
+                          <p style="margin:0 0 2px 0; font-size:12px; font-weight:600; color:#1d4ed8;">Trazabilidades de identidad se incluiran en el documento</p>
+                          <p id="pagareCsvTrazaNoticeList" style="margin:0; font-size:11px; color:#1e40af; line-height:1.5;"></p>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -592,6 +602,19 @@
               </div>
 
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Aviso trazabilidades VI — se muestra cuando hay destinatarios con VI verificada -->
+      <div id="trazaViNotice" style="display:none; margin: 0 0 10px 0; padding: 10px 14px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px;">
+        <div style="display:flex; align-items:flex-start; gap:8px;">
+          <svg style="flex-shrink:0; margin-top:1px;" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1d4ed8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          <div>
+            <p style="margin:0 0 4px; font-size:12px; color:#1d4ed8; font-weight:600; line-height:1.4;">
+              Trazabilidades de identidad se incluiran en el documento
+            </p>
+            <p id="trazaViNoticeList" style="margin:0; font-size:11px; color:#1e40af; line-height:1.5;"></p>
           </div>
         </div>
       </div>
