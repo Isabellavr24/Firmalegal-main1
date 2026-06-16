@@ -1,3 +1,25 @@
+// ===== Toast de confirmación de mapeo =====
+let _mapeoToastTimer = null;
+function showMapeoToast(label) {
+  let toast = document.getElementById('mapeoToast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'mapeoToast';
+    toast.className = 'mapeo-toast';
+    document.body.appendChild(toast);
+  }
+  if (label) {
+    toast.innerHTML = `Mapeado a: <span class="mapeo-toast-label">"${label}"</span>`;
+    toast.style.background = '#2a0d31';
+  } else {
+    toast.innerHTML = `Sin mapeo — coloca el campo junto a un texto del PDF`;
+    toast.style.background = '#c2185b';
+  }
+  toast.classList.add('visible');
+  clearTimeout(_mapeoToastTimer);
+  _mapeoToastTimer = setTimeout(() => toast.classList.remove('visible'), 3000);
+}
+
 // ===== Utilidad Touch/Mouse =====
 function getEventPoint(e) {
   if (e.touches && e.touches.length > 0) {
@@ -1060,10 +1082,10 @@ function initPageOverlays() {
       // Remover rectángulo temporal
       drawRect.remove();
       
-      // Validar tamaño mínimo
-      const MIN_WIDTH = 50;
-      const MIN_HEIGHT = 30;
-      
+      // Validar tamaño mínimo — el sello PKI requiere más espacio para el texto de acreditación
+      const MIN_WIDTH = placingFieldType === 'seal' ? 150 : 50;
+      const MIN_HEIGHT = placingFieldType === 'seal' ? 80 : 30;
+
       if(width < MIN_WIDTH || height < MIN_HEIGHT) {
         console.log(`⚠️ Campo muy pequeño (${width}x${height}), mínimo: ${MIN_WIDTH}x${MIN_HEIGHT}`);
         isDrawingField = false;
@@ -1117,21 +1139,36 @@ function initPageOverlays() {
           // Coordenadas del campo (viewport)
           const fieldLeft = left;
           const fieldTop = top;
-          // Permitir mapeo si el campo y el texto se solapan horizontalmente y verticalmente, con mayor tolerancia
-          const VERTICAL_TOLERANCE = 15; // px de margen extra arriba y abajo
-          const HORIZONTAL_TOLERANCE = 20; // px de margen extra a la izquierda y derecha
-          // Buscar todos los candidatos válidos ordenados por distancia
-          let candidates = [];
-          for (const t of items) {
-            const horizontalOverlap = (t.x + t.w + HORIZONTAL_TOLERANCE > fieldLeft) && (t.x - HORIZONTAL_TOLERANCE < fieldLeft + width);
-            const verticalOverlap = (t.y + t.h + VERTICAL_TOLERANCE > fieldTop) && (t.y - VERTICAL_TOLERANCE < fieldTop + height);
-            if (horizontalOverlap && verticalOverlap) {
-              const dist = Math.abs(fieldLeft - (t.x + t.w));
-              candidates.push({ ...t, dist });
+          const HORIZONTAL_TOLERANCE = 20;
+
+          // Función para puntuar candidatos: prioriza solape vertical real, luego distancia horizontal
+          const scoreCandidates = (vTolerance) => {
+            const result = [];
+            for (const t of items) {
+              const horizontalOverlap = (t.x + t.w + HORIZONTAL_TOLERANCE > fieldLeft) && (t.x - HORIZONTAL_TOLERANCE < fieldLeft + width);
+              const verticalOverlap = (t.y + t.h + vTolerance > fieldTop) && (t.y - vTolerance < fieldTop + height);
+              if (horizontalOverlap && verticalOverlap) {
+                // Penalización vertical: cuánto se sale del campo en vertical
+                const vCenter = fieldTop + height / 2;
+                const tCenter = t.y + t.h / 2;
+                const vPenalty = Math.max(0, Math.abs(vCenter - tCenter) - height / 2);
+                const hDist = Math.max(0, fieldLeft - (t.x + t.w)); // distancia horizontal al borde izq del campo
+                // Score: primero el que más solapa verticalmente, luego el más cercano horizontalmente
+                const score = vPenalty * 10 + hDist;
+                result.push({ ...t, score });
+              }
             }
-          }
-          // Ordenar candidatos por distancia (más pegado primero)
-          candidates.sort((a, b) => a.dist - b.dist);
+            result.sort((a, b) => a.score - b.score);
+            return result;
+          };
+
+          // Intento 1: tolerancia cero (mismo renglón exacto)
+          let candidates = scoreCandidates(0);
+          // Intento 2: tolerancia pequeña si no hay candidatos exactos
+          if (!candidates.length) candidates = scoreCandidates(6);
+          // Intento 3: tolerancia amplia como fallback final
+          if (!candidates.length) candidates = scoreCandidates(15);
+
           // Buscar el primer candidato que NO sea solo guiones bajos
           let best = null;
           for (const cand of candidates) {
@@ -1250,8 +1287,15 @@ function initPageOverlays() {
         labelColor = roleColor;
       }
       
+      const mappedBadge = (placingFieldType === 'text' && mappedLabel && mappedLabel.trim())
+        ? `<span class="mapped-label-badge" title="Mapeado a: ${mappedLabel.trim()}">${mappedLabel.trim()}</span>`
+        : (placingFieldType === 'text' ? `<span class="mapped-label-badge no-map" title="Sin mapeo — coloca el campo junto a un texto del PDF">Sin mapeo</span>` : '');
+
+      if (placingFieldType === 'text') showMapeoToast(mappedLabel && mappedLabel.trim() ? mappedLabel.trim() : null);
+
       el.innerHTML = `
         <span class="label" style="color: ${labelColor}; font-weight: ${roleName || placingFieldType === 'seal' || placingFieldType === 'final_signature' ? '600' : '500'};">${fieldLabel}</span>
+        ${mappedBadge}
         <button class="delete-btn" title="Eliminar">×</button>
       `;
 
@@ -1460,51 +1504,53 @@ function doResize(e) {
   let newLeft = resizeStartLeft;
   let newTop = resizeStartTop;
 
-  // Tamaño mínimo
-  const minSize = 30;
+  // Tamaño mínimo — el sello PKI necesita espacio para el texto de acreditación
+  const fieldType = resizingField ? resizingField.dataset.type : '';
+  const minWidth = fieldType === 'seal' ? 150 : 30;
+  const minHeight = fieldType === 'seal' ? 80 : 30;
 
   // Calcular nuevas dimensiones según la dirección
   switch (resizeDirection) {
     case 'se': // Esquina inferior derecha
-      newWidth = Math.max(minSize, resizeStartWidth + deltaX);
-      newHeight = Math.max(minSize, resizeStartHeight + deltaY);
+      newWidth = Math.max(minWidth, resizeStartWidth + deltaX);
+      newHeight = Math.max(minHeight, resizeStartHeight + deltaY);
       break;
 
     case 'sw': // Esquina inferior izquierda
-      newWidth = Math.max(minSize, resizeStartWidth - deltaX);
-      newHeight = Math.max(minSize, resizeStartHeight + deltaY);
-      if (newWidth > minSize) newLeft = resizeStartLeft + deltaX;
+      newWidth = Math.max(minWidth, resizeStartWidth - deltaX);
+      newHeight = Math.max(minHeight, resizeStartHeight + deltaY);
+      if (newWidth > minWidth) newLeft = resizeStartLeft + deltaX;
       break;
 
     case 'ne': // Esquina superior derecha
-      newWidth = Math.max(minSize, resizeStartWidth + deltaX);
-      newHeight = Math.max(minSize, resizeStartHeight - deltaY);
-      if (newHeight > minSize) newTop = resizeStartTop + deltaY;
+      newWidth = Math.max(minWidth, resizeStartWidth + deltaX);
+      newHeight = Math.max(minHeight, resizeStartHeight - deltaY);
+      if (newHeight > minHeight) newTop = resizeStartTop + deltaY;
       break;
 
     case 'nw': // Esquina superior izquierda
-      newWidth = Math.max(minSize, resizeStartWidth - deltaX);
-      newHeight = Math.max(minSize, resizeStartHeight - deltaY);
-      if (newWidth > minSize) newLeft = resizeStartLeft + deltaX;
-      if (newHeight > minSize) newTop = resizeStartTop + deltaY;
+      newWidth = Math.max(minWidth, resizeStartWidth - deltaX);
+      newHeight = Math.max(minHeight, resizeStartHeight - deltaY);
+      if (newWidth > minWidth) newLeft = resizeStartLeft + deltaX;
+      if (newHeight > minHeight) newTop = resizeStartTop + deltaY;
       break;
 
     case 'e': // Borde derecho
-      newWidth = Math.max(minSize, resizeStartWidth + deltaX);
+      newWidth = Math.max(minWidth, resizeStartWidth + deltaX);
       break;
 
     case 'w': // Borde izquierdo
-      newWidth = Math.max(minSize, resizeStartWidth - deltaX);
-      if (newWidth > minSize) newLeft = resizeStartLeft + deltaX;
+      newWidth = Math.max(minWidth, resizeStartWidth - deltaX);
+      if (newWidth > minWidth) newLeft = resizeStartLeft + deltaX;
       break;
 
     case 's': // Borde inferior
-      newHeight = Math.max(minSize, resizeStartHeight + deltaY);
+      newHeight = Math.max(minHeight, resizeStartHeight + deltaY);
       break;
 
     case 'n': // Borde superior
-      newHeight = Math.max(minSize, resizeStartHeight - deltaY);
-      if (newHeight > minSize) newTop = resizeStartTop + deltaY;
+      newHeight = Math.max(minHeight, resizeStartHeight - deltaY);
+      if (newHeight > minHeight) newTop = resizeStartTop + deltaY;
       break;
   }
 

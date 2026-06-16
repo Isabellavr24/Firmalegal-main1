@@ -467,7 +467,7 @@ async function sendFielCopiaAlDeudor(documentId, viewerGroupId, pdfBuffer) {
             });
         }
 
-        // Mensaje final en la última página (recuadro centrado al pie)
+        // Mensaje final en la última página (recuadro centrado al pie, encima del sello PKI)
         const lastPage = pages[totalPages - 1];
         const { width: lw } = lastPage.getSize();
         const msgFontSize = 9;
@@ -479,7 +479,8 @@ async function sendFielCopiaAlDeudor(documentId, viewerGroupId, pdfBuffer) {
         const boxW = lw * 0.72;
         const boxH = 50;
         const boxX = (lw - boxW) / 2;
-        const boxY = 18;
+        // Posicionar encima del área del sello PKI (sello por defecto ocupa ~y=10 a y=130 en la última página)
+        const boxY = 140;
 
         // Fondo blanco con borde sutil
         lastPage.drawRectangle({
@@ -652,7 +653,7 @@ async function sendFielCopiaDocumentoNormal(documentId, pdfBuffer) {
             });
         }
 
-        // Mensaje final en la última página
+        // Mensaje final en la última página (encima del sello PKI)
         const lastPage = pages[totalPages - 1];
         const { width: lw } = lastPage.getSize();
         const msgFontSize = 9;
@@ -664,7 +665,8 @@ async function sendFielCopiaDocumentoNormal(documentId, pdfBuffer) {
         const boxW = lw * 0.72;
         const boxH = 50;
         const boxX = (lw - boxW) / 2;
-        const boxY = 18;
+        // Posicionar encima del área del sello PKI (sello por defecto ocupa ~y=10 a y=130 en la última página)
+        const boxY = 140;
         lastPage.drawRectangle({
             x: boxX, y: boxY, width: boxW, height: boxH,
             color: rgb(0.98, 0.98, 0.98),
@@ -762,6 +764,142 @@ async function sendFielCopiaDocumentoNormal(documentId, pdfBuffer) {
 
     } catch (err) {
         console.error(`   ❌ [FIEL-COPIA-NORMAL] Error general doc=${documentId}:`, err.message);
+    }
+}
+
+/**
+ * Envía copia fiel a cada firmante con SU PROPIO PDF sellado (que contiene su traza VI individual).
+ * Usado en modo PDFs individuales para que cada firmante reciba el documento con TODAS las
+ * validaciones de identidad — la suya incluida, no solo la del primer firmante.
+ */
+async function sendFielCopiaIndividualPorRecipient(documentId, recipients) {
+    try {
+        const [docRows] = await db.promise().query(
+            `SELECT title FROM documents WHERE document_id = ?`, [documentId]
+        );
+        const docTitle = docRows[0]?.title || `Documento_${documentId}`;
+
+        const [emailConfigs] = await db.promise().query(
+            `SELECT * FROM email_config WHERE user_id = (SELECT owner_id FROM documents WHERE document_id = ?) LIMIT 1`,
+            [documentId]
+        );
+        if (!emailConfigs.length || !emailConfigs[0].sendgrid_api_key) {
+            console.warn('   ⚠️ [FIEL-COPIA-IND] Sin configuración de email');
+            return;
+        }
+        const userConfig = emailConfigs[0];
+        const sgMail = require('@sendgrid/mail');
+        sgMail.setApiKey(userConfig.sendgrid_api_key);
+
+        const { PDFDocument, rgb, StandardFonts, degrees } = require('pdf-lib');
+        const safeTitle = docTitle.replace(/[^a-zA-Z0-9\-_. ]/g, '_');
+
+        for (const rec of recipients) {
+            try {
+                if (!rec.custom_pdf_path) {
+                    console.warn(`   ⚠️ [FIEL-COPIA-IND] Sin PDF para ${rec.email}, saltando`);
+                    continue;
+                }
+                const pdfAbs = resolveFromRoot(rec.custom_pdf_path.replace(/^\/+/, ''));
+                if (!fs.existsSync(pdfAbs)) {
+                    console.warn(`   ⚠️ [FIEL-COPIA-IND] Archivo no encontrado para ${rec.email}`);
+                    continue;
+                }
+                const pdfBuffer = fs.readFileSync(pdfAbs);
+
+                // Agregar marca de agua en cada página
+                const pdfDoc = await PDFDocument.load(pdfBuffer);
+                const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+                const pages = pdfDoc.getPages();
+                const totalPages = pages.length;
+                const watermarkText = 'FIEL COPIA DEL DOCUMENTO ORIGINAL';
+
+                for (let i = 0; i < totalPages; i++) {
+                    const page = pages[i];
+                    const { width, height } = page.getSize();
+                    const fontSize = Math.min(width, height) * 0.055;
+                    const textWidth = font.widthOfTextAtSize(watermarkText, fontSize);
+                    const cos45 = Math.cos(Math.PI / 4);
+                    const sin45 = Math.sin(Math.PI / 4);
+                    const cx = width / 2 - (textWidth / 2) * cos45 + (fontSize / 2) * sin45;
+                    const cy = height / 2 - (textWidth / 2) * sin45 - (fontSize / 2) * cos45;
+                    page.drawText(watermarkText, {
+                        x: cx, y: cy, size: fontSize, font,
+                        color: rgb(0.65, 0.65, 0.65), opacity: 0.30, rotate: degrees(45),
+                    });
+                }
+
+                // Recuadro de certificación en última página
+                const lastPage = pages[totalPages - 1];
+                const { width: lw } = lastPage.getSize();
+                const msgFontSize = 9;
+                const msgFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+                const msgBoldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+                const msg1 = 'Este documento no es el original, pero si corresponde a una representacion';
+                const msg2 = 'grafica fiel tomada del documento original firmado electronicamente.';
+                const boxW = lw * 0.72;
+                const boxH = 50;
+                const boxX = (lw - boxW) / 2;
+                const boxY = 140;
+                lastPage.drawRectangle({
+                    x: boxX, y: boxY, width: boxW, height: boxH,
+                    color: rgb(0.98, 0.98, 0.98), borderColor: rgb(0.7, 0.7, 0.7),
+                    borderWidth: 0.6, opacity: 1,
+                });
+                const msg1W = msgBoldFont.widthOfTextAtSize(msg1, msgFontSize);
+                const msg2W = msgFont.widthOfTextAtSize(msg2, msgFontSize);
+                lastPage.drawText(msg1, { x: boxX + (boxW - msg1W) / 2, y: boxY + boxH - 12 - msgFontSize, size: msgFontSize, font: msgBoldFont, color: rgb(0.2, 0.2, 0.2) });
+                lastPage.drawText(msg2, { x: boxX + (boxW - msg2W) / 2, y: boxY + boxH - 12 - msgFontSize * 2.5, size: msgFontSize, font: msgFont, color: rgb(0.3, 0.3, 0.3) });
+
+                const copiaBuffer = Buffer.from(await pdfDoc.save());
+                const recipientName = rec.name || rec.email;
+                const fileName = `Copia_Fiel_${safeTitle}.pdf`;
+
+                const htmlBody = `<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:30px 20px;background:#f5f5f5;font-family:Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
+    <div style="background:#2b0e31;padding:28px 30px;text-align:center;">
+      <img src="https://firmalegalonline.com/img/Nuevologo.jpg" alt="PKI Services" style="height:48px;margin-bottom:10px;display:block;margin-left:auto;margin-right:auto;">
+      <h1 style="margin:0;color:#ffffff;font-size:20px;font-weight:700;">Copia Fiel del Documento</h1>
+      <p style="margin:6px 0 0;color:rgba(255,255,255,0.75);font-size:13px;">Firma Electronica — PKI Services</p>
+    </div>
+    <div style="padding:30px;">
+      <p style="margin:0 0 16px;color:#333;font-size:15px;">Estimado/a <strong>${recipientName}</strong>,</p>
+      <p style="margin:0 0 20px;color:#444;font-size:14px;line-height:1.6;">
+        Adjunto encontrara una <strong>copia fiel</strong> del documento <em>"${docTitle}"</em>
+        firmado exitosamente por todos los participantes del proceso.
+      </p>
+      <div style="background:#f8f9fa;border-left:4px solid #2b0e31;border-radius:6px;padding:16px 20px;margin:20px 0;">
+        <p style="margin:0 0 6px;font-size:13px;color:#2b0e31;font-weight:700;">Importante</p>
+        <p style="margin:0;font-size:13px;color:#444;line-height:1.6;">
+          Este documento incluye su validacion de identidad y las de todos los firmantes.
+          El original con firma digital certificada esta en custodia del beneficiario.
+        </p>
+      </div>
+      <p style="margin:24px 0 0;font-size:12px;color:#999;">&copy; ${new Date().getFullYear()} PKI Services S.A.S. &mdash; FirmaLegal Online</p>
+    </div>
+    <div style="background:#f9f9f9;border-top:1px solid #e0e0e0;padding:18px 30px;text-align:center;">
+      <p style="margin:0;font-size:11px;color:#bbb;">&copy; ${new Date().getFullYear()} PKI Services S.A.S. - Todos los derechos reservados</p>
+    </div>
+  </div>
+</body></html>`;
+
+                await sgMail.send({
+                    to: rec.email,
+                    from: { email: userConfig.email_from, name: userConfig.email_from_name || 'FirmaLegal Online' },
+                    subject: `Copia Fiel del Documento — ${docTitle}`,
+                    text: `Estimado/a ${recipientName},\n\nAdjunto encontrará una copia fiel del documento "${docTitle}" firmado por todos los participantes.\n\n© ${new Date().getFullYear()} PKI Services S.A.S.`,
+                    html: htmlBody,
+                    attachments: [{ content: copiaBuffer.toString('base64'), filename: fileName, type: 'application/pdf', disposition: 'attachment' }]
+                });
+                console.log(`   ✅ [FIEL-COPIA-IND] Copia fiel enviada a ${rec.email}`);
+            } catch (recErr) {
+                console.error(`   ❌ [FIEL-COPIA-IND] Error enviando a ${rec.email}:`, recErr.message);
+            }
+        }
+    } catch (err) {
+        console.error(`   ❌ [FIEL-COPIA-IND] Error general doc=${documentId}:`, err.message);
     }
 }
 
@@ -6301,7 +6439,7 @@ app.post('/api/public/sign/:token', async (req, res) => {
                 // Si no hay campos de sello configurados, añadir un sello por defecto en la última página
                 if (sealFieldsFinal.length === 0) {
                     console.log('   ℹ️ Sin campos de sello configurados — usando sello PKI por defecto en última página');
-                    sealFieldsFinal = [{ page: null, x: 10, y: null, width: 200, height: 80, _defaultSeal: true }];
+                    sealFieldsFinal = [{ page: null, x: 10, y: null, width: 400, height: 120, _defaultSeal: true }];
                 }
 
                 // Construir reason con TODOS los firmantes
@@ -6419,25 +6557,18 @@ app.post('/api/public/sign/:token', async (req, res) => {
                         });
                     }
 
-                    // Enviar copia fiel a todos los firmantes (modo individual)
-                    // Re-leer custom_pdf_path actualizado (ya tiene sello PKI) para cada destinatario
+                    // Enviar copia fiel a cada firmante con SU PROPIO PDF (contiene su traza VI)
                     try {
                         const updatedRecs = await new Promise((resolve, reject) => {
                             db.query(
-                                'SELECT recipient_id, email, custom_pdf_path FROM document_recipients WHERE document_id = ?',
-                                [recipient.document_id],
+                                'SELECT recipient_id, email, name, custom_pdf_path FROM document_recipients WHERE document_id = ? AND status = ?',
+                                [recipient.document_id, 'completed'],
                                 (err, rows) => { if (err) reject(err); else resolve(rows); }
                             );
                         });
-                        const firstRecWithPdf = updatedRecs.find(r => r.custom_pdf_path);
-                        if (firstRecWithPdf) {
-                            const copiaPdfPath = resolveFromRoot(firstRecWithPdf.custom_pdf_path.replace(/^\/+/, ''));
-                            if (fs.existsSync(copiaPdfPath)) {
-                                await sendFielCopiaDocumentoNormal(recipient.document_id, fs.readFileSync(copiaPdfPath));
-                            }
-                        }
+                        await sendFielCopiaIndividualPorRecipient(recipient.document_id, updatedRecs);
                     } catch (copiaErr) {
-                        console.warn(`   ⚠️ [FIEL-COPIA-NORMAL] Error enviando copia fiel individual: ${copiaErr.message}`);
+                        console.warn(`   ⚠️ [FIEL-COPIA-NORMAL] Error enviando copias fieles individuales: ${copiaErr.message}`);
                     }
 
                 } else {
@@ -7371,7 +7502,7 @@ app.get('/api/documents/:docId/recipients/:recipientId/download', async (req, re
         const [documentInfo] = await new Promise((resolve, reject) => {
             db.query(
                 `SELECT d.document_id, d.title, d.file_path, d.signed_file_path, d.owner_id,
-                        dr.email, dr.completed_at, dr.status as recipient_status, dr.vi_traza_path, dr.custom_pdf_path as recipient_custom_pdf_path
+                        dr.email, dr.completed_at, dr.status as recipient_status, dr.vi_traza_path, dr.custom_pdf_path as recipient_custom_pdf_path, dr.student_id
                  FROM documents d
                  INNER JOIN document_recipients dr ON d.document_id = dr.document_id
                  WHERE d.document_id = ? AND dr.recipient_id = ?`,
@@ -7395,10 +7526,11 @@ app.get('/api/documents/:docId/recipients/:recipientId/download', async (req, re
             return res.status(403).json({ success: false, message: 'No tienes permiso para descargar este documento' });
         }
 
-        // Definir nombre del archivo
+        // Definir nombre del archivo — si hay student_id usar ese en lugar del email
+        const safeStudentId = document.student_id ? document.student_id.replace(/[^a-zA-Z0-9_\-]/g, '_') : null;
         const fileName = document.recipient_status === 'completed'
-            ? `${document.title}_completado_${document.email}.pdf`
-            : `${document.title}_${document.email}.pdf`;
+            ? `${document.title}_${safeStudentId || document.email}.pdf`
+            : `${document.title}_${safeStudentId || document.email}.pdf`;
 
         // ✅ Si el documento está completado, usar custom_pdf_path del recipient (ya tiene traza fusionada) o signed_file_path
         if (document.recipient_status === 'completed' && (document.recipient_custom_pdf_path || document.signed_file_path)) {
@@ -7788,11 +7920,23 @@ app.get('/api/documents/:docId/pagares/:viewerGroupId/download-complete', requir
             'SELECT complete_pdf_path FROM pagare_viewer_groups WHERE viewer_group_id = ?',
             [viewerGroupId]
         );
+        // Obtener student_id del primer recipient del viewer_group (todos del mismo grupo comparten el mismo estudiante)
+        const [studentRows] = await db.promise().query(
+            'SELECT student_id FROM document_recipients WHERE viewer_group_id = ? AND student_id IS NOT NULL LIMIT 1',
+            [viewerGroupId]
+        );
+        const studentId = studentRows[0]?.student_id || null;
+        const safeStudentSuffix = studentId
+            ? studentId.replace(/[^a-zA-Z0-9_\-]/g, '_')
+            : null;
+
         if (cachedVg[0]?.complete_pdf_path) {
             const cachedAbs = resolveFromRoot(cachedVg[0].complete_pdf_path.replace(/^\/+/, ''));
             if (fs.existsSync(cachedAbs)) {
                 const safeTitle = docTitle.replace(/[^a-zA-Z0-9_\-]/g, '_').substring(0, 50);
-                const filename = `Pagare_Completo_${safeTitle}_vg${viewerGroupId}.pdf`;
+                const filename = safeStudentSuffix
+                    ? `${safeTitle}_${safeStudentSuffix}.pdf`
+                    : `Pagare_Completo_${safeTitle}_vg${viewerGroupId}.pdf`;
                 console.log(`   ✅ [PAGARE-COMPLETE] Sirviendo PDF cacheado: ${cachedVg[0].complete_pdf_path}`);
                 const cachedBytes = fs.readFileSync(cachedAbs);
                 res.setHeader('Content-Type', 'application/pdf');
@@ -7987,7 +8131,9 @@ app.get('/api/documents/:docId/pagares/:viewerGroupId/download-complete', requir
 
         const finalBytes = pdfBuffer;
         const safeTitle = docTitle.replace(/[^a-zA-Z0-9_\-]/g, '_').substring(0, 50);
-        const filename = `Pagare_Completo_${safeTitle}_vg${viewerGroupId}.pdf`;
+        const filename = safeStudentSuffix
+            ? `${safeTitle}_${safeStudentSuffix}.pdf`
+            : `Pagare_Completo_${safeTitle}_vg${viewerGroupId}.pdf`;
 
         // Guardar PDF completo para futuras descargas (evitar re-firmar con fecha actual)
         try {
@@ -8675,28 +8821,28 @@ app.post('/api/public/otp/enviar', async (req, res) => {
     try {
         // 1. Obtener datos del recipient
         const [rows] = await db.promise().query(
-            `SELECT dr.email, dr.viewer_group_id, dr.is_final_signer, d.document_type
+            `SELECT dr.email, dr.viewer_group_id, dr.is_final_signer, dr.status, d.document_type
              FROM document_recipients dr
              INNER JOIN documents d ON dr.document_id = d.document_id
-             WHERE dr.token = ? AND dr.status IN ('sent','pending','opened')`,
+             WHERE dr.token = ?`,
             [token]
         );
         if (!rows.length) return res.status(404).json({ success: false, message: 'Token no válido' });
         const recipient = rows[0];
 
-        // 2. Solo para pagarés
-        const isPagare = d => d === 'pagare';
-        if (!isPagare(recipient.document_type) && !recipient.viewer_group_id && !recipient.is_final_signer) {
-            return res.json({ success: true, skip: true }); // no es pagaré, no requiere OTP
+        // 2. OTP aplica para pagarés y documentos normales (en cualquier estado)
+        const docType = recipient.document_type;
+        if (docType !== 'pagare' && docType !== 'normal') {
+            return res.json({ success: true, skip: true }); // otro tipo, no requiere OTP
         }
 
         // 3. Obtener celular registrado en VI
         const [viRows] = await db.promise().query(
-            `SELECT celular FROM vi_verified_emails WHERE email = ? AND celular IS NOT NULL`,
+            `SELECT celular FROM vi_verified_emails WHERE LOWER(email) = ? AND celular IS NOT NULL`,
             [recipient.email.toLowerCase()]
         );
         if (!viRows.length || !viRows[0].celular) {
-            return res.status(400).json({ success: false, needsVI: true, message: 'Debes completar la validación de identidad para obtener tu código' });
+            return res.status(400).json({ success: false, needsCelular: true, message: 'Ingresa tu numero de celular para recibir el codigo de verificacion' });
         }
         const celular = viRows[0].celular;
 
@@ -8895,6 +9041,48 @@ app.post('/api/recipients/set-otp-celular', requireAuth, async (req, res) => {
     } catch (err) {
         console.error('❌ [SET-OTP-CELULAR] Error:', err);
         return res.status(500).json({ success: false, message: 'Error al registrar el número' });
+    }
+});
+
+// POST /api/public/otp/registrar-celular — firmante sin VI registra su celular para OTP
+// Endpoint público: valida que el token sea válido y guarda/actualiza celular en vi_verified_emails
+app.post('/api/public/otp/registrar-celular', async (req, res) => {
+    const { token, celular } = req.body;
+    if (!token || !celular) return res.status(400).json({ success: false, message: 'Token y celular requeridos' });
+
+    const celularClean = celular.replace(/\s/g, '');
+    if (!/^\+?[\d]{7,15}$/.test(celularClean)) {
+        return res.status(400).json({ success: false, message: 'Numero de celular invalido' });
+    }
+
+    try {
+        // Verificar que el token es válido y el documento requiere OTP
+        const [rows] = await db.promise().query(
+            `SELECT dr.email, d.document_type, d.owner_id
+             FROM document_recipients dr
+             INNER JOIN documents d ON dr.document_id = d.document_id
+             WHERE dr.token = ?`,
+            [token]
+        );
+        if (!rows.length) return res.status(404).json({ success: false, message: 'Token no válido' });
+        const { email, document_type, owner_id } = rows[0];
+
+        if (document_type !== 'pagare' && document_type !== 'normal') {
+            return res.status(400).json({ success: false, message: 'Este documento no requiere OTP' });
+        }
+
+        // Guardar o actualizar celular en vi_verified_emails
+        await db.promise().query(
+            `INSERT INTO vi_verified_emails (email, celular, owner_user_id, vi_validated_at)
+             VALUES (?, ?, ?, NOW())
+             ON DUPLICATE KEY UPDATE celular = VALUES(celular)`,
+            [email.toLowerCase(), celularClean, owner_id]
+        );
+        console.log(`[OTP-CELULAR] Celular registrado para ${email}: ${celularClean.replace(/(\+\d{2,3})\d+(\d{2})$/, '$1****$2')}`);
+        res.json({ success: true });
+    } catch (err) {
+        console.error('[OTP-CELULAR] Error:', err.message);
+        res.status(500).json({ success: false, message: 'Error al registrar el número' });
     }
 });
 

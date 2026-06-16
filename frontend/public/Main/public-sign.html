@@ -400,6 +400,12 @@
       <h2 style="margin:0 0 8px;font-size:20px;font-weight:700;color:#2b0e31;">Verificacion de identidad</h2>
       <p id="otpDesc" style="margin:0;font-size:14px;color:#6d6270;line-height:1.5;">Para firmar este documento enviaremos un codigo de verificacion a tu numero de WhatsApp registrado.</p>
     </div>
+    <div id="otpStep0" style="display:none;">
+      <p style="font-size:13px;color:#6d6270;text-align:center;margin:0 0 16px;">Ingresa tu numero de celular con codigo de pais (ej: +573001234567)</p>
+      <input id="otpCelularInput" type="tel" placeholder="+573001234567" style="width:100%;box-sizing:border-box;text-align:center;font-size:18px;font-weight:600;letter-spacing:2px;padding:14px;border:2px solid #c9b8d0;border-radius:10px;outline:none;color:#2b0e31;font-family:inherit;" oninput="this.value=this.value.replace(/[^0-9+]/g,'')">
+      <p id="otpCelularError" style="color:#c2185b;font-size:13px;text-align:center;margin:8px 0 0;display:none;"></p>
+      <button onclick="otpRegistrarCelular()" style="width:100%;padding:14px;background:#2b0e31;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;margin-top:16px;font-family:inherit;">Continuar</button>
+    </div>
     <div id="otpStep1">
       <button id="otpSendBtn" onclick="otpEnviar()" style="width:100%;padding:14px;background:#2b0e31;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;">Enviar codigo por WhatsApp</button>
     </div>
@@ -909,8 +915,8 @@ async function loadDocument() {
       return;
     }
 
-    // 🔒 OTP WhatsApp para pagarés — verificar antes de mostrar el editor
-    const isPagareDoc = currentDocument.documentType === 'pagare';
+    // 🔒 OTP WhatsApp para pagarés y documentos normales — verificar antes de mostrar el editor
+    const isPagareDoc = currentDocument.documentType === 'pagare' || currentDocument.documentType === 'normal';
     if (isPagareDoc && !window._otpVerified) {
       // Mostrar modal OTP, pausar carga del resto
       document.getElementById('initialLoader').style.display = 'none';
@@ -2917,10 +2923,13 @@ async function otpEnviar(isResend) {
     const data = await res.json();
 
     if (!data.success) {
-      if (data.needsVI) {
-        // No tiene celular registrado — redirigir a hacer VI
-        document.getElementById('otpDesc').innerHTML = `Para firmar este pagare necesitas completar la validacion de identidad primero. Por favor cierra esta ventana y contacta al remitente del documento.`;
+      if (data.needsCelular) {
+        // No tiene celular registrado — pedir número en step0
         document.getElementById('otpStep1').style.display = 'none';
+        document.getElementById('otpStep0').style.display = 'block';
+        document.getElementById('otpDesc').textContent = 'Para verificar tu identidad necesitamos tu numero de celular.';
+        document.getElementById('otpCelularInput').focus();
+        if (btn) { btn.disabled = false; btn.textContent = 'Enviar codigo por WhatsApp'; }
         return;
       }
       document.getElementById('otpDesc').textContent = data.message || 'Error al enviar el codigo';
@@ -2929,7 +2938,7 @@ async function otpEnviar(isResend) {
     }
 
     if (data.skip) {
-      // No es pagare, continuar sin OTP
+      // Tipo de documento no requiere OTP
       window._otpVerified = true;
       if (window._otpResolve) window._otpResolve();
       return;
@@ -2944,6 +2953,41 @@ async function otpEnviar(isResend) {
   } catch(e) {
     document.getElementById('otpDesc').textContent = 'Error de conexion. Intenta de nuevo.';
     if (btn) { btn.disabled = false; btn.textContent = 'Enviar codigo por WhatsApp'; }
+  }
+}
+
+async function otpRegistrarCelular() {
+  const celular = document.getElementById('otpCelularInput').value.trim();
+  const errEl = document.getElementById('otpCelularError');
+  errEl.style.display = 'none';
+
+  if (!celular || celular.replace(/[^0-9]/g, '').length < 7) {
+    errEl.textContent = 'Ingresa un numero valido con codigo de pais (ej: +573001234567)';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  const token = new URLSearchParams(window.location.search).get('token');
+  try {
+    const res = await fetch('/api/public/otp/registrar-celular', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, celular })
+    });
+    const data = await res.json();
+    if (!data.success) {
+      errEl.textContent = data.message || 'Error al registrar el numero';
+      errEl.style.display = 'block';
+      return;
+    }
+    // Celular registrado — ocultar step0, mostrar step1 y enviar OTP
+    document.getElementById('otpStep0').style.display = 'none';
+    document.getElementById('otpStep1').style.display = 'block';
+    document.getElementById('otpDesc').textContent = 'Para firmar este documento enviaremos un codigo de verificacion a tu numero de WhatsApp registrado.';
+    await otpEnviar();
+  } catch(e) {
+    errEl.textContent = 'Error de conexion. Intenta de nuevo.';
+    errEl.style.display = 'block';
   }
 }
 

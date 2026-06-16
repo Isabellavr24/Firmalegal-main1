@@ -165,8 +165,7 @@ fi
 # Mostrar logs recientes
 echo ""
 echo "📝 Últimos logs de la aplicación:"
-docker-compose logs --tail=20 app
-
+docker-compose logs --tail=20 apphttps://meet.google.com/maf-ehfo-xrn
 echo ""
 print_success "¡Despliegue completado!"
 echo ""

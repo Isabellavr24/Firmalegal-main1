@@ -3460,11 +3460,12 @@ router.post('/:docId/pagare/send-bulk', requireAuth, async (req, res) => {
 
                 // Crear recipient con signing_order = partId (1=deudor primero, 2=codeudor después)
                 const firmanteName = firmante.name || firmante.roleName;
+                const studentId = pagareData.studentId || null;
                 const [recipientResult] = await db.promise().query(
                     `INSERT INTO document_recipients
-                     (document_id, email, name, viewer_group_id, part_id, status, token, vi_validated_at, signing_order)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                    [docId, firmante.email, firmanteName, viewerGroupId, realPartId, firmanteStatus, token, viValidatedAt, firmante.partId]
+                     (document_id, email, name, student_id, viewer_group_id, part_id, status, token, vi_validated_at, signing_order)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [docId, firmante.email, firmanteName, studentId, viewerGroupId, realPartId, firmanteStatus, token, viValidatedAt, firmante.partId]
                 );
 
                 const recipientId = recipientResult.insertId;

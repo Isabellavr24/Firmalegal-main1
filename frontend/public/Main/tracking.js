@@ -1417,9 +1417,19 @@ function renderEmailTabWithRoles() {
       });
       const data = await resp.json();
       const verifiedAt = data.verified?.[email.toLowerCase()];
+      const tieneCelular = data.celular?.[email.toLowerCase()];
 
       if (verifiedAt) {
         const fecha = new Date(verifiedAt).toLocaleDateString('es-CO', { day:'2-digit', month:'short', year:'numeric' });
+        const otpBadge = tieneCelular
+          ? `<div style="display:flex; align-items:center; gap:6px; font-size:11px; padding:4px 10px; border-radius:20px; background:#f0fdf4; color:#166534; border:1px solid #86efac;">
+               <svg style="width:11px;height:11px;flex-shrink:0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+               OTP WhatsApp configurado
+             </div>`
+          : `<div style="display:flex; align-items:center; gap:6px; font-size:11px; padding:4px 10px; border-radius:20px; background:#fff7ed; color:#92400e; border:1px solid #fcd34d;">
+               <svg style="width:11px;height:11px;flex-shrink:0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+               Sin numero OTP — lo ingresara al firmar
+             </div>`;
         badge.style.cssText = 'display:flex; flex-direction:column; gap:4px; margin-top:6px; width:fit-content;';
         badge.innerHTML = `
           <div style="display:flex; align-items:center; gap:6px; font-size:12px; padding:5px 10px; border-radius:20px; background:#d1fae5; color:#065f46; border:1px solid #6ee7b7;">
@@ -1430,6 +1440,7 @@ function renderEmailTabWithRoles() {
             <svg style="width:11px;height:11px;flex-shrink:0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
             Su trazabilidad se incluira en el documento
           </div>
+          ${otpBadge}
         `;
         verifiedRoles[roleId] = email;
       } else {
@@ -3534,6 +3545,16 @@ async function _processPagareCsvData(results, fileName) {
   if (camposTexto > 0) validaciones.push(`✓ ${camposTexto} campo(s) de texto detectado(s)`);
   validaciones.push(`✓ Se enviarán ${totalEmails} email(s) en total`);
 
+  // Detectar columna ID estudiante
+  const studentIdCol = results.meta.fields.find(f => /^id\s*estudiante$/i.test(f.trim()) || /^student_?id$/i.test(f.trim()));
+  if (studentIdCol) {
+    validaciones.push(`✓ Columna "${studentIdCol}" detectada — los PDFs se renombrarán con el ID del estudiante`);
+    // Guardar student_id en cada pagaré
+    pagaresData.forEach((p, i) => {
+      p.studentId = (rows[i][studentIdCol] || '').toString().trim() || null;
+    });
+  }
+
   // Resumen VI en validaciones
   if (ownerVinculadoVI) {
     const allEmailsList = [...new Set(pagaresData.flatMap(p => p.firmantes.map(f => f.email)))];
@@ -3574,6 +3595,34 @@ async function _processPagareCsvData(results, fileName) {
   validationEl.innerHTML = validaciones.map(v =>
     `<div style="margin-bottom:4px;color:${v.startsWith('✗') ? '#dc2626' : v.startsWith('⚠') ? '#b45309' : '#16a34a'};${v.startsWith('✗') ? 'font-weight:700;' : ''}">${v}</div>`
   ).join('');
+
+  // Tabla de previsualización de renombramiento por ID estudiante
+  const studentPreviewEl = document.getElementById('pagareStudentIdPreview');
+  if (studentPreviewEl) {
+    if (studentIdCol && pagaresData.some(p => p.studentId)) {
+      const docTitle = document.querySelector('.doc-title-text')?.textContent?.trim() || 'Pagare';
+      const safeTitle = (t) => t.replace(/[^a-zA-Z0-9_\-]/g, '_').substring(0, 40);
+      studentPreviewEl.style.display = 'block';
+      studentPreviewEl.innerHTML = `
+        <div style="margin-top:12px;padding:12px 14px;background:#f3eef7;border:1px solid #c9b8d0;border-radius:10px;">
+          <div style="font-size:12px;font-weight:700;color:#2a0d31;margin-bottom:8px;">Renombramiento de PDFs por ID Estudiante</div>
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            ${pagaresData.map((p, i) => `
+              <div style="font-size:11px;color:#4a3060;display:flex;align-items:center;gap:6px;">
+                <span style="font-weight:600;color:#2a0d31;">Pagaré ${i+1}</span>
+                <span style="color:#888;">(${p.firmantes.map(f=>f.name||f.email).join(', ')})</span>
+                <span style="color:#c2185b;font-weight:700;">→</span>
+                <span style="font-family:monospace;background:#fff;padding:1px 6px;border-radius:4px;border:1px solid #d4b8e0;">
+                  ${p.studentId ? `${safeTitle(docTitle)}_${p.studentId}.pdf` : '<span style="color:#c2185b;">Sin ID estudiante</span>'}
+                </span>
+              </div>
+            `).join('')}
+          </div>
+        </div>`;
+    } else {
+      studentPreviewEl.style.display = 'none';
+    }
+  }
 
   // Tabla VI por pagaré (solo si el owner está vinculado a VI)
   const viTableEl = document.getElementById('pagareCsvViTable');

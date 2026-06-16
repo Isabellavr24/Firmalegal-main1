@@ -287,11 +287,13 @@ function validateRecipients(data, documentParts = [], documentType = 'normal') {
             }
 
             seenEmails.add(email.toLowerCase());
+            const studentId = getRowValue(row, ['ID estudiante', 'id estudiante', 'ID_ESTUDIANTE', 'id_estudiante', 'IDEstudiante', 'idEstudiante', 'estudiante_id', 'student_id']);
             const recipient = {
                 email,
                 name,
                 part_id: matchingPart.part_id,
-                part_name: matchingPart.role_name
+                part_name: matchingPart.role_name,
+                student_id: studentId || null
             };
 
             // Extraer fieldValues individuales para: pagare O normal con datos distintos por fila
@@ -299,7 +301,8 @@ function validateRecipients(data, documentParts = [], documentType = 'normal') {
                 const rowFieldValues = {};
                 Object.keys(row).forEach(key => {
                     const keyNormalized = normalizeLabel(key);
-                    if (keyNormalized !== 'parte' && keyNormalized !== 'email' && keyNormalized !== 'nombre' && keyNormalized !== 'name') {
+                    // Excluir columnas de control (no son campos del PDF)
+                    if (keyNormalized !== 'parte' && keyNormalized !== 'email' && keyNormalized !== 'nombre' && keyNormalized !== 'name' && keyNormalized !== 'id estudiante' && keyNormalized !== 'id_estudiante' && keyNormalized !== 'estudiante_id' && keyNormalized !== 'student_id') {
                         const value = (row[key] || '').toString().trim();
                         if (value) {
                             rowFieldValues[key] = value;
@@ -1034,9 +1037,9 @@ router.post('/bulk-send', requireAuth, upload.single('file'), async (req, res) =
                             const insertResult = await new Promise((res, rej) => {
                                 conn.query(
                                     `INSERT INTO document_recipients
-                                     (document_id, email, name, token, custom_pdf_path, personal_pdf_path, status, part_id, role_id, signing_order, can_sign_at)
-                                     VALUES (?, ?, ?, ?, ?, ?, 'sent', ?, ?, ?, ?)`,
-                                    [signature_document_id, recipient.email, recipient.name, token, customPdfPath, customPdfPath, recipient.part_id, roleId, signingOrder, canSignAt],
+                                     (document_id, email, name, student_id, token, custom_pdf_path, personal_pdf_path, status, part_id, role_id, signing_order, can_sign_at)
+                                     VALUES (?, ?, ?, ?, ?, ?, ?, 'sent', ?, ?, ?, ?)`,
+                                    [signature_document_id, recipient.email, recipient.name, recipient.student_id || null, token, customPdfPath, customPdfPath, recipient.part_id, roleId, signingOrder, canSignAt],
                                     (err, result) => {
                                         if (err) rej(err);
                                         else res(result);

@@ -311,14 +311,35 @@ def draw_signature_seal(
     canvas.drawString(info_x, current_y, timestamp_display[:19])
     current_y -= (font_size_normal + 3 * scale_factor)
 
-    # Línea 3: "FIRMADO DIGITALMENTE"
-    canvas.setFont("Helvetica-Bold", font_size_normal)
-    canvas.drawString(info_x, current_y, "FIRMADO DIGITALMENTE")
-    current_y -= (font_size_normal + 2 * scale_factor)
+    # Línea 3+: Texto de acreditación ONAC partido en múltiples líneas
+    acreditacion_texto = (
+        "PKI SERVICES firma digitalmente este documento como tercero de absoluta confianza "
+        "(sentencia C-622 de 2000) y con acreditacion 20-ECD-004 dada por el Organismo Nacional "
+        "de acreditacion de Colombia ONAC, certificando autenticidad, integridad y no repudio del mismo."
+    )
 
-    # Línea 4: País
+    # Word-wrap manual: partir en líneas que quepan en info_available_width
     canvas.setFont("Helvetica", font_size_small)
-    canvas.drawString(info_x, current_y, country)
+    words = acreditacion_texto.split(' ')
+    lines = []
+    current_line = ''
+    for word in words:
+        test_line = (current_line + ' ' + word).strip()
+        if canvas.stringWidth(test_line, "Helvetica", font_size_small) <= info_available_width:
+            current_line = test_line
+        else:
+            if current_line:
+                lines.append(current_line)
+            current_line = word
+    if current_line:
+        lines.append(current_line)
+
+    line_gap = font_size_small + 1.5 * scale_factor
+    for line in lines:
+        if current_y < y + padding:
+            break
+        canvas.drawString(info_x, current_y, line)
+        current_y -= line_gap
 
     # ========================================================================
     # PASO 6: LÍNEA DIVISORIA VERTICAL
