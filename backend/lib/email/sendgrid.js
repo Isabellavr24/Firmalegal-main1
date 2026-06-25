@@ -48,7 +48,11 @@ async function sendEmail({ to, from, fromName, subject, text, html }) {
         },
         subject,
         text,
-        html
+        html,
+        trackingSettings: {
+            clickTracking: { enable: false, enableText: false },
+            openTracking: { enable: false }
+        }
     };
 
     try {
@@ -95,7 +99,11 @@ async function sendBatchEmails(emails) {
             },
             subject: email.subject,
             text: email.text,
-            html: email.html
+            html: email.html,
+            trackingSettings: {
+                clickTracking: { enable: false, enableText: false },
+                openTracking: { enable: false }
+            }
         }));
 
         const response = await sgMail.send(messages);
