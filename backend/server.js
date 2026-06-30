@@ -6722,6 +6722,62 @@ app.post('/api/public/sign/:token', async (req, res) => {
                         console.error('⚠️ [VI-TRAZA] Error procesando trazabilidades VI (no crítico):', trazaErr.message);
                     }
 
+                    // Generar PDF completo con TODAS las trazas fusionadas para "Descargar documento completo"
+                    try {
+                        const { PDFDocument: PDFDoc2 } = require('pdf-lib');
+                        const allRecipientsForComplete = await new Promise((resolve, reject) => {
+                            db.query(
+                                'SELECT recipient_id, email, vi_traza_path FROM document_recipients WHERE document_id = ? AND vi_traza_path IS NOT NULL',
+                                [recipient.document_id],
+                                (err, rows) => { if (err) reject(err); else resolve(rows); }
+                            );
+                        });
+
+                        if (allRecipientsForComplete.length > 0) {
+                            const intermediatePdfForComplete = resolveFromRoot(intermediatePdfSource);
+                            const completePdf = await PDFDoc2.load(fs.readFileSync(intermediatePdfForComplete));
+
+                            for (const recTraza of allRecipientsForComplete) {
+                                const trazaAbs = resolveFromRoot(recTraza.vi_traza_path.replace(/^\/+/, ''));
+                                if (fs.existsSync(trazaAbs)) {
+                                    const trazaDoc = await PDFDoc2.load(fs.readFileSync(trazaAbs));
+                                    const trazaPages = await completePdf.copyPages(trazaDoc, trazaDoc.getPageIndices());
+                                    trazaPages.forEach(p => completePdf.addPage(p));
+                                    console.log(`   ✅ [COMPLETO] Traza VI fusionada: ${recTraza.email}`);
+                                }
+                            }
+
+                            const completeBytes = Buffer.from(await completePdf.save());
+                            const sealsForComplete = await computeSeals(completeBytes, sealFieldsFinal);
+                            const signedCompleteBuf = await pythonSigner.signPdf(completeBytes, {
+                                reason: reasonText,
+                                location: 'Colombia',
+                                signerName: 'PKI Services',
+                                contactInfo,
+                                fieldName: `Signature_${recipient.document_id}_completo`,
+                                visible: true,
+                                seals: sealsForComplete.length > 0 ? sealsForComplete : null,
+                                verificationToken
+                            });
+
+                            const completeFilename = `final_${recipient.document_id}_completo_${Date.now()}.pdf`;
+                            const completeAbsPath = path.join(intermediatePdfDir, completeFilename);
+                            const completeRelPath = path.join('uploads', 'signed', completeFilename).replace(/\\/g, '/');
+                            fs.writeFileSync(completeAbsPath, signedCompleteBuf);
+
+                            await new Promise((resolve, reject) => {
+                                db.query(
+                                    'UPDATE documents SET signed_file_path = ? WHERE document_id = ?',
+                                    [completeRelPath, recipient.document_id],
+                                    (err) => { if (err) reject(err); else resolve(); }
+                                );
+                            });
+                            console.log(`✅ [COMPLETO] PDF con todas las trazas VI generado: ${completeFilename}`);
+                        }
+                    } catch (completeErr) {
+                        console.error('⚠️ [COMPLETO] Error generando PDF completo con trazas:', completeErr.message);
+                    }
+
                     // Enviar copia fiel a todos los firmantes (modo compartido)
                     try {
                         if (sharedSignedPdfBuffer) {
