@@ -4123,6 +4123,19 @@ app.get('/api/public/document/:token', async (req, res) => {
         // porque ya están escritos FIJOS en su PDF personalizado
         const hasCustomPdf = !!recipient.custom_pdf_path;
 
+        // Verificar si hay field_values asignados a recipients en este documento
+        // Si los hay, cada recipient solo ve sus campos asignados
+        const [fvAssignmentCheck] = await new Promise((resolve, reject) => {
+            db.query(
+                `SELECT COUNT(*) as total FROM field_values fv
+                 INNER JOIN document_fields df ON fv.field_id = df.field_id
+                 WHERE df.document_id = ?`,
+                [recipient.document_id],
+                (err, results) => { if (err) reject(err); else resolve([results]); }
+            );
+        });
+        const hasFieldAssignments = fvAssignmentCheck[0].total > 0;
+
         const fieldsQuery = `
             SELECT
                 df.field_id,
@@ -4148,11 +4161,16 @@ app.get('/api/public/document/:token', async (req, res) => {
             LEFT JOIN field_values fv ON df.field_id = fv.field_id AND fv.recipient_id = ?
             LEFT JOIN document_field_values dfv ON df.field_id = dfv.field_id AND dfv.document_id = ?
             WHERE df.document_id = ?
+            ${hasFieldAssignments ? 'AND EXISTS (SELECT 1 FROM field_values fv2 WHERE fv2.field_id = df.field_id AND fv2.recipient_id = ?)' : ''}
             ORDER BY df.field_id ASC
         `;
 
+        const fieldsQueryParams = hasFieldAssignments
+            ? [hasCustomPdf ? 1 : 0, recipient.recipient_id, recipient.document_id, recipient.document_id, recipient.recipient_id]
+            : [hasCustomPdf ? 1 : 0, recipient.recipient_id, recipient.document_id, recipient.document_id];
+
         const [fields] = await new Promise((resolve, reject) => {
-            db.query(fieldsQuery, [hasCustomPdf ? 1 : 0, recipient.recipient_id, recipient.document_id, recipient.document_id], (err, results) => {
+            db.query(fieldsQuery, fieldsQueryParams, (err, results) => {
                 if (err) reject(err);
                 else resolve([results]);
             });
@@ -6702,6 +6720,62 @@ app.post('/api/public/sign/:token', async (req, res) => {
                         }
                     } catch (trazaErr) {
                         console.error('⚠️ [VI-TRAZA] Error procesando trazabilidades VI (no crítico):', trazaErr.message);
+                    }
+
+                    // Generar PDF completo con TODAS las trazas fusionadas para "Descargar documento completo"
+                    try {
+                        const { PDFDocument: PDFDoc2 } = require('pdf-lib');
+                        const allRecipientsForComplete = await new Promise((resolve, reject) => {
+                            db.query(
+                                'SELECT recipient_id, email, vi_traza_path FROM document_recipients WHERE document_id = ? AND vi_traza_path IS NOT NULL',
+                                [recipient.document_id],
+                                (err, rows) => { if (err) reject(err); else resolve(rows); }
+                            );
+                        });
+
+                        if (allRecipientsForComplete.length > 0) {
+                            const intermediatePdfForComplete = resolveFromRoot(intermediatePdfSource);
+                            const completePdf = await PDFDoc2.load(fs.readFileSync(intermediatePdfForComplete));
+
+                            for (const recTraza of allRecipientsForComplete) {
+                                const trazaAbs = resolveFromRoot(recTraza.vi_traza_path.replace(/^\/+/, ''));
+                                if (fs.existsSync(trazaAbs)) {
+                                    const trazaDoc = await PDFDoc2.load(fs.readFileSync(trazaAbs));
+                                    const trazaPages = await completePdf.copyPages(trazaDoc, trazaDoc.getPageIndices());
+                                    trazaPages.forEach(p => completePdf.addPage(p));
+                                    console.log(`   ✅ [COMPLETO] Traza VI fusionada: ${recTraza.email}`);
+                                }
+                            }
+
+                            const completeBytes = Buffer.from(await completePdf.save());
+                            const sealsForComplete = await computeSeals(completeBytes, sealFieldsFinal);
+                            const signedCompleteBuf = await pythonSigner.signPdf(completeBytes, {
+                                reason: reasonText,
+                                location: 'Colombia',
+                                signerName: 'PKI Services',
+                                contactInfo,
+                                fieldName: `Signature_${recipient.document_id}_completo`,
+                                visible: true,
+                                seals: sealsForComplete.length > 0 ? sealsForComplete : null,
+                                verificationToken
+                            });
+
+                            const completeFilename = `final_${recipient.document_id}_completo_${Date.now()}.pdf`;
+                            const completeAbsPath = path.join(intermediatePdfDir, completeFilename);
+                            const completeRelPath = path.join('uploads', 'signed', completeFilename).replace(/\\/g, '/');
+                            fs.writeFileSync(completeAbsPath, signedCompleteBuf);
+
+                            await new Promise((resolve, reject) => {
+                                db.query(
+                                    'UPDATE documents SET signed_file_path = ? WHERE document_id = ?',
+                                    [completeRelPath, recipient.document_id],
+                                    (err) => { if (err) reject(err); else resolve(); }
+                                );
+                            });
+                            console.log(`✅ [COMPLETO] PDF con todas las trazas VI generado: ${completeFilename}`);
+                        }
+                    } catch (completeErr) {
+                        console.error('⚠️ [COMPLETO] Error generando PDF completo con trazas:', completeErr.message);
                     }
 
                     // Enviar copia fiel a todos los firmantes (modo compartido)

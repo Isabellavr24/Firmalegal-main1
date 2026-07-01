@@ -192,10 +192,31 @@ function renderRecipients(recipients, tvGuidsByGroup, pagareSealed) {
       `;
       sectionActions.insertBefore(completeBtn, sectionActions.firstChild);
 
-      completeBtn.addEventListener('click', () => {
+      completeBtn.addEventListener('click', async () => {
         const origin = window.location.origin;
-        // Preferir recipient con traza VI (tiene traza + sello PKI)
-        // Si no, usar cualquier recipient completado
+        const docName = document.querySelector('.document-title')?.textContent?.trim() || `documento_${docId}`;
+
+        // Intentar obtener signed_file_path del documento (contiene todas las trazas fusionadas)
+        try {
+          const docResp = await fetch(`/api/documents/${docId}`, { credentials: 'include' });
+          if (docResp.ok) {
+            const docJson = await docResp.json();
+            const signedPath = docJson.data?.signed_file_path || docJson.signed_file_path;
+            if (signedPath) {
+              const dlUrl = `${origin}/${signedPath.replace(/^\/+/, '')}`;
+              const link = document.createElement('a');
+              link.href = dlUrl;
+              link.download = `${docName}_completo.pdf`;
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+              ToastManager.show({ type: 'success', title: 'Descarga iniciada', message: 'Documento completo con sello PKI y trazabilidad' });
+              return;
+            }
+          }
+        } catch (e) { /* fallback */ }
+
+        // Fallback: usar custom_pdf_path del recipient con traza VI
         const viRec = normals.find(r => r.vi_traza_path && r.status === 'completed' && r.custom_pdf_path);
         const anyRec = normals.find(r => r.status === 'completed' && r.custom_pdf_path);
         const rec = viRec || anyRec;
@@ -204,7 +225,6 @@ function renderRecipients(recipients, tvGuidsByGroup, pagareSealed) {
           return;
         }
         const dlUrl = `${origin}/${rec.custom_pdf_path.replace(/^\/+/, '')}`;
-        const docName = document.querySelector('.document-title')?.textContent?.trim() || `documento_${docId}`;
         const link = document.createElement('a');
         link.href = dlUrl;
         link.download = `${docName}_completo.pdf`;

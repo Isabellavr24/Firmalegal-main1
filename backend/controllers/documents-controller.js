@@ -1860,10 +1860,24 @@ router.post('/:id/send', requireAuth, async (req, res) => {
                             [documentId, recipient.email, recipient.name || recipient.email, token, partId, roleId, signingOrder, canSignAt],
                             (err, result) => {
                                 if (err) reject(err);
-                                else { insertedRecipients.push({ id: result.insertId, email: recipient.email, name: recipient.name || recipient.email, token, roleId, signingOrder }); resolve(); }
+                                else { insertedRecipients.push({ id: result.insertId, email: recipient.email, name: recipient.name || recipient.email, token, roleId, signingOrder }); resolve(result.insertId); }
                             }
                         );
                     });
+                    // Auto-asignar field_values para campos del part_id (pending VI)
+                    if (partId) {
+                        const pendingId = insertedRecipients[insertedRecipients.length - 1].id;
+                        await new Promise((resolve) => {
+                            db.query(
+                                `INSERT IGNORE INTO field_values (field_id, recipient_id, value_type)
+                                 SELECT df.field_id, ?, 'signature_image'
+                                 FROM document_fields df
+                                 WHERE df.document_id = ? AND df.part_id = ? AND df.field_type = 'signature'`,
+                                [pendingId, documentId, partId],
+                                () => resolve()
+                            );
+                        });
+                    }
                     continue;
                 }
                 // Email validado en VI — guardar vi_validated_at para copiarlo al insertar
@@ -1889,14 +1903,29 @@ router.post('/:id/send', requireAuth, async (req, res) => {
                 );
             });
 
+            const newRecipientId = result.insertId;
             insertedRecipients.push({
-                id: result.insertId,
+                id: newRecipientId,
                 email: recipient.email,
                 name: recipient.name || recipient.email,
                 token,
                 roleId,
                 signingOrder
             });
+
+            // Auto-asignar field_values para los campos del part_id de este recipient
+            if (partId) {
+                await new Promise((resolve, reject) => {
+                    db.query(
+                        `INSERT IGNORE INTO field_values (field_id, recipient_id, value_type)
+                         SELECT df.field_id, ?, 'signature_image'
+                         FROM document_fields df
+                         WHERE df.document_id = ? AND df.part_id = ? AND df.field_type = 'signature'`,
+                        [newRecipientId, documentId, partId],
+                        (err) => { if (err) reject(err); else resolve(); }
+                    );
+                });
+            }
 
             // Solo enviar email al primer firmante (firma secuencial)
             if (!isFirstSigner) {
