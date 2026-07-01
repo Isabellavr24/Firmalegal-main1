@@ -56,7 +56,7 @@ class SignRequest(BaseModel):
     contact_info: str = Field(default="", description="Información de contacto")
     field_name: str = Field(default="Signature1", description="Nombre del campo de firma")
     visible: bool = Field(default=True, description="Firma visible o invisible")
-    box: Optional[tuple] = Field(default=(10, 10, 210, 60), description="Posición de firma (x1,y1,x2,y2)")
+    box: Optional[tuple] = Field(default=(10, 40, 210, 90), description="Posición de firma (x1,y1,x2,y2)")
     seals: Optional[list] = Field(default=None, description="Lista de sellos PKI a dibujar [{page, x, y, width, height}, ...]")
     verification_token: Optional[str] = Field(default=None, description="Token seguro de verificación para el QR")
     signing_time: Optional[str] = Field(default=None, description="Fecha/hora real de firma ISO8601 (para sellos en descarga)")

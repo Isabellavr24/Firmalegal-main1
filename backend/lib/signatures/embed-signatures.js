@@ -257,7 +257,7 @@ class EmbedSignatures {
                 contactInfo: firstSigner?.signerEmail || 'contacto@firmalegal.com',
                 fieldName: 'Signature1',
                 visible: true,  // Firma digital visible
-                box: [10, 10, 210, 60]  // Posición en página
+                box: [10, 40, 210, 90]  // Posición en página (encima del pie de página)
             };
 
             // Firmar PDF usando microservicio Python

@@ -479,8 +479,8 @@ async function sendFielCopiaAlDeudor(documentId, viewerGroupId, pdfBuffer) {
         const boxW = lw * 0.72;
         const boxH = 50;
         const boxX = (lw - boxW) / 2;
-        // Posicionar encima del área del sello PKI (sello por defecto ocupa ~y=10 a y=130 en la última página)
-        const boxY = 140;
+        // Posicionar encima del área del sello PKI (sello por defecto ocupa ~y=35 a y=155 en la última página)
+        const boxY = 165;
 
         // Fondo blanco con borde sutil
         lastPage.drawRectangle({
@@ -665,8 +665,8 @@ async function sendFielCopiaDocumentoNormal(documentId, pdfBuffer) {
         const boxW = lw * 0.72;
         const boxH = 50;
         const boxX = (lw - boxW) / 2;
-        // Posicionar encima del área del sello PKI (sello por defecto ocupa ~y=10 a y=130 en la última página)
-        const boxY = 140;
+        // Posicionar encima del área del sello PKI (sello por defecto ocupa ~y=35 a y=155 en la última página)
+        const boxY = 165;
         lastPage.drawRectangle({
             x: boxX, y: boxY, width: boxW, height: boxH,
             color: rgb(0.98, 0.98, 0.98),
@@ -840,7 +840,7 @@ async function sendFielCopiaIndividualPorRecipient(documentId, recipients) {
                 const boxW = lw * 0.72;
                 const boxH = 50;
                 const boxX = (lw - boxW) / 2;
-                const boxY = 140;
+                const boxY = 165;
                 lastPage.drawRectangle({
                     x: boxX, y: boxY, width: boxW, height: boxH,
                     color: rgb(0.98, 0.98, 0.98), borderColor: rgb(0.7, 0.7, 0.7),
@@ -6481,8 +6481,8 @@ app.post('/api/public/sign/:token', async (req, res) => {
                         const x = parseFloat(seal.x) || 10;
                         const w = parseFloat(seal.width) || 200;
                         const h = parseFloat(seal.height) || 80;
-                        // Si _defaultSeal, colocar en la parte inferior de la página (10pt de margen)
-                        const y = seal._defaultSeal ? 10 : ph - parseFloat(seal.y) - h;
+                        // Si _defaultSeal, colocar encima del pie de página (35pt desde el borde inferior)
+                        const y = seal._defaultSeal ? 35 : ph - parseFloat(seal.y) - h;
                         seals.push({ page: pageNum, x, y, width: w, height: h });
                     }
                     return seals;
@@ -7819,6 +7819,7 @@ async function generateAndCacheCompletePagare(docId, viewerGroupId, docTitle) {
          FROM document_fields WHERE document_id = ? AND field_type = 'seal'`,
         [docId]
     );
+    // Calcular posiciones de sellos PKI
     const seals = sealFields.map(seal => {
         const pageIndex = (seal.page || 1) - 1;
         if (pageIndex < 0 || pageIndex >= pdfDoc.getPageCount()) return null;

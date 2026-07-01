@@ -721,7 +721,7 @@ class PDFSigner:
         contact_info: str = "",
         field_name: str = "Signature1",
         visible: bool = True,
-        box: tuple = (10, 10, 210, 60),
+        box: tuple = (10, 40, 210, 90),
         seals: Optional[List[Dict]] = None,
         verification_token: Optional[str] = None,
         signing_time: Optional[str] = None
