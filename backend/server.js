@@ -40,6 +40,23 @@ const tenantsController = require('./controllers/tenants-controller');
 const app = express();
 const port = 3000;
 
+// Lineariza un PDF en disco usando qpdf (fast web view). No lanza excepción si qpdf no está.
+async function linearizePdf(filePath) {
+    const { execFile } = require('child_process');
+    const tmp = filePath + '.lin.tmp';
+    return new Promise((resolve) => {
+        execFile('qpdf', ['--linearize', filePath, tmp], (err) => {
+            if (err) {
+                // qpdf no disponible o error — ignorar, dejar el original
+                resolve();
+            } else {
+                try { fs.renameSync(tmp, filePath); } catch (_) {}
+                resolve();
+            }
+        });
+    });
+}
+
 // Configurar multer para subir avatares
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
@@ -1090,6 +1107,7 @@ async function sealPagaresWithoutFinalSigner(documentId) {
                         const finalFilename = `final_${documentId}_vg${viewerGroup.viewer_group_id}_rec${recToSeal.recipient_id}_${Date.now()}.pdf`;
                         const finalPath = path.join(intermediatePdfDir, finalFilename);
                         fs.writeFileSync(finalPath, signedRecPdfBuffer);
+                        await linearizePdf(finalPath);
                         const relativePath = path.join('uploads', 'signed', finalFilename);
 
                         await db.promise().query(
@@ -6007,6 +6025,7 @@ app.post('/api/public/sign/:token', async (req, res) => {
                                 const finalPdfFilename = `final_${recipient.document_id}_vg${viewerGroup.viewer_group_id}_rec${recToSeal.recipient_id}_${Date.now()}.pdf`;
                                 const finalPdfPath = path.join(intermediatePdfDir, finalPdfFilename);
                                 fs.writeFileSync(finalPdfPath, signedRecPdfBuffer);
+                                await linearizePdf(finalPdfPath);
                                 const relativeFinalPath = path.join('uploads', 'signed', finalPdfFilename);
 
                                 // Actualizar custom_pdf_path SOLO de este recipient
@@ -6345,6 +6364,7 @@ app.post('/api/public/sign/:token', async (req, res) => {
                             const finalSignerPdfFilename = `final_signer_${recipient.document_id}_${Date.now()}.pdf`;
                             const finalSignerPdfPath = path.join(intermediatePdfDir, finalSignerPdfFilename);
                             fs.writeFileSync(finalSignerPdfPath, signedFinalSignerPdfBuffer);
+                            await linearizePdf(finalSignerPdfPath);
 
                             const relativeFinalSignerPath = path.join('uploads', 'signed', finalSignerPdfFilename);
 
@@ -6543,6 +6563,7 @@ app.post('/api/public/sign/:token', async (req, res) => {
                             const finalAbs = path.join(intermediatePdfDir, finalFilename);
                             const finalRel = path.join('uploads', 'signed', finalFilename).replace(/\\/g, '/');
                             fs.writeFileSync(finalAbs, signedBuf);
+                            await linearizePdf(finalAbs);
 
                             await new Promise((resolve, reject) => {
                                 db.query(
@@ -6644,6 +6665,7 @@ app.post('/api/public/sign/:token', async (req, res) => {
                     const finalPdfFilename = `final_${recipient.document_id}_${Date.now()}.pdf`;
                     const finalPdfPath = path.join(intermediatePdfDir, finalPdfFilename);
                     fs.writeFileSync(finalPdfPath, signedPdfBuffer);
+                    await linearizePdf(finalPdfPath);
 
                     const relativeFinalPath = path.join('uploads', 'signed', finalPdfFilename).replace(/\\/g, '/');
                     console.log(`💾 PDF final con PKI guardado: ${relativeFinalPath}`);
@@ -6667,115 +6689,69 @@ app.post('/api/public/sign/:token', async (req, res) => {
                     });
                     console.log('✅ PDF compartido actualizado (destinatarios sin traza VI)');
 
-                    // Trazabilidad VI: fusionar traza ANTES del sello PKI para mantener firma válida
+                    // Trazabilidad VI: fusionar TODAS las trazas en un único PDF y asignarlo a TODOS los recipients
                     try {
                         const { PDFDocument: PDFDoc } = require('pdf-lib');
                         const recipientsWithTraza = allDocRecipientsFinal.filter(r => r.vi_traza_path);
 
-                        for (const rec of recipientsWithTraza) {
-                            try {
+                        if (recipientsWithTraza.length > 0) {
+                            // Construir PDF base + TODAS las trazas (una sola vez)
+                            const intermediatePdfForRec = resolveFromRoot(intermediatePdfSource);
+                            const basePdf = await PDFDoc.load(fs.readFileSync(intermediatePdfForRec));
+                            for (const rec of recipientsWithTraza) {
                                 const trazaAbsPath = resolveFromRoot(rec.vi_traza_path.replace(/^\/+/, ''));
                                 if (!fs.existsSync(trazaAbsPath)) {
                                     console.warn(`⚠️ [VI-TRAZA] Archivo traza no encontrado para ${rec.email}`);
                                     continue;
                                 }
-
-                                // Fusionar PDF intermedio (con firmas, sin PKI) + traza
-                                const intermediatePdfForRec = resolveFromRoot(intermediatePdfSource);
-                                const basePdf = await PDFDoc.load(fs.readFileSync(intermediatePdfForRec));
                                 const trazaPdf = await PDFDoc.load(fs.readFileSync(trazaAbsPath));
                                 const pages = await basePdf.copyPages(trazaPdf, trazaPdf.getPageIndices());
                                 pages.forEach(p => basePdf.addPage(p));
-                                const mergedBytes = await basePdf.save();
-
-                                // Sellar el PDF fusionado con PKI
-                                const sealsForRec = await computeSeals(Buffer.from(mergedBytes), sealFieldsFinal);
-                                const signedViPdfBuffer = await pythonSigner.signPdf(Buffer.from(mergedBytes), {
-                                    reason: reasonText,
-                                    location: 'Colombia',
-                                    signerName: 'PKI Services',
-                                    contactInfo,
-                                    fieldName: `Signature_${recipient.document_id}_vi_${rec.recipient_id}`,
-                                    visible: true,
-                                    seals: sealsForRec.length > 0 ? sealsForRec : null,
-                                    verificationToken
-                                });
-
-                                const personalFilename = `final_${recipient.document_id}_recipient_${rec.recipient_id}_vi_${Date.now()}.pdf`;
-                                const personalAbsPath = path.join(intermediatePdfDir, personalFilename);
-                                const personalRelPath = path.join('uploads', 'signed', personalFilename).replace(/\\/g, '/');
-                                fs.writeFileSync(personalAbsPath, signedViPdfBuffer);
-
-                                await new Promise((resolve, reject) => {
-                                    db.query(
-                                        'UPDATE document_recipients SET custom_pdf_path = ? WHERE recipient_id = ?',
-                                        [personalRelPath, rec.recipient_id],
-                                        (err) => { if (err) reject(err); else resolve(); }
-                                    );
-                                });
-                                console.log(`✅ [VI-TRAZA] PDF con trazabilidad sellado con PKI para ${rec.email}: ${personalFilename}`);
-                            } catch (recErr) {
-                                console.error(`⚠️ [VI-TRAZA] Error para ${rec.email}:`, recErr.message);
+                                console.log(`   ✅ [VI-TRAZA] Traza de ${rec.email} añadida`);
                             }
-                        }
-                    } catch (trazaErr) {
-                        console.error('⚠️ [VI-TRAZA] Error procesando trazabilidades VI (no crítico):', trazaErr.message);
-                    }
+                            const mergedBytes = await basePdf.save();
 
-                    // Generar PDF completo con TODAS las trazas fusionadas para "Descargar documento completo"
-                    try {
-                        const { PDFDocument: PDFDoc2 } = require('pdf-lib');
-                        const allRecipientsForComplete = await new Promise((resolve, reject) => {
-                            db.query(
-                                'SELECT recipient_id, email, vi_traza_path FROM document_recipients WHERE document_id = ? AND vi_traza_path IS NOT NULL',
-                                [recipient.document_id],
-                                (err, rows) => { if (err) reject(err); else resolve(rows); }
-                            );
-                        });
-
-                        if (allRecipientsForComplete.length > 0) {
-                            const intermediatePdfForComplete = resolveFromRoot(intermediatePdfSource);
-                            const completePdf = await PDFDoc2.load(fs.readFileSync(intermediatePdfForComplete));
-
-                            for (const recTraza of allRecipientsForComplete) {
-                                const trazaAbs = resolveFromRoot(recTraza.vi_traza_path.replace(/^\/+/, ''));
-                                if (fs.existsSync(trazaAbs)) {
-                                    const trazaDoc = await PDFDoc2.load(fs.readFileSync(trazaAbs));
-                                    const trazaPages = await completePdf.copyPages(trazaDoc, trazaDoc.getPageIndices());
-                                    trazaPages.forEach(p => completePdf.addPage(p));
-                                    console.log(`   ✅ [COMPLETO] Traza VI fusionada: ${recTraza.email}`);
-                                }
-                            }
-
-                            const completeBytes = Buffer.from(await completePdf.save());
-                            const sealsForComplete = await computeSeals(completeBytes, sealFieldsFinal);
-                            const signedCompleteBuf = await pythonSigner.signPdf(completeBytes, {
+                            // Sellar el PDF con TODAS las trazas con PKI (una sola vez)
+                            const sealsForAll = await computeSeals(Buffer.from(mergedBytes), sealFieldsFinal);
+                            const signedViPdfBuffer = await pythonSigner.signPdf(Buffer.from(mergedBytes), {
                                 reason: reasonText,
                                 location: 'Colombia',
                                 signerName: 'PKI Services',
                                 contactInfo,
-                                fieldName: `Signature_${recipient.document_id}_completo`,
+                                fieldName: `Signature_${recipient.document_id}_vi_completo`,
                                 visible: true,
-                                seals: sealsForComplete.length > 0 ? sealsForComplete : null,
+                                seals: sealsForAll.length > 0 ? sealsForAll : null,
                                 verificationToken
                             });
 
-                            const completeFilename = `final_${recipient.document_id}_completo_${Date.now()}.pdf`;
-                            const completeAbsPath = path.join(intermediatePdfDir, completeFilename);
-                            const completeRelPath = path.join('uploads', 'signed', completeFilename).replace(/\\/g, '/');
-                            fs.writeFileSync(completeAbsPath, signedCompleteBuf);
+                            const completeViFilename = `final_${recipient.document_id}_completo_${Date.now()}.pdf`;
+                            const completeViAbsPath = path.join(intermediatePdfDir, completeViFilename);
+                            const completeViRelPath = path.join('uploads', 'signed', completeViFilename).replace(/\\/g, '/');
+                            fs.writeFileSync(completeViAbsPath, signedViPdfBuffer);
+                            await linearizePdf(completeViAbsPath);
+                            console.log(`✅ [VI-TRAZA] PDF con todas las trazas generado: ${completeViFilename}`);
 
+                            // Asignar este PDF (con TODAS las trazas) a TODOS los recipients del documento
                             await new Promise((resolve, reject) => {
                                 db.query(
-                                    'UPDATE documents SET signed_file_path = ? WHERE document_id = ?',
-                                    [completeRelPath, recipient.document_id],
+                                    'UPDATE document_recipients SET custom_pdf_path = ? WHERE document_id = ?',
+                                    [completeViRelPath, recipient.document_id],
                                     (err) => { if (err) reject(err); else resolve(); }
                                 );
                             });
-                            console.log(`✅ [COMPLETO] PDF con todas las trazas VI generado: ${completeFilename}`);
+                            console.log(`✅ [VI-TRAZA] PDF completo asignado a todos los destinatarios del documento ${recipient.document_id}`);
+
+                            // Actualizar signed_file_path del documento con el PDF completo
+                            await new Promise((resolve, reject) => {
+                                db.query(
+                                    'UPDATE documents SET signed_file_path = ? WHERE document_id = ?',
+                                    [completeViRelPath, recipient.document_id],
+                                    (err) => { if (err) reject(err); else resolve(); }
+                                );
+                            });
                         }
-                    } catch (completeErr) {
-                        console.error('⚠️ [COMPLETO] Error generando PDF completo con trazas:', completeErr.message);
+                    } catch (trazaErr) {
+                        console.error('⚠️ [VI-TRAZA] Error procesando trazabilidades VI (no crítico):', trazaErr.message);
                     }
 
                     // Enviar copia fiel a todos los firmantes (modo compartido)

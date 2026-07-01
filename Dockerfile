@@ -28,7 +28,8 @@ RUN apk add --no-cache \
     libffi-dev \
     openssl-dev \
     g++ \
-    make
+    make \
+    qpdf
 
 WORKDIR /app
 
