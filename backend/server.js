@@ -609,7 +609,8 @@ async function sendFielCopiaAlDeudor(documentId, viewerGroupId, pdfBuffer) {
                 filename: fileName,
                 type: 'application/pdf',
                 disposition: 'attachment'
-            }]
+            }],
+            trackingSettings: { clickTracking: { enable: false, enableText: false }, openTracking: { enable: false } }
         };
 
         await sgMail.send(msg);
@@ -768,7 +769,8 @@ async function sendFielCopiaDocumentoNormal(documentId, pdfBuffer) {
                 subject: `Copia Fiel del Documento — ${docTitle}`,
                 text: `Estimado/a ${recipientName},\n\nAdjunto encontrará una copia fiel del documento "${docTitle}" firmado por todos los participantes.\n\nEste documento es una representación gráfica fiel del original.\n\n© ${new Date().getFullYear()} PKI Services S.A.S.`,
                 html: htmlBody,
-                attachments: [{ content: attachmentContent, filename: fileName, type: 'application/pdf', disposition: 'attachment' }]
+                attachments: [{ content: attachmentContent, filename: fileName, type: 'application/pdf', disposition: 'attachment' }],
+                trackingSettings: { clickTracking: { enable: false, enableText: false }, openTracking: { enable: false } }
             };
 
             try {
@@ -908,7 +910,8 @@ async function sendFielCopiaIndividualPorRecipient(documentId, recipients) {
                     subject: `Copia Fiel del Documento — ${docTitle}`,
                     text: `Estimado/a ${recipientName},\n\nAdjunto encontrará una copia fiel del documento "${docTitle}" firmado por todos los participantes.\n\n© ${new Date().getFullYear()} PKI Services S.A.S.`,
                     html: htmlBody,
-                    attachments: [{ content: copiaBuffer.toString('base64'), filename: fileName, type: 'application/pdf', disposition: 'attachment' }]
+                    attachments: [{ content: copiaBuffer.toString('base64'), filename: fileName, type: 'application/pdf', disposition: 'attachment' }],
+                    trackingSettings: { clickTracking: { enable: false, enableText: false }, openTracking: { enable: false } }
                 });
                 console.log(`   ✅ [FIEL-COPIA-IND] Copia fiel enviada a ${rec.email}`);
             } catch (recErr) {
