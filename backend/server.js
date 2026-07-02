@@ -534,15 +534,18 @@ async function sendFielCopiaAlDeudor(documentId, viewerGroupId, pdfBuffer) {
         const [emailConfigs] = await db.promise().query(
             `SELECT * FROM email_config WHERE user_id = 1 LIMIT 1`
         );
-        if (!emailConfigs.length || !emailConfigs[0].sendgrid_api_key) {
+        const sgApiKey = emailConfigs[0]?.sendgrid_api_key || process.env.SENDGRID_API_KEY;
+        if (!sgApiKey) {
             console.warn('   ⚠️ [FIEL-COPIA] Sin configuración de email — no se envía copia');
             return;
         }
-        const userConfig = emailConfigs[0];
+        const userConfig = emailConfigs[0] || {};
+        if (!userConfig.email_from) userConfig.email_from = 'noreply@firmalegalonline.com';
+        if (!userConfig.email_from_name) userConfig.email_from_name = 'FirmaLegal Online';
 
         // Enviar via SendGrid con adjunto
         const sgMail = require('@sendgrid/mail');
-        sgMail.setApiKey(userConfig.sendgrid_api_key);
+        sgMail.setApiKey(sgApiKey);
 
         const safeTitle = docTitle.replace(/[^a-zA-Z0-9\-_. ]/g, '_');
         const fileName = `Copia_Fiel_${safeTitle}.pdf`;
@@ -712,14 +715,17 @@ async function sendFielCopiaDocumentoNormal(documentId, pdfBuffer) {
             `SELECT * FROM email_config WHERE user_id = (SELECT owner_id FROM documents WHERE document_id = ?) LIMIT 1`,
             [documentId]
         );
-        if (!emailConfigs.length || !emailConfigs[0].sendgrid_api_key) {
+        const sgApiKey = emailConfigs[0]?.sendgrid_api_key || process.env.SENDGRID_API_KEY;
+        if (!sgApiKey) {
             console.warn('   ⚠️ [FIEL-COPIA-NORMAL] Sin configuración de email — no se envía copia');
             return;
         }
-        const userConfig = emailConfigs[0];
+        const userConfig = emailConfigs[0] || {};
+        if (!userConfig.email_from) userConfig.email_from = 'noreply@firmalegalonline.com';
+        if (!userConfig.email_from_name) userConfig.email_from_name = 'FirmaLegal Online';
 
         const sgMail = require('@sendgrid/mail');
-        sgMail.setApiKey(userConfig.sendgrid_api_key);
+        sgMail.setApiKey(sgApiKey);
 
         const safeTitle = docTitle.replace(/[^a-zA-Z0-9\-_. ]/g, '_');
         const fileName = `Copia_Fiel_${safeTitle}.pdf`;
@@ -802,13 +808,16 @@ async function sendFielCopiaIndividualPorRecipient(documentId, recipients) {
             `SELECT * FROM email_config WHERE user_id = (SELECT owner_id FROM documents WHERE document_id = ?) LIMIT 1`,
             [documentId]
         );
-        if (!emailConfigs.length || !emailConfigs[0].sendgrid_api_key) {
+        const sgApiKey = emailConfigs[0]?.sendgrid_api_key || process.env.SENDGRID_API_KEY;
+        if (!sgApiKey) {
             console.warn('   ⚠️ [FIEL-COPIA-IND] Sin configuración de email');
             return;
         }
-        const userConfig = emailConfigs[0];
+        const userConfig = emailConfigs[0] || {};
+        if (!userConfig.email_from) userConfig.email_from = 'noreply@firmalegalonline.com';
+        if (!userConfig.email_from_name) userConfig.email_from_name = 'FirmaLegal Online';
         const sgMail = require('@sendgrid/mail');
-        sgMail.setApiKey(userConfig.sendgrid_api_key);
+        sgMail.setApiKey(sgApiKey);
 
         const { PDFDocument, rgb, StandardFonts, degrees } = require('pdf-lib');
         const safeTitle = docTitle.replace(/[^a-zA-Z0-9\-_. ]/g, '_');
