@@ -82,47 +82,70 @@ async function sendEmail({ to, from, fromName, subject, text, html }) {
     }
 }
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 /**
- * Enviar múltiples emails (batch)
+ * Enviar múltiples emails uno por uno para detectar fallos individuales
  * @param {Array<Object>} emails - Array de emails a enviar
  * @returns {Promise<Object>} Resultado del envío
  */
 async function sendBatchEmails(emails) {
     console.log(`\n📧 [SENDGRID] Enviando ${emails.length} emails en batch...`);
 
-    try {
-        const messages = emails.map(email => ({
-            to: email.to,
-            from: {
-                email: email.from,
-                name: email.fromName
-            },
-            subject: email.subject,
-            text: email.text,
-            html: email.html,
-            trackingSettings: {
-                clickTracking: { enable: false, enableText: false },
-                openTracking: { enable: false }
-            }
-        }));
+    const results = [];
+    let successCount = 0;
+    const failures = [];
 
-        const response = await sgMail.send(messages);
-        console.log(`✅ [SENDGRID] ${emails.length} emails enviados exitosamente`);
+    for (const email of emails) {
+        // Validar formato de email antes de enviar
+        if (!email.to || !EMAIL_REGEX.test(email.to)) {
+            const msg = `Email inválido rechazado antes de enviar: "${email.to}"`;
+            console.error(`❌ [SENDGRID] ${msg}`);
+            failures.push({ to: email.to, error: msg });
+            continue;
+        }
 
-        return {
-            success: true,
-            count: emails.length,
-            responses: response
-        };
-    } catch (error) {
-        console.error('❌ [SENDGRID] Error al enviar batch de emails:', error);
+        try {
+            const msg = {
+                to: email.to,
+                from: { email: email.from, name: email.fromName },
+                subject: email.subject,
+                text: email.text,
+                html: email.html,
+                replyTo: email.replyTo || email.from,
+                categories: email.categories || [],
+                customArgs: email.customArgs || {},
+                trackingSettings: {
+                    clickTracking: { enable: false, enableText: false },
+                    openTracking: { enable: false }
+                }
+            };
 
-        return {
-            success: false,
-            error: error.message,
-            details: error.response?.body
-        };
+            const response = await sgMail.send(msg);
+            const statusCode = response[0]?.statusCode;
+            console.log(`✅ [SENDGRID] Email enviado a ${email.to} (status ${statusCode})`);
+            successCount++;
+            results.push({ to: email.to, success: true, statusCode });
+        } catch (error) {
+            const detail = error.response?.body?.errors?.[0]?.message || error.message;
+            console.error(`❌ [SENDGRID] Error enviando a ${email.to}: ${detail}`);
+            failures.push({ to: email.to, error: detail });
+        }
     }
+
+    if (failures.length > 0) {
+        console.error(`⚠️ [SENDGRID] ${failures.length} email(s) fallaron:`);
+        failures.forEach(f => console.error(`   - ${f.to}: ${f.error}`));
+    }
+
+    console.log(`✅ [SENDGRID] ${successCount}/${emails.length} emails enviados exitosamente`);
+
+    return {
+        success: failures.length === 0,
+        count: successCount,
+        failures,
+        results
+    };
 }
 
 /**

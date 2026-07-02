@@ -4141,8 +4141,7 @@ app.get('/api/public/document/:token', async (req, res) => {
         // porque ya están escritos FIJOS en su PDF personalizado
         const hasCustomPdf = !!recipient.custom_pdf_path;
 
-        // Verificar si hay field_values asignados a recipients en este documento
-        // Si los hay, cada recipient solo ve sus campos asignados
+        // Verificar si hay field_values asignados a recipients en este documento (pagarés/CSV)
         const [fvAssignmentCheck] = await new Promise((resolve, reject) => {
             db.query(
                 `SELECT COUNT(*) as total FROM field_values fv
@@ -4153,6 +4152,21 @@ app.get('/api/public/document/:token', async (req, res) => {
             );
         });
         const hasFieldAssignments = fvAssignmentCheck[0].total > 0;
+
+        // Verificar si los campos tienen part_id asignado (documentos normales con partes)
+        const [partAssignmentCheck] = await new Promise((resolve, reject) => {
+            db.query(
+                `SELECT COUNT(*) as total FROM document_fields WHERE document_id = ? AND part_id IS NOT NULL`,
+                [recipient.document_id],
+                (err, results) => { if (err) reject(err); else resolve([results]); }
+            );
+        });
+        const hasPartAssignments = partAssignmentCheck[0].total > 0;
+        console.log(`🔍 DEBUG-PARTS: hasFieldAssignments=${hasFieldAssignments}, hasPartAssignments=${hasPartAssignments}, recipient.part_id=${recipient.part_id}`);
+
+        // part_id tiene prioridad sobre field_values para documentos normales con partes
+        const usePartFilter = hasPartAssignments && recipient.part_id;
+        const useFieldValuesFilter = hasFieldAssignments && !usePartFilter;
 
         const fieldsQuery = `
             SELECT
@@ -4166,11 +4180,6 @@ app.get('/api/public/document/:token', async (req, res) => {
                 df.field_label as label,
                 df.required,
                 df.part_id,
-                -- 🔥 SOLUCIÓN DEFINITIVA:
-                -- 1. Si tiene custom_pdf_path (CSV personalizado) → NO devolver valores de texto (ya están en PDF)
-                -- 2. Si NO tiene custom_pdf_path:
-                --    - Para campos de texto: usar field_values (valores específicos por recipient - pagarés)
-                --    - Para otros campos: usar document_field_values (valores compartidos)
                 CASE
                     WHEN df.field_type = 'text' AND ? = 1 THEN NULL
                     ELSE COALESCE(fv.text_value, dfv.field_value)
@@ -4179,13 +4188,16 @@ app.get('/api/public/document/:token', async (req, res) => {
             LEFT JOIN field_values fv ON df.field_id = fv.field_id AND fv.recipient_id = ?
             LEFT JOIN document_field_values dfv ON df.field_id = dfv.field_id AND dfv.document_id = ?
             WHERE df.document_id = ?
-            ${hasFieldAssignments ? 'AND EXISTS (SELECT 1 FROM field_values fv2 WHERE fv2.field_id = df.field_id AND fv2.recipient_id = ?)' : ''}
+            ${usePartFilter ? 'AND (df.part_id = ? OR df.field_type = \'seal\')' : ''}
+            ${useFieldValuesFilter ? 'AND EXISTS (SELECT 1 FROM field_values fv2 WHERE fv2.field_id = df.field_id AND fv2.recipient_id = ?)' : ''}
             ORDER BY df.field_id ASC
         `;
 
-        const fieldsQueryParams = hasFieldAssignments
-            ? [hasCustomPdf ? 1 : 0, recipient.recipient_id, recipient.document_id, recipient.document_id, recipient.recipient_id]
-            : [hasCustomPdf ? 1 : 0, recipient.recipient_id, recipient.document_id, recipient.document_id];
+        const fieldsQueryParams = usePartFilter
+            ? [hasCustomPdf ? 1 : 0, recipient.recipient_id, recipient.document_id, recipient.document_id, recipient.part_id]
+            : useFieldValuesFilter
+                ? [hasCustomPdf ? 1 : 0, recipient.recipient_id, recipient.document_id, recipient.document_id, recipient.recipient_id]
+                : [hasCustomPdf ? 1 : 0, recipient.recipient_id, recipient.document_id, recipient.document_id];
 
         const [fields] = await new Promise((resolve, reject) => {
             db.query(fieldsQuery, fieldsQueryParams, (err, results) => {
@@ -5039,6 +5051,10 @@ app.post('/api/public/sign/:token', async (req, res) => {
                         });
                         if (ownerApiKey.length && ownerApiKey[0].sendgrid_api_key) {
                             sendgridLib.configureSendGrid(ownerApiKey[0].sendgrid_api_key);
+                        }
+                        // Delay para evitar throttling de Gmail en envíos secuenciales
+                        if (nextOrder > 2) {
+                            await new Promise(r => setTimeout(r, 10000));
                         }
                         await sendgridLib.sendBatchEmails(emailsSeq);
                         console.log(`   [SECUENCIAL] ${emailsSeq.length} email(s) enviado(s) al orden ${nextOrder}`);
