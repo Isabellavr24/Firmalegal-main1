@@ -6708,7 +6708,25 @@ app.post('/api/public/sign/:token', async (req, res) => {
                     // Trazabilidad VI: fusionar TODAS las trazas en un único PDF y asignarlo a TODOS los recipients
                     try {
                         const { PDFDocument: PDFDoc } = require('pdf-lib');
-                        const recipientsWithTraza = allDocRecipientsFinal.filter(r => r.vi_traza_path);
+                        let recipientsWithTraza = allDocRecipientsFinal.filter(r => r.vi_traza_path);
+
+                        // Para recipients sin traza en este documento, buscar su traza más reciente en otros documentos
+                        const recipientsWithoutTraza = allDocRecipientsFinal.filter(r => !r.vi_traza_path && r.vi_validated_at);
+                        for (const recNoTraza of recipientsWithoutTraza) {
+                            const [fallbackTraza] = await new Promise((resolve, reject) => {
+                                db.query(
+                                    `SELECT vi_traza_path FROM document_recipients
+                                     WHERE email = ? AND vi_traza_path IS NOT NULL
+                                     ORDER BY completed_at DESC LIMIT 1`,
+                                    [recNoTraza.email],
+                                    (err, rows) => { if (err) reject(err); else resolve(rows); }
+                                );
+                            });
+                            if (fallbackTraza && fallbackTraza.vi_traza_path) {
+                                recipientsWithTraza.push({ ...recNoTraza, vi_traza_path: fallbackTraza.vi_traza_path });
+                                console.log(`   ✅ [VI-TRAZA] Traza fallback encontrada para ${recNoTraza.email}`);
+                            }
+                        }
 
                         if (recipientsWithTraza.length > 0) {
                             // Construir PDF base + TODAS las trazas (una sola vez)
