@@ -6795,14 +6795,21 @@ app.post('/api/public/sign/:token', async (req, res) => {
                                     (err) => { if (err) reject(err); else resolve(); }
                                 );
                             });
+
+                            // Enviar copia fiel con el PDF completo (contrato + todas las trazas VI)
+                            try {
+                                await sendFielCopiaDocumentoNormal(recipient.document_id, signedViPdfBuffer);
+                            } catch (copiaViErr) {
+                                console.warn(`   ⚠️ [FIEL-COPIA-NORMAL] Error enviando copia fiel con trazas: ${copiaViErr.message}`);
+                            }
                         }
                     } catch (trazaErr) {
                         console.error('⚠️ [VI-TRAZA] Error procesando trazabilidades VI (no crítico):', trazaErr.message);
                     }
 
-                    // Enviar copia fiel a todos los firmantes (modo compartido)
+                    // Enviar copia fiel a todos los firmantes (modo compartido, solo si no se enviaron con trazas)
                     try {
-                        if (sharedSignedPdfBuffer) {
+                        if (sharedSignedPdfBuffer && !allDocRecipientsFinal.some(r => r.vi_traza_path)) {
                             await sendFielCopiaDocumentoNormal(recipient.document_id, sharedSignedPdfBuffer);
                         }
                     } catch (copiaErr) {
