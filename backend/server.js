@@ -4166,7 +4166,8 @@ app.get('/api/public/document/:token', async (req, res) => {
 
         // part_id tiene prioridad sobre field_values para documentos normales con partes
         const usePartFilter = hasPartAssignments && recipient.part_id;
-        const useFieldValuesFilter = hasFieldAssignments && !usePartFilter;
+        // El firmante definitivo no filtra por field_values: aún no tiene ninguno y necesita ver todos los campos
+        const useFieldValuesFilter = hasFieldAssignments && !usePartFilter && !recipient.is_final_signer;
 
         const fieldsQuery = `
             SELECT

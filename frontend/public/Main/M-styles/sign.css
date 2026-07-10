@@ -290,6 +290,21 @@ body{margin:0;background:#fbf7f5;font:16px/1.4 Inter,system-ui,Segoe UI,Arial}
   background:transparent;
   padding:0;
 }
+.field.final_signature{
+  border:2px dashed #d97706;
+  background:rgba(217,119,6,.08);
+  cursor:pointer;
+}
+.field.final_signature:hover{
+  background:rgba(217,119,6,.15);
+  border-color:#b45309;
+}
+.field.final_signature.signed{
+  border-style:solid;
+  border-color:#d97706;
+  background:transparent;
+  padding:0;
+}
 .field.text.signed,
 .field.date.signed{
   border-style:solid;
