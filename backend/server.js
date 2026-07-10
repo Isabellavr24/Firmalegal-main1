@@ -534,15 +534,18 @@ async function sendFielCopiaAlDeudor(documentId, viewerGroupId, pdfBuffer) {
         const [emailConfigs] = await db.promise().query(
             `SELECT * FROM email_config WHERE user_id = 1 LIMIT 1`
         );
-        if (!emailConfigs.length || !emailConfigs[0].sendgrid_api_key) {
+        const sgApiKey = emailConfigs[0]?.sendgrid_api_key || process.env.SENDGRID_API_KEY;
+        if (!sgApiKey) {
             console.warn('   ⚠️ [FIEL-COPIA] Sin configuración de email — no se envía copia');
             return;
         }
-        const userConfig = emailConfigs[0];
+        const userConfig = emailConfigs[0] || {};
+        if (!userConfig.email_from) userConfig.email_from = 'noreply@firmalegalonline.com';
+        if (!userConfig.email_from_name) userConfig.email_from_name = 'FirmaLegal Online';
 
         // Enviar via SendGrid con adjunto
         const sgMail = require('@sendgrid/mail');
-        sgMail.setApiKey(userConfig.sendgrid_api_key);
+        sgMail.setApiKey(sgApiKey);
 
         const safeTitle = docTitle.replace(/[^a-zA-Z0-9\-_. ]/g, '_');
         const fileName = `Copia_Fiel_${safeTitle}.pdf`;
@@ -609,7 +612,8 @@ async function sendFielCopiaAlDeudor(documentId, viewerGroupId, pdfBuffer) {
                 filename: fileName,
                 type: 'application/pdf',
                 disposition: 'attachment'
-            }]
+            }],
+            trackingSettings: { clickTracking: { enable: false, enableText: false }, openTracking: { enable: false } }
         };
 
         await sgMail.send(msg);
@@ -711,14 +715,17 @@ async function sendFielCopiaDocumentoNormal(documentId, pdfBuffer) {
             `SELECT * FROM email_config WHERE user_id = (SELECT owner_id FROM documents WHERE document_id = ?) LIMIT 1`,
             [documentId]
         );
-        if (!emailConfigs.length || !emailConfigs[0].sendgrid_api_key) {
+        const sgApiKey = emailConfigs[0]?.sendgrid_api_key || process.env.SENDGRID_API_KEY;
+        if (!sgApiKey) {
             console.warn('   ⚠️ [FIEL-COPIA-NORMAL] Sin configuración de email — no se envía copia');
             return;
         }
-        const userConfig = emailConfigs[0];
+        const userConfig = emailConfigs[0] || {};
+        if (!userConfig.email_from) userConfig.email_from = 'noreply@firmalegalonline.com';
+        if (!userConfig.email_from_name) userConfig.email_from_name = 'FirmaLegal Online';
 
         const sgMail = require('@sendgrid/mail');
-        sgMail.setApiKey(userConfig.sendgrid_api_key);
+        sgMail.setApiKey(sgApiKey);
 
         const safeTitle = docTitle.replace(/[^a-zA-Z0-9\-_. ]/g, '_');
         const fileName = `Copia_Fiel_${safeTitle}.pdf`;
@@ -768,7 +775,8 @@ async function sendFielCopiaDocumentoNormal(documentId, pdfBuffer) {
                 subject: `Copia Fiel del Documento — ${docTitle}`,
                 text: `Estimado/a ${recipientName},\n\nAdjunto encontrará una copia fiel del documento "${docTitle}" firmado por todos los participantes.\n\nEste documento es una representación gráfica fiel del original.\n\n© ${new Date().getFullYear()} PKI Services S.A.S.`,
                 html: htmlBody,
-                attachments: [{ content: attachmentContent, filename: fileName, type: 'application/pdf', disposition: 'attachment' }]
+                attachments: [{ content: attachmentContent, filename: fileName, type: 'application/pdf', disposition: 'attachment' }],
+                trackingSettings: { clickTracking: { enable: false, enableText: false }, openTracking: { enable: false } }
             };
 
             try {
@@ -800,13 +808,16 @@ async function sendFielCopiaIndividualPorRecipient(documentId, recipients) {
             `SELECT * FROM email_config WHERE user_id = (SELECT owner_id FROM documents WHERE document_id = ?) LIMIT 1`,
             [documentId]
         );
-        if (!emailConfigs.length || !emailConfigs[0].sendgrid_api_key) {
+        const sgApiKey = emailConfigs[0]?.sendgrid_api_key || process.env.SENDGRID_API_KEY;
+        if (!sgApiKey) {
             console.warn('   ⚠️ [FIEL-COPIA-IND] Sin configuración de email');
             return;
         }
-        const userConfig = emailConfigs[0];
+        const userConfig = emailConfigs[0] || {};
+        if (!userConfig.email_from) userConfig.email_from = 'noreply@firmalegalonline.com';
+        if (!userConfig.email_from_name) userConfig.email_from_name = 'FirmaLegal Online';
         const sgMail = require('@sendgrid/mail');
-        sgMail.setApiKey(userConfig.sendgrid_api_key);
+        sgMail.setApiKey(sgApiKey);
 
         const { PDFDocument, rgb, StandardFonts, degrees } = require('pdf-lib');
         const safeTitle = docTitle.replace(/[^a-zA-Z0-9\-_. ]/g, '_');
@@ -908,7 +919,8 @@ async function sendFielCopiaIndividualPorRecipient(documentId, recipients) {
                     subject: `Copia Fiel del Documento — ${docTitle}`,
                     text: `Estimado/a ${recipientName},\n\nAdjunto encontrará una copia fiel del documento "${docTitle}" firmado por todos los participantes.\n\n© ${new Date().getFullYear()} PKI Services S.A.S.`,
                     html: htmlBody,
-                    attachments: [{ content: copiaBuffer.toString('base64'), filename: fileName, type: 'application/pdf', disposition: 'attachment' }]
+                    attachments: [{ content: copiaBuffer.toString('base64'), filename: fileName, type: 'application/pdf', disposition: 'attachment' }],
+                    trackingSettings: { clickTracking: { enable: false, enableText: false }, openTracking: { enable: false } }
                 });
                 console.log(`   ✅ [FIEL-COPIA-IND] Copia fiel enviada a ${rec.email}`);
             } catch (recErr) {
@@ -6784,14 +6796,21 @@ app.post('/api/public/sign/:token', async (req, res) => {
                                     (err) => { if (err) reject(err); else resolve(); }
                                 );
                             });
+
+                            // Enviar copia fiel con el PDF completo (contrato + todas las trazas VI)
+                            try {
+                                await sendFielCopiaDocumentoNormal(recipient.document_id, signedViPdfBuffer);
+                            } catch (copiaViErr) {
+                                console.warn(`   ⚠️ [FIEL-COPIA-NORMAL] Error enviando copia fiel con trazas: ${copiaViErr.message}`);
+                            }
                         }
                     } catch (trazaErr) {
                         console.error('⚠️ [VI-TRAZA] Error procesando trazabilidades VI (no crítico):', trazaErr.message);
                     }
 
-                    // Enviar copia fiel a todos los firmantes (modo compartido)
+                    // Enviar copia fiel a todos los firmantes (modo compartido, solo si no se enviaron con trazas)
                     try {
-                        if (sharedSignedPdfBuffer) {
+                        if (sharedSignedPdfBuffer && !allDocRecipientsFinal.some(r => r.vi_traza_path)) {
                             await sendFielCopiaDocumentoNormal(recipient.document_id, sharedSignedPdfBuffer);
                         }
                     } catch (copiaErr) {
