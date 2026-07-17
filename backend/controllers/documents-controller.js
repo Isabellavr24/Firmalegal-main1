@@ -2843,7 +2843,6 @@ async function autoExtractLabels(db, documentId, textFields) {
 // ✅ FUNCIONES AUXILIARES PARA PAGARÉS
 // =============================================
 
-const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 const mailerDynamic = require('../lib/email/mailer-dynamic');
 
 /**
