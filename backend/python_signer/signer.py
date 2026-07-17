@@ -203,14 +203,14 @@ class PDFSigner:
         self.cert_path = str(PATHS.get_certificate_path(cert_path))
         self.cert_password = cert_password
         self.tsa_url = tsa_url
-        self.last_timestamp_info = None
 
         # Validar que existe
         validate_file_exists(Path(self.cert_path), "Certificado digital")
 
-        # ✅ OPTIMIZACIÓN: Cache de SimpleSigner para reusar entre firmas
+        # Cache de SimpleSigner — protegido con lock para thread-safety bajo carga masiva
         self._cached_signer = None
         self._cached_cert_data = None
+        self._signer_lock = threading.Lock()
 
         logger.info(f"✅ Certificado cargado: {self.cert_path}")
         logger.info(f"🚀 Optimizaciones activadas: Cache de timestamps y certificado")
@@ -218,28 +218,30 @@ class PDFSigner:
     def _get_or_load_signer(self) -> signers.SimpleSigner:
         """
         Obtiene el SimpleSigner cacheado o lo carga si es la primera vez.
-        ✅ OPTIMIZACIÓN: Evita cargar el certificado P12 múltiples veces
+        Thread-safe: usa lock para evitar doble inicialización bajo carga concurrente.
         """
-        if self._cached_signer is None:
-            logger.info("📋 Cargando certificado P12 (primera vez)...")
-            # Buscar cadena de CA (Sub CA + Root CA) junto al certificado principal
-            import os as _os
-            _cert_dir = _os.path.dirname(self.cert_path)
-            _sub_ca = _os.path.join(_cert_dir, 'PKIServicesSubCA.crt')
-            _root_ca = _os.path.join(_cert_dir, 'PKIServicesRootCA.crt')
-            _ca_chain = [f for f in [_sub_ca, _root_ca] if _os.path.exists(f)]
-            if _ca_chain:
-                logger.info(f"   🔗 Cadena CA encontrada: {[_os.path.basename(f) for f in _ca_chain]}")
-            else:
-                logger.warning("   ⚠️  No se encontró cadena CA — el sello puede no ser confiable en Adobe")
-            self._cached_signer = ChainAwareSimpleSigner.load_pkcs12_with_chain(
-                pfx_file=self.cert_path,
-                passphrase=self.cert_password.encode('utf-8'),
-                ca_chain_files=_ca_chain if _ca_chain else None
-            )
-            logger.info("   ✅ Certificado cargado y cacheado")
-        else:
+        if self._cached_signer is not None:
             logger.info("   ⚡ Usando certificado cacheado (rápido)")
+            return self._cached_signer
+        with self._signer_lock:
+            # Double-checked locking: verificar de nuevo dentro del lock
+            if self._cached_signer is None:
+                logger.info("📋 Cargando certificado P12 (primera vez)...")
+                import os as _os
+                _cert_dir = _os.path.dirname(self.cert_path)
+                _sub_ca = _os.path.join(_cert_dir, 'PKIServicesSubCA.crt')
+                _root_ca = _os.path.join(_cert_dir, 'PKIServicesRootCA.crt')
+                _ca_chain = [f for f in [_sub_ca, _root_ca] if _os.path.exists(f)]
+                if _ca_chain:
+                    logger.info(f"   🔗 Cadena CA encontrada: {[_os.path.basename(f) for f in _ca_chain]}")
+                else:
+                    logger.warning("   ⚠️  No se encontró cadena CA — el sello puede no ser confiable en Adobe")
+                self._cached_signer = ChainAwareSimpleSigner.load_pkcs12_with_chain(
+                    pfx_file=self.cert_path,
+                    passphrase=self.cert_password.encode('utf-8'),
+                    ca_chain_files=_ca_chain if _ca_chain else None
+                )
+                logger.info("   ✅ Certificado cargado y cacheado")
         return self._cached_signer
 
     def _get_or_extract_cert_data(self, signer: signers.SimpleSigner) -> Dict[str, str]:
@@ -591,7 +593,13 @@ class PDFSigner:
             w = IncrementalPdfFileWriter.from_reader(reader)
 
             # Obtener número total de páginas para colocar firma en la última
-            total_pages = len(reader.root['/Pages']['/Kids'])
+            # Usar reader.total_page_count en lugar de Kids directamente — Kids solo cuenta
+            # nodos del primer nivel del árbol de páginas; con PDFs fusionados (pdf-lib)
+            # puede devolver un conteo incorrecto y colocar la firma en la página equivocada.
+            try:
+                total_pages = reader.total_page_count
+            except Exception:
+                total_pages = int(reader.root['/Pages']['/Count'])
             last_page_index = total_pages - 1
             logger.info(f"📄 PDF tiene {total_pages} página(s), firma irá en página {last_page_index + 1}")
 
@@ -684,8 +692,8 @@ class PDFSigner:
 
             signed_pdf = out.getvalue()
 
-            # 7. Guardar información del timestamp
-            self.last_timestamp_info = {
+            # 7. Info del timestamp — local al thread, no compartida entre calls concurrentes
+            timestamp_info = {
                 "time": datetime.now(TZ_COLOMBIA).strftime("%Y-%m-%dT%H:%M:%S-05:00"),
                 "source": self.tsa_url,
                 "reason": reason,
@@ -699,7 +707,7 @@ class PDFSigner:
             logger.info(f"📄 PDF original: {len(pdf_bytes):,} bytes")
             logger.info(f"📄 PDF firmado: {len(signed_pdf):,} bytes")
             logger.info(f"📈 Incremento: {len(signed_pdf) - len(pdf_bytes):,} bytes")
-            logger.info(f"⏰ Timestamp: {self.last_timestamp_info['time']}")
+            logger.info(f"⏰ Timestamp: {timestamp_info['time']}")
             logger.info("=" * 60)
 
             return signed_pdf

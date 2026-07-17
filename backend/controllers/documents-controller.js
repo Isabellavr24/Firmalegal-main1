@@ -15,6 +15,7 @@ const pdfParse = require('pdf-parse'); // 🔥 NUEVO: Para extracción de labels
 const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js'); // Para extracción con coordenadas
 const mailer = require('../lib/email/mailer'); // 📧 NUEVO: Para envío de emails
 const crypto = require('crypto'); // 🔐 Para generar tokens
+const { PDFDocument } = require('pdf-lib'); // Para merge de trazas VI
 
 // =============================================
 // CONFIGURACIÓN DE MULTER PARA UPLOAD
@@ -845,6 +846,155 @@ router.get('/:id/file', requireAuth, async (req, res) => {
             error: 'Error al obtener el archivo',
             message: error.message
         });
+    }
+});
+
+/**
+ * GET /api/documents/:id/download-complete
+ * Genera y descarga el PDF completo con todas las trazas VI deduplicadas.
+ * Usa doc_only_path como base (ya tiene sello PKI pero SIN trazas) y
+ * agrega una traza por firmante en orden, sin duplicados.
+ */
+router.get('/:id/download-complete', requireAuth, async (req, res) => {
+    console.log(`\n📥 [DOCUMENTS] GET /api/documents/${req.params.id}/download-complete`);
+    const documentId = parseInt(req.params.id);
+    const db = req.app.locals.db;
+
+    try {
+        // 1. Obtener documento (doc_only_path = base con sello PKI, sin trazas)
+        const docRows = await new Promise((resolve, reject) => {
+            db.query(
+                `SELECT d.document_id, d.file_name, d.owner_id, d.team_id,
+                        d.doc_only_path, d.signed_file_path, d.status
+                 FROM documents d WHERE d.document_id = ?`,
+                [documentId],
+                (err, rows) => { if (err) reject(err); else resolve(rows); }
+            );
+        });
+
+        if (!docRows.length) {
+            return res.status(404).json({ ok: false, error: 'Documento no encontrado' });
+        }
+
+        const doc = docRows[0];
+
+        // Verificar permisos: dueño o miembro del equipo
+        if (doc.owner_id !== req.userId) {
+            let allowed = false;
+            if (doc.team_id) {
+                const teamRows = await new Promise((resolve, reject) => {
+                    db.query(
+                        `SELECT 1 FROM team_members WHERE user_id = ? AND team_id = ? LIMIT 1`,
+                        [req.userId, doc.team_id],
+                        (err, rows) => { if (err) reject(err); else resolve(rows); }
+                    );
+                });
+                allowed = teamRows.length > 0;
+            }
+            if (!allowed) {
+                return res.status(403).json({ ok: false, error: 'Sin permiso para este documento' });
+            }
+        }
+
+        // 2. Obtener todos los firmantes completados, ordenados por signing_order
+        const recipients = await new Promise((resolve, reject) => {
+            db.query(
+                `SELECT r.recipient_id, r.email, r.name, r.signing_order, r.vi_traza_path
+                 FROM document_recipients r
+                 WHERE r.document_id = ? AND r.status = 'completed'
+                 ORDER BY r.signing_order ASC, r.completed_at ASC`,
+                [documentId],
+                (err, rows) => { if (err) reject(err); else resolve(rows); }
+            );
+        });
+
+        // 3. Deduplicar por email: un solo firmante/traza por email
+        const seenEmails = new Set();
+        const uniqueRecipients = [];
+        for (const r of recipients) {
+            const emailKey = (r.email || '').toLowerCase().trim();
+            if (!seenEmails.has(emailKey)) {
+                seenEmails.add(emailKey);
+                uniqueRecipients.push(r);
+            }
+        }
+
+        // 4. Para firmantes sin vi_traza_path, buscar fallback en otros documentos
+        for (const r of uniqueRecipients) {
+            if (!r.vi_traza_path) {
+                const fallbackRows = await new Promise((resolve, reject) => {
+                    db.query(
+                        `SELECT vi_traza_path FROM document_recipients
+                         WHERE email = ? AND vi_traza_path IS NOT NULL
+                         ORDER BY completed_at DESC LIMIT 1`,
+                        [r.email],
+                        (err, rows) => { if (err) reject(err); else resolve(rows); }
+                    );
+                });
+                if (fallbackRows.length && fallbackRows[0].vi_traza_path) {
+                    r.vi_traza_path = fallbackRows[0].vi_traza_path;
+                    console.log(`   ↪ Fallback traza para ${r.email}: ${r.vi_traza_path}`);
+                }
+            }
+        }
+
+        const trazas = uniqueRecipients.filter(r => r.vi_traza_path);
+        console.log(`   Firmantes únicos: ${uniqueRecipients.length}, con traza: ${trazas.length}`);
+
+        // 5. Determinar PDF base: preferir doc_only_path (sin trazas), fallback a signed_file_path
+        const basePdfRelative = doc.doc_only_path || doc.signed_file_path;
+        if (!basePdfRelative) {
+            return res.status(404).json({ ok: false, error: 'No hay PDF firmado disponible aún' });
+        }
+
+        const basePdfPath = path.join(__dirname, '..', '..', basePdfRelative);
+        if (!fs.existsSync(basePdfPath)) {
+            return res.status(404).json({ ok: false, error: 'Archivo base no encontrado en el servidor' });
+        }
+
+        // 6. Si no hay trazas, devolver directamente el PDF base
+        if (!trazas.length) {
+            console.log(`   Sin trazas — devolviendo PDF base`);
+            const safeName = (doc.file_name || `documento_${documentId}`).replace(/\.pdf$/i, '');
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', `attachment; filename="${safeName}_completo.pdf"`);
+            return res.sendFile(basePdfPath);
+        }
+
+        // 7. Merge: base + trazas (en orden signing_order)
+        const basePdfBytes = fs.readFileSync(basePdfPath);
+        const mergedDoc = await PDFDocument.load(basePdfBytes);
+
+        for (const rec of trazas) {
+            const trazaAbsPath = path.join(__dirname, '..', '..', rec.vi_traza_path);
+            if (!fs.existsSync(trazaAbsPath)) {
+                console.warn(`   ⚠ Traza no existe en disco: ${trazaAbsPath} (${rec.email})`);
+                continue;
+            }
+            try {
+                const trazaBytes = fs.readFileSync(trazaAbsPath);
+                const trazaDoc = await PDFDocument.load(trazaBytes);
+                const trazaPages = await mergedDoc.copyPages(trazaDoc, trazaDoc.getPageIndices());
+                for (const p of trazaPages) mergedDoc.addPage(p);
+                console.log(`   ✅ Traza añadida: ${rec.email} (${trazaDoc.getPageCount()}p)`);
+            } catch (e) {
+                console.error(`   ❌ Error cargando traza de ${rec.email}: ${e.message}`);
+            }
+        }
+
+        const mergedBytes = await mergedDoc.save();
+        const safeName = (doc.file_name || `documento_${documentId}`).replace(/\.pdf$/i, '');
+
+        console.log(`✅ [DOCUMENTS] download-complete listo: ${mergedDoc.getPageCount()}p`);
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${safeName}_completo.pdf"`);
+        res.setHeader('Content-Length', mergedBytes.length);
+        res.end(Buffer.from(mergedBytes));
+
+    } catch (error) {
+        console.error('❌ [DOCUMENTS] Error en download-complete:', error);
+        res.status(500).json({ ok: false, error: 'Error generando documento completo', message: error.message });
     }
 });
 

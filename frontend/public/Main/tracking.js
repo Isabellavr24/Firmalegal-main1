@@ -193,45 +193,33 @@ function renderRecipients(recipients, tvGuidsByGroup, pagareSealed) {
       sectionActions.insertBefore(completeBtn, sectionActions.firstChild);
 
       completeBtn.addEventListener('click', async () => {
-        const origin = window.location.origin;
         const docName = document.querySelector('.document-title')?.textContent?.trim() || `documento_${docId}`;
-
-        // Intentar obtener signed_file_path del documento (contiene todas las trazas fusionadas)
+        completeBtn.disabled = true;
+        completeBtn.style.opacity = '0.7';
         try {
-          const docResp = await fetch(`/api/documents/${docId}`, { credentials: 'include' });
-          if (docResp.ok) {
-            const docJson = await docResp.json();
-            const signedPath = docJson.data?.signed_file_path || docJson.signed_file_path;
-            if (signedPath) {
-              const dlUrl = `${origin}/${signedPath.replace(/^\/+/, '')}`;
-              const link = document.createElement('a');
-              link.href = dlUrl;
-              link.download = `${docName}_completo.pdf`;
-              document.body.appendChild(link);
-              link.click();
-              document.body.removeChild(link);
-              ToastManager.show({ type: 'success', title: 'Descarga iniciada', message: 'Documento completo con sello PKI y trazabilidad' });
-              return;
-            }
+          // Endpoint genera el PDF en tiempo real: base sellada + trazas deduplicadas sin duplicados
+          const resp = await fetch(`/api/documents/${docId}/download-complete`, { credentials: 'include' });
+          if (!resp.ok) {
+            const errJson = await resp.json().catch(() => ({}));
+            ToastManager.show({ type: 'error', title: 'Error', message: errJson.error || 'No se pudo generar el documento completo' });
+            return;
           }
-        } catch (e) { /* fallback */ }
-
-        // Fallback: usar custom_pdf_path del recipient con traza VI
-        const viRec = normals.find(r => r.vi_traza_path && r.status === 'completed' && r.custom_pdf_path);
-        const anyRec = normals.find(r => r.status === 'completed' && r.custom_pdf_path);
-        const rec = viRec || anyRec;
-        if (!rec || !rec.custom_pdf_path) {
-          ToastManager.show({ type: 'warning', title: 'No disponible', message: 'El documento aun no tiene PDF final sellado' });
-          return;
+          const blob = await resp.blob();
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = `${docName}_completo.pdf`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+          ToastManager.show({ type: 'success', title: 'Descarga iniciada', message: 'Documento completo con sello PKI y trazabilidad' });
+        } catch (e) {
+          ToastManager.show({ type: 'error', title: 'Error de red', message: 'No se pudo descargar el documento' });
+        } finally {
+          completeBtn.disabled = false;
+          completeBtn.style.opacity = '';
         }
-        const dlUrl = `${origin}/${rec.custom_pdf_path.replace(/^\/+/, '')}`;
-        const link = document.createElement('a');
-        link.href = dlUrl;
-        link.download = `${docName}_completo.pdf`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        ToastManager.show({ type: 'success', title: 'Descarga iniciada', message: 'Documento completo con sello PKI y trazabilidad' });
       });
     }
   }

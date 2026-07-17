@@ -530,9 +530,13 @@ async function sendFielCopiaAlDeudor(documentId, viewerGroupId, pdfBuffer) {
         const copiaBytes = await pdfDoc.save();
         const copiaBuffer = Buffer.from(copiaBytes);
 
-        // Obtener config de email (siempre user_id=1)
+        // Obtener config de email del owner del documento (con fallback global)
         const [emailConfigs] = await db.promise().query(
-            `SELECT * FROM email_config WHERE user_id = 1 LIMIT 1`
+            `SELECT ec.* FROM email_config ec
+             JOIN pagare_viewer_groups pvg ON pvg.viewer_group_id = ?
+             JOIN documents d ON d.document_id = pvg.document_id
+             WHERE ec.user_id = d.owner_id LIMIT 1`,
+            [viewerGroupId]
         );
         const sgApiKey = emailConfigs[0]?.sendgrid_api_key || process.env.SENDGRID_API_KEY;
         if (!sgApiKey) {
@@ -1074,9 +1078,22 @@ async function sealPagaresWithoutFinalSigner(documentId) {
                             }
                         }
 
-                        // Añadir traza VI propia
-                        if (recToSeal.vi_traza_path) {
-                            const trazaAbs = resolveFromRoot(recToSeal.vi_traza_path.replace(/^\/+/, ''));
+                        // Añadir traza VI propia (con fallback a otros documentos del mismo email)
+                        let trazaPathToUse = recToSeal.vi_traza_path;
+                        if (!trazaPathToUse) {
+                            const [fallbackRow] = await db.promise().query(
+                                `SELECT vi_traza_path FROM document_recipients
+                                 WHERE email = ? AND vi_traza_path IS NOT NULL
+                                 ORDER BY completed_at DESC LIMIT 1`,
+                                [recToSeal.email]
+                            );
+                            if (fallbackRow && fallbackRow.vi_traza_path) {
+                                trazaPathToUse = fallbackRow.vi_traza_path;
+                                console.log(`   ✅ [VI-TRAZA-PAGARE] Traza fallback para ${recToSeal.email}`);
+                            }
+                        }
+                        if (trazaPathToUse) {
+                            const trazaAbs = resolveFromRoot(trazaPathToUse.replace(/^\/+/, ''));
                             if (fs.existsSync(trazaAbs)) {
                                 const trazaDoc = await PDFDocument.load(fs.readFileSync(trazaAbs));
                                 const trazaPages = await recPdfDoc.copyPages(trazaDoc, trazaDoc.getPageIndices());
@@ -6650,19 +6667,22 @@ app.post('/api/public/sign/:token', async (req, res) => {
                         }
                     }
 
-                    // Actualizar signed_file_path del documento con el PDF final del firmante actual como referencia
-                    const updatedRow = await new Promise((resolve, reject) => {
+                    // Actualizar signed_file_path con el PDF del último recipient sellado exitosamente
+                    // (el que tiene mayor recipient_id entre los completados, no el que disparó el webhook)
+                    const lastSealedRow = await new Promise((resolve, reject) => {
                         db.query(
-                            'SELECT custom_pdf_path FROM document_recipients WHERE recipient_id = ?',
-                            [recipient.recipient_id],
+                            `SELECT custom_pdf_path FROM document_recipients
+                             WHERE document_id = ? AND status = 'completed' AND custom_pdf_path IS NOT NULL
+                             ORDER BY completed_at DESC LIMIT 1`,
+                            [recipient.document_id],
                             (err, rows) => { if (err) reject(err); else resolve(rows[0] || null); }
                         );
                     });
-                    if (updatedRow && updatedRow.custom_pdf_path) {
+                    if (lastSealedRow && lastSealedRow.custom_pdf_path) {
                         await new Promise((resolve, reject) => {
                             db.query(
                                 'UPDATE documents SET signed_file_path = ?, verification_token = ? WHERE document_id = ?',
-                                [updatedRow.custom_pdf_path, verificationToken, recipient.document_id],
+                                [lastSealedRow.custom_pdf_path, verificationToken, recipient.document_id],
                                 (err) => { if (err) reject(err); else resolve(); }
                             );
                         });
@@ -6742,16 +6762,18 @@ app.post('/api/public/sign/:token', async (req, res) => {
                     const relativeFinalPath = path.join('uploads', 'signed', finalPdfFilename).replace(/\\/g, '/');
                     console.log(`💾 PDF final con PKI guardado: ${relativeFinalPath}`);
 
-                    // Actualizar signed_file_path, doc_only_path y verification_token del documento
+                    // Guardar doc_only_path (PDF con firmas, sin trazas VI) para uso interno.
+                    // NO actualizamos signed_file_path aquí — lo actualizamos después del sellado
+                    // con trazas VI para evitar que quede apuntando al PDF incompleto si falla la segunda firma.
                     await new Promise((resolve, reject) => {
                         db.query(
-                            'UPDATE documents SET signed_file_path = ?, doc_only_path = ?, verification_token = ? WHERE document_id = ?',
-                            [relativeFinalPath, relativeFinalPath, verificationToken, recipient.document_id],
+                            'UPDATE documents SET doc_only_path = ?, verification_token = ? WHERE document_id = ?',
+                            [relativeFinalPath, verificationToken, recipient.document_id],
                             (err) => { if (err) reject(err); else resolve(); }
                         );
                     });
 
-                    // Actualizar custom_pdf_path para destinatarios sin traza VI
+                    // Actualizar custom_pdf_path para destinatarios sin traza VI (PDF base sellado)
                     await new Promise((resolve, reject) => {
                         db.query(
                             'UPDATE document_recipients SET custom_pdf_path = ? WHERE document_id = ? AND vi_traza_path IS NULL',
@@ -6766,8 +6788,11 @@ app.post('/api/public/sign/:token', async (req, res) => {
                         const { PDFDocument: PDFDoc } = require('pdf-lib');
                         let recipientsWithTraza = allDocRecipientsFinal.filter(r => r.vi_traza_path);
 
-                        // Para recipients sin traza en este documento, buscar su traza más reciente en otros documentos
-                        const recipientsWithoutTraza = allDocRecipientsFinal.filter(r => !r.vi_traza_path && r.vi_validated_at);
+                        // Para recipients sin traza en este documento, buscar su traza más reciente en otros documentos.
+                        // Se busca para TODOS sin traza (sin gate de vi_validated_at) porque los propietarios
+                        // que firman como recipients pueden tener vi_validated_at NULL en este documento
+                        // aunque hayan verificado identidad en documentos anteriores.
+                        const recipientsWithoutTraza = allDocRecipientsFinal.filter(r => !r.vi_traza_path);
                         for (const recNoTraza of recipientsWithoutTraza) {
                             const [fallbackTraza] = await new Promise((resolve, reject) => {
                                 db.query(
@@ -6781,6 +6806,8 @@ app.post('/api/public/sign/:token', async (req, res) => {
                             if (fallbackTraza && fallbackTraza.vi_traza_path) {
                                 recipientsWithTraza.push({ ...recNoTraza, vi_traza_path: fallbackTraza.vi_traza_path });
                                 console.log(`   ✅ [VI-TRAZA] Traza fallback encontrada para ${recNoTraza.email}`);
+                            } else {
+                                console.log(`   ⚠️ [VI-TRAZA] Sin traza VI para ${recNoTraza.email} — no se incluye`);
                             }
                         }
 
@@ -6851,13 +6878,22 @@ app.post('/api/public/sign/:token', async (req, res) => {
                         console.error('⚠️ [VI-TRAZA] Error procesando trazabilidades VI (no crítico):', trazaErr.message);
                     }
 
-                    // Enviar copia fiel a todos los firmantes (modo compartido, solo si no se enviaron con trazas)
-                    try {
-                        if (sharedSignedPdfBuffer && !allDocRecipientsFinal.some(r => r.vi_traza_path)) {
+                    // Si no hubo trazas VI, actualizar signed_file_path con el PDF base sellado
+                    // y enviar copia fiel. Si sí hubo trazas, esto ya se hizo arriba con el PDF completo.
+                    const hayTrazas = allDocRecipientsFinal.some(r => r.vi_traza_path);
+                    if (!hayTrazas) {
+                        await new Promise((resolve, reject) => {
+                            db.query(
+                                'UPDATE documents SET signed_file_path = ? WHERE document_id = ?',
+                                [relativeFinalPath, recipient.document_id],
+                                (err) => { if (err) reject(err); else resolve(); }
+                            );
+                        });
+                        try {
                             await sendFielCopiaDocumentoNormal(recipient.document_id, sharedSignedPdfBuffer);
+                        } catch (copiaErr) {
+                            console.warn(`   ⚠️ [FIEL-COPIA-NORMAL] Error enviando copia fiel: ${copiaErr.message}`);
                         }
-                    } catch (copiaErr) {
-                        console.warn(`   ⚠️ [FIEL-COPIA-NORMAL] Error enviando copia fiel compartida: ${copiaErr.message}`);
                     }
                 }
 
