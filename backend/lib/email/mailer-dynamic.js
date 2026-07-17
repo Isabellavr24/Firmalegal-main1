@@ -14,7 +14,7 @@ const APP_URL = process.env.APP_URL || 'http://localhost:3000';
  * @param {Object} emailData - Datos del email
  * @returns {Promise<Object>}
  */
-async function sendEmailWithUserConfig(userConfig, { to, subject, text, html }) {
+async function sendEmailWithUserConfig(userConfig, { to, subject, text, html, attachments }) {
     if (!userConfig || !userConfig.sendgrid_api_key) {
         return {
             success: false,
@@ -41,6 +41,7 @@ async function sendEmailWithUserConfig(userConfig, { to, subject, text, html }) 
         text,
         html
     };
+    if (attachments && attachments.length > 0) msg.attachments = attachments;
 
     try {
         const response = await sgMail.send(msg);

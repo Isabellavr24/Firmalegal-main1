@@ -36,7 +36,7 @@ if (SENDGRID_API_KEY && SENDGRID_API_KEY !== 'SG.XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
  * @param {string} options.html - HTML del email
  * @returns {Promise<Object>}
  */
-async function sendEmail({ to, subject, text, html }) {
+async function sendEmail({ to, subject, text, html, attachments }) {
     if (!sendgrid.isConfigured()) {
         console.warn('⚠️ [MAILER] SendGrid no configurado. Email no enviado.');
         return {
@@ -51,7 +51,8 @@ async function sendEmail({ to, subject, text, html }) {
         fromName: EMAIL_FROM_NAME,
         subject,
         text,
-        html
+        html,
+        attachments
     });
 }
 

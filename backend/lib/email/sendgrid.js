@@ -34,7 +34,7 @@ function configureSendGrid(apiKey) {
  * @param {string} emailData.html - Contenido en HTML
  * @returns {Promise<Object>} Respuesta de SendGrid
  */
-async function sendEmail({ to, from, fromName, subject, text, html }) {
+async function sendEmail({ to, from, fromName, subject, text, html, attachments }) {
     console.log('\n📧 [SENDGRID] Preparando envío de email...');
     console.log(`   Para: ${to}`);
     console.log(`   De: ${fromName} <${from}>`);
@@ -54,6 +54,7 @@ async function sendEmail({ to, from, fromName, subject, text, html }) {
             openTracking: { enable: false }
         }
     };
+    if (attachments && attachments.length > 0) msg.attachments = attachments;
 
     try {
         const response = await sgMail.send(msg);

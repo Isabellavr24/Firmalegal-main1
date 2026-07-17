@@ -260,6 +260,15 @@ function setupUserModal() {
     cancelBtn?.addEventListener('click', closeModal);
     modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
     form.addEventListener('submit', async e => { e.preventDefault(); await handleUserSubmit(); });
+
+    const firmasCheckbox = document.getElementById('um-firmas-indefinido');
+    const firmasInput    = document.getElementById('um-firmas');
+    if (firmasCheckbox && firmasInput) {
+        firmasCheckbox.addEventListener('change', () => {
+            firmasInput.disabled = firmasCheckbox.checked;
+            if (firmasCheckbox.checked) firmasInput.value = '';
+        });
+    }
 }
 
 function openCreateModal() {
@@ -277,6 +286,11 @@ function openCreateModal() {
 
     const passNote = document.getElementById('um-pass-note');
     if (passNote) passNote.style.display = '';
+
+    const firmasCheckReset = document.getElementById('um-firmas-indefinido');
+    const firmasInputReset = document.getElementById('um-firmas');
+    if (firmasCheckReset) firmasCheckReset.checked = false;
+    if (firmasInputReset) firmasInputReset.disabled = false;
 
     const err = document.getElementById('um-field-error');
     if (err) err.remove();
@@ -311,6 +325,24 @@ function openEditModal(user) {
     const userRole = availableRoles.find(r => r.role_name === user.role_name);
     if (userRole) roleSelect.value = userRole.role_id;
 
+    const addrEl = document.getElementById('um-address');
+    if (addrEl) addrEl.value = user.address || '';
+
+    const actEl = document.getElementById('um-activation');
+    if (actEl) actEl.value = user.activation_date ? user.activation_date.substring(0, 10) : '';
+
+    const expEl = document.getElementById('um-expiration');
+    if (expEl) expEl.value = user.expiration_date ? user.expiration_date.substring(0, 10) : '';
+
+    const firmasEl = document.getElementById('um-firmas');
+    const firmasCheck = document.getElementById('um-firmas-indefinido');
+    const isIndefinido = user.firmas_contratadas == null;
+    if (firmasCheck) { firmasCheck.checked = isIndefinido; }
+    if (firmasEl) {
+        firmasEl.disabled = isIndefinido;
+        firmasEl.value = isIndefinido ? '' : user.firmas_contratadas;
+    }
+
     const err = document.getElementById('um-field-error');
     if (err) err.remove();
 
@@ -325,6 +357,18 @@ async function handleUserSubmit() {
     const email     = document.getElementById('um-email').value.trim();
     const password  = document.getElementById('um-pass').value;
     const roleId    = document.getElementById('um-role').value;
+
+    const addrEl       = document.getElementById('um-address');
+    const actEl        = document.getElementById('um-activation');
+    const expEl        = document.getElementById('um-expiration');
+    const firmasEl     = document.getElementById('um-firmas');
+    const firmasCheck  = document.getElementById('um-firmas-indefinido');
+
+    const address          = addrEl   ? addrEl.value.trim()  : '';
+    const activationDate   = actEl    ? actEl.value          : '';
+    const expirationDate   = expEl    ? expEl.value          : '';
+    const firmasIndefinido = firmasCheck && firmasCheck.checked;
+    const firmasContratadas = firmasIndefinido ? null : (firmasEl && firmasEl.value !== '' ? parseInt(firmasEl.value) : null);
 
     if (!firstName || !lastName || !email || !roleId) {
         showFieldError('Por favor completa todos los campos requeridos.');
@@ -341,7 +385,11 @@ async function handleUserSubmit() {
             firstName, lastName, email,
             roleId: parseInt(roleId),
             requestingUserId: currentUser.user_id,
-            requestingUserRole: currentUser.role_name
+            requestingUserRole: currentUser.role_name,
+            address,
+            activationDate: activationDate || null,
+            expirationDate: expirationDate || null,
+            firmasContratadas
         };
         if (password) userData.password = password;
 

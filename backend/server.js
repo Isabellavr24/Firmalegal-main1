@@ -2686,6 +2686,7 @@ app.get('/api/users', (req, res) => {
     const query = `
         SELECT u.user_id, u.first_name, u.last_name, u.email,
                u.is_active, u.last_login, u.created_at,
+               u.address, u.activation_date, u.expiration_date, u.firmas_contratadas,
                r.role_name, r.role_description,
                DATABASE() as current_db,
                t.team_name, t.team_id AS user_team_id, t.team_color
@@ -2772,7 +2773,7 @@ app.post('/api/users', async (req, res) => {
     console.log('➕ Creando nuevo usuario');
     console.log('📦 Datos recibidos:', JSON.stringify(req.body, null, 2));
 
-    const { firstName, lastName, email, roleId, requestingUserId, requestingUserRole } = req.body;
+    const { firstName, lastName, email, roleId, requestingUserId, requestingUserRole, address, activationDate, expirationDate, firmasContratadas } = req.body;
 
     // VERIFICAR PERMISOS: Solo Superadministrador puede crear usuarios
     if (!requestingUserRole || !canManageUsers(requestingUserRole)) {
@@ -2829,8 +2830,12 @@ app.post('/api/users', async (req, res) => {
         // Insertar usuario
         await new Promise((resolve, reject) => {
             db.query(
-                'INSERT INTO users (first_name, last_name, email, password_hash, role_id, is_active) VALUES (?, ?, ?, ?, ?, ?)',
-                [firstName, lastName, email, passwordHash, roleId, true],
+                'INSERT INTO users (first_name, last_name, email, password_hash, role_id, is_active, address, activation_date, expiration_date, firmas_contratadas) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [firstName, lastName, email, passwordHash, roleId, true,
+                 address || null,
+                 activationDate || null,
+                 expirationDate || null,
+                 firmasContratadas != null ? firmasContratadas : null],
                 (err, results) => {
                     if (err) reject(err);
                     else resolve(results);
@@ -2842,6 +2847,8 @@ app.post('/api/users', async (req, res) => {
 
         // Enviar email de bienvenida usando config dinámica del admin (email_config en DB)
         try {
+            const fs = require('fs');
+            const path = require('path');
             const welcomeTemplate = require('./lib/email/templates/welcome-user');
             const APP_URL = process.env.APP_URL || 'http://localhost:3000';
             const loginUrl = `${APP_URL}/login.html`;
@@ -2849,9 +2856,37 @@ app.post('/api/users', async (req, res) => {
                 firstName, lastName, email,
                 password: plainPassword,
                 roleName: roleResult[0].role_name,
-                loginUrl, appUrl: APP_URL
+                loginUrl, appUrl: APP_URL,
+                address: address || null,
+                activationDate: activationDate || null,
+                expirationDate: expirationDate || null,
+                firmasContratadas: firmasContratadas != null ? firmasContratadas : null
             });
-            const emailText = `Hola ${firstName},\n\nTu cuenta en FirmaLegal Online ha sido creada.\n\nCorreo: ${email}\nContraseña: ${plainPassword}\nRol: ${roleResult[0].role_name}\n\nInicia sesión en: ${loginUrl}\n\nTe recomendamos cambiar tu contraseña en el primer inicio de sesión.\n\nFirmaLegal Online`;
+            const emailText = `Hola ${firstName},\n\nTu cuenta en FirmaLegal Online ha sido creada.\n\nCorreo: ${email}\nContrasena: ${plainPassword}\nRol: ${roleResult[0].role_name}\n\nInicia sesion en: ${loginUrl}\n\nPara cambiar tu contrasena escribenos a firmalegalonline@pkiservices.co\n\nFirmaLegal Online`;
+
+            // Adjuntos inline CID para que las imágenes se muestren en todos los clientes de correo
+            const assetsDir = path.join(__dirname, 'lib/email/assets');
+            const logoPath  = path.join(assetsDir, 'pki-logo.jpg');
+            const paoPath   = path.join(assetsDir, 'pao-firma.jpg');
+            const emailAttachments = [];
+            if (fs.existsSync(logoPath)) {
+                emailAttachments.push({
+                    content: fs.readFileSync(logoPath).toString('base64'),
+                    filename: 'pki-logo.jpg',
+                    type: 'image/jpeg',
+                    disposition: 'inline',
+                    content_id: 'pki-logo'
+                });
+            }
+            if (fs.existsSync(paoPath)) {
+                emailAttachments.push({
+                    content: fs.readFileSync(paoPath).toString('base64'),
+                    filename: 'pao-firma.jpg',
+                    type: 'image/jpeg',
+                    disposition: 'inline',
+                    content_id: 'pao-firma'
+                });
+            }
 
             // Buscar config de email del usuario que crea (requestingUserId)
             const emailConfig = await mailerDynamic.getUserEmailConfig(db, requestingUserId);
@@ -2860,16 +2895,18 @@ app.post('/api/users', async (req, res) => {
             if (emailConfig) {
                 result = await mailerDynamic.sendEmailWithUserConfig(emailConfig, {
                     to: email,
-                    subject: 'Bienvenido/a a FirmaLegal Online — Tus credenciales de acceso',
+                    subject: 'Bienvenido/a a FirmaLegal Online — Credenciales de acceso',
                     text: emailText,
-                    html: emailHtml
+                    html: emailHtml,
+                    attachments: emailAttachments
                 });
             } else {
                 result = await mailer.sendEmail({
                     to: email,
-                    subject: 'Bienvenido/a a FirmaLegal Online — Tus credenciales de acceso',
+                    subject: 'Bienvenido/a a FirmaLegal Online — Credenciales de acceso',
                     text: emailText,
-                    html: emailHtml
+                    html: emailHtml,
+                    attachments: emailAttachments
                 });
             }
 
@@ -3054,7 +3091,7 @@ app.put('/api/users/:id', async (req, res) => {
     console.log('✏️ Editando usuario:', userId);
     console.log('📦 Datos recibidos:', JSON.stringify(req.body, null, 2));
     
-    const { firstName, lastName, email, password, roleId, requestingUserId, requestingUserRole } = req.body;
+    const { firstName, lastName, email, password, roleId, requestingUserId, requestingUserRole, address, activationDate, expirationDate, firmasContratadas } = req.body;
 
     // VERIFICAR PERMISOS
     const isSuperAdmin = canEditUsers(requestingUserRole);
@@ -3153,20 +3190,26 @@ app.put('/api/users/:id', async (req, res) => {
         }
 
         // Actualizar usuario (sin cambiar email todavía si cambió)
+        const onacFields = [
+            address || null,
+            activationDate || null,
+            expirationDate || null,
+            firmasContratadas != null ? firmasContratadas : null
+        ];
         if (password) {
             const passwordHash = await bcrypt.hash(password, 10);
             await new Promise((resolve, reject) => {
                 db.query(
-                    'UPDATE users SET first_name = ?, last_name = ?, password_hash = ?, role_id = ? WHERE user_id = ?',
-                    [firstName, lastName, passwordHash, roleId, userId],
+                    'UPDATE users SET first_name = ?, last_name = ?, password_hash = ?, role_id = ?, address = ?, activation_date = ?, expiration_date = ?, firmas_contratadas = ? WHERE user_id = ?',
+                    [firstName, lastName, passwordHash, roleId, ...onacFields, userId],
                     (err, results) => { if (err) reject(err); else resolve(results); }
                 );
             });
         } else {
             await new Promise((resolve, reject) => {
                 db.query(
-                    'UPDATE users SET first_name = ?, last_name = ?, role_id = ? WHERE user_id = ?',
-                    [firstName, lastName, roleId, userId],
+                    'UPDATE users SET first_name = ?, last_name = ?, role_id = ?, address = ?, activation_date = ?, expiration_date = ?, firmas_contratadas = ? WHERE user_id = ?',
+                    [firstName, lastName, roleId, ...onacFields, userId],
                     (err, results) => { if (err) reject(err); else resolve(results); }
                 );
             });

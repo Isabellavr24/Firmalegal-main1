@@ -494,6 +494,31 @@
         </div>
       </div>
 
+      <div class="field">
+        <label for="um-address">Dirección del suscriptor</label>
+        <input id="um-address" type="text" class="input-pill" placeholder="Ej: Calle 127B Bis #46-63, Bogotá">
+      </div>
+
+      <div class="grid-2">
+        <div class="field">
+          <label for="um-activation">Fecha de activación</label>
+          <input id="um-activation" type="date" class="input-pill">
+        </div>
+        <div class="field">
+          <label for="um-expiration">Fecha de expiración</label>
+          <input id="um-expiration" type="date" class="input-pill">
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="um-firmas">Firmas contratadas</label>
+        <input id="um-firmas" type="number" class="input-pill" min="0" placeholder="Cantidad de firmas">
+        <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#555;cursor:pointer;font-weight:400;margin-top:6px;">
+          <input type="checkbox" id="um-firmas-indefinido" style="width:15px;height:15px;cursor:pointer;accent-color:#6b1a3c;">
+          Indefinido
+        </label>
+      </div>
+
       <input type="hidden" id="um-id">
     </form>
 
