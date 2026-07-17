@@ -1334,25 +1334,39 @@ async function prefilPDFWithTemplateValues(db, documentId, pdfPath) {
         const pdfDoc = await PDFDocument.load(existingPdfBytes);
         const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
+        // Helper: calcular fontSize que cabe y truncar si excede el ancho
+        function fitText(font, text, fieldWidth, fieldHeight) {
+            let size = Math.min(fieldHeight * 0.65, 12);
+            size = Math.max(size, 6);
+            const maxW = fieldWidth - 4;
+            while (size > 6 && font.widthOfTextAtSize(text, size) > maxW) size -= 0.5;
+            let displayText = text;
+            while (font.widthOfTextAtSize(displayText, size) > maxW && displayText.length > 1) {
+                displayText = displayText.slice(0, -1);
+            }
+            return { size, displayText };
+        }
+
         // 3. Escribir cada valor en el PDF
         for (const fieldData of templateValues) {
-            const pageIndex = fieldData.page_number - 1; // PDF pages are 0-indexed
+            const pageIndex = fieldData.page_number - 1;
             const page = pdfDoc.getPage(pageIndex);
             const pageHeight = page.getHeight();
 
-            // Convertir coordenadas de string a number (vienen de DECIMAL en MySQL)
             const xPos = parseFloat(fieldData.x_position);
             const yPos = parseFloat(fieldData.y_position);
             const fieldWidth = parseFloat(fieldData.width);
             const fieldHeight = parseFloat(fieldData.height);
 
-            // Convertir coordenadas (PDF usa origen inferior-izquierdo)
+            // Y invertido: yPos es desde arriba en viewport, pdf-lib usa desde abajo
             const pdfY = pageHeight - yPos - fieldHeight;
+            const { size, displayText } = fitText(font, fieldData.field_value, fieldWidth, fieldHeight);
+            const textOffsetY = (fieldHeight - size) / 2;
 
-            page.drawText(fieldData.field_value, {
+            page.drawText(displayText, {
                 x: xPos + 2,
-                y: pdfY + 4,
-                size: 12,
+                y: pdfY + textOffsetY,
+                size,
                 font: font,
                 color: rgb(0, 0, 0),
             });
@@ -1426,6 +1440,23 @@ async function prefillPDFWithRecipientData(db, documentId, pdfPath, recipientEma
         const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
         let writtenCount = 0;
+
+        // Helper: calcular fontSize que cabe y truncar texto si es necesario
+        function fitTextInField(font, text, fieldWidth, fieldHeight) {
+            let size = Math.min(fieldHeight * 0.65, 12);
+            size = Math.max(size, 6);
+            // Reducir hasta que el texto quepa en el ancho disponible (con padding de 4px)
+            const maxW = fieldWidth - 4;
+            while (size > 6 && font.widthOfTextAtSize(text, size) > maxW) {
+                size -= 0.5;
+            }
+            // Si aún no cabe, truncar texto
+            let displayText = text;
+            while (font.widthOfTextAtSize(displayText, size) > maxW && displayText.length > 1) {
+                displayText = displayText.slice(0, -1);
+            }
+            return { size, displayText };
+        }
 
         // 3. Escribir cada valor del CSV en el PDF
         console.log(`\n📝 [PREFILL-RECIPIENT-PDF] Procesando ${Object.keys(fieldValuesMap).length} campos del CSV...`);
@@ -1514,17 +1545,21 @@ async function prefillPDFWithRecipientData(db, documentId, pdfPath, recipientEma
             const fieldWidth = parseFloat(fieldPos.width);
             const fieldHeight = parseFloat(fieldPos.height);
 
+            // Y en pdf-lib: origen abajo-izquierda. yPos es desde arriba → invertir
             const pdfY = pageHeight - yPos - fieldHeight;
+            const { size, displayText } = fitTextInField(font, value.toString(), fieldWidth, fieldHeight);
+            // Centrar verticalmente dentro del campo
+            const textOffsetY = (fieldHeight - size) / 2;
 
-            page.drawText(value.toString(), {
+            page.drawText(displayText, {
                 x: xPos + 2,
-                y: pdfY + 4,
-                size: 12,
+                y: pdfY + textOffsetY,
+                size,
                 font: font,
                 color: rgb(0, 0, 0),
             });
 
-            console.log(`   ✍️ Escrito "${value}" en campo "${csvLabel}" (field_id=${fieldId})`);
+            console.log(`   ✍️ Escrito "${displayText}" (size=${size.toFixed(1)}) en campo "${csvLabel}" (field_id=${fieldId})`);
             writtenCount++;
         }
 
