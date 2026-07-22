@@ -837,28 +837,43 @@ async function completeSignature(req, res) {
                 );
             });
 
-            // 4. Si firma secuencial está activada, activar siguiente rol
+            // 4. Si firma secuencial está activada, activar siguiente firmante
             if (recipient.sign_in_order === 1) {
                 const nextRoleOrder = recipient.role_order + 1;
 
-                await new Promise((resolve, reject) => {
+                // Intentar por signer_roles (envío manual con roles)
+                const r1 = await new Promise((resolve, reject) => {
                     db.query(
                         `UPDATE document_recipients dr
                          JOIN signer_roles sr ON dr.role_id = sr.role_id
-                         SET dr.can_sign_at = NOW()
+                         SET dr.can_sign_at = NOW(), dr.status = 'sent'
                          WHERE dr.document_id = ?
                          AND sr.role_order = ?
-                         AND dr.status = 'sent'
+                         AND dr.status IN ('sent','waiting')
                          AND (dr.can_sign_at IS NULL OR dr.can_sign_at > NOW())`,
                         [recipient.document_id, nextRoleOrder],
-                        (err, result) => {
-                            if (err) reject(err);
-                            else resolve(result);
-                        }
+                        (err, result) => { if (err) reject(err); else resolve(result); }
                     );
                 });
 
-                console.log(`   🔓 Siguiente rol (orden ${nextRoleOrder}) activado para firmar`);
+                // Si no afectó filas (bulk-send usa signing_order sin role_id), activar por signing_order
+                if (!r1 || r1.affectedRows === 0) {
+                    await new Promise((resolve, reject) => {
+                        db.query(
+                            `UPDATE document_recipients
+                             SET can_sign_at = NOW(), status = 'sent'
+                             WHERE document_id = ?
+                             AND signing_order = ?
+                             AND role_id IS NULL
+                             AND status IN ('sent','waiting')`,
+                            [recipient.document_id, nextRoleOrder],
+                            (err, result) => { if (err) reject(err); else resolve(result); }
+                        );
+                    });
+                    console.log(`   🔓 Siguiente firmante (signing_order ${nextRoleOrder}) activado por bulk-send`);
+                } else {
+                    console.log(`   🔓 Siguiente rol (orden ${nextRoleOrder}) activado`);
+                }
             }
 
             // 5. Verificar si el documento está completamente firmado
