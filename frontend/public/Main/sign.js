@@ -1,3 +1,282 @@
+// ===== Barra flotante de formato de texto =====
+let _activeFormatBar = null;
+
+function hideFormatBar() {
+  if (_activeFormatBar) {
+    _activeFormatBar.remove();
+    _activeFormatBar = null;
+  }
+}
+
+function showTextFormatBar(fieldEl, fieldId) {
+  hideFormatBar();
+
+  const field = fields.find(f => f.id === fieldId);
+  const fmt = (field && field.format) || {};
+
+  const bar = document.createElement('div');
+  bar.className = 'text-format-bar';
+  bar.dataset.fieldId = fieldId;
+
+  // Valores actuales
+  const curFont = fmt.fontFamily || 'Arial';
+  const curSize = fmt.fontSize || '12';
+  const curColor = fmt.fontColor || '#000000';
+  const curBold = fmt.isBold ? 'active' : '';
+  const curItalic = fmt.isItalic ? 'active' : '';
+  const curUnder = fmt.isUnderline ? 'active' : '';
+  const curAlign = fmt.textAlign || 'left';
+  const curValign = fmt.verticalAlign || 'top';
+
+  bar.innerHTML = `
+    <div class="tfb-row">
+      <select class="tfb-select tfb-font" title="Fuente">
+        <option value="Arial" ${curFont==='Arial'?'selected':''}>Arial</option>
+        <option value="Helvetica" ${curFont==='Helvetica'?'selected':''}>Helvetica</option>
+        <option value="Times New Roman" ${curFont==='Times New Roman'?'selected':''}>Times New Roman</option>
+        <option value="Courier New" ${curFont==='Courier New'?'selected':''}>Courier New</option>
+        <option value="Georgia" ${curFont==='Georgia'?'selected':''}>Georgia</option>
+        <option value="Verdana" ${curFont==='Verdana'?'selected':''}>Verdana</option>
+        <option value="Calibri" ${curFont==='Calibri'?'selected':''}>Calibri</option>
+        <option value="Cambria" ${curFont==='Cambria'?'selected':''}>Cambria</option>
+        <option value="Palatino Linotype" ${curFont==='Palatino Linotype'?'selected':''}>Palatino Linotype</option>
+        <option value="Book Antiqua" ${curFont==='Book Antiqua'?'selected':''}>Book Antiqua</option>
+      </select>
+      <select class="tfb-select tfb-size" title="Tamaño">
+        ${[6,7,8,9,10,11,12,14,16,18,20,22,24,28,32].map(s=>`<option value="${s}" ${curSize==s?'selected':''}>${s}</option>`).join('')}
+      </select>
+      <input type="color" class="tfb-color" value="${curColor}" title="Color de texto">
+      <div class="tfb-sep"></div>
+      <button class="tfb-btn ${curBold}" data-fmt="bold" title="Negrita"><b>B</b></button>
+      <button class="tfb-btn ${curItalic}" data-fmt="italic" title="Cursiva"><i>I</i></button>
+      <button class="tfb-btn ${curUnder}" data-fmt="underline" title="Subrayado"><u>U</u></button>
+      <div class="tfb-sep"></div>
+      <button class="tfb-btn ${curAlign==='left'?'active':''}" data-align="left" title="Izquierda">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><rect x="1" y="2" width="12" height="2"/><rect x="1" y="6" width="8" height="2"/><rect x="1" y="10" width="12" height="2"/></svg>
+      </button>
+      <button class="tfb-btn ${curAlign==='center'?'active':''}" data-align="center" title="Centrar">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><rect x="1" y="2" width="12" height="2"/><rect x="3" y="6" width="8" height="2"/><rect x="1" y="10" width="12" height="2"/></svg>
+      </button>
+      <button class="tfb-btn ${curAlign==='right'?'active':''}" data-align="right" title="Derecha">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><rect x="1" y="2" width="12" height="2"/><rect x="5" y="6" width="8" height="2"/><rect x="1" y="10" width="12" height="2"/></svg>
+      </button>
+      <div class="tfb-sep"></div>
+      <button class="tfb-btn ${curValign==='top'?'active':''}" data-valign="top" title="Arriba">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><rect x="1" y="1" width="12" height="2"/><rect x="4" y="4" width="6" height="2"/><rect x="4" y="7" width="6" height="2"/></svg>
+      </button>
+      <button class="tfb-btn ${curValign==='middle'?'active':''}" data-valign="middle" title="Medio">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><rect x="4" y="2" width="6" height="2"/><rect x="1" y="6" width="12" height="2"/><rect x="4" y="10" width="6" height="2"/></svg>
+      </button>
+      <button class="tfb-btn ${curValign==='bottom'?'active':''}" data-valign="bottom" title="Abajo">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><rect x="4" y="4" width="6" height="2"/><rect x="4" y="7" width="6" height="2"/><rect x="1" y="11" width="12" height="2"/></svg>
+      </button>
+      <div class="tfb-sep"></div>
+      <button class="tfb-btn tfb-edit-btn" data-action="edit" title="Editar texto">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      </button>
+      <button class="tfb-btn tfb-close-btn" data-action="close" title="Cerrar">×</button>
+    </div>
+    <div class="tfb-preview-row">
+      <span class="tfb-preview-label">Vista previa:</span>
+      <div class="tfb-preview"></div>
+    </div>
+  `;
+
+  // Posicionar encima del campo
+  const overlay = fieldEl.closest('.page-overlay') || fieldEl.parentElement;
+  const overlayRect = overlay.getBoundingClientRect();
+  const fieldRect = fieldEl.getBoundingClientRect();
+
+  bar.style.position = 'fixed';
+  bar.style.left = Math.max(8, fieldRect.left) + 'px';
+  bar.style.top = (fieldRect.top - 8) + 'px';
+  bar.style.transform = 'translateY(-100%)';
+  bar.style.zIndex = '99999';
+
+  document.body.appendChild(bar);
+  _activeFormatBar = bar;
+
+  // Asegurar que no se salga por arriba
+  const barRect = bar.getBoundingClientRect();
+  if (barRect.top < 8) {
+    bar.style.top = (fieldRect.bottom + 8) + 'px';
+    bar.style.transform = 'none';
+  }
+  // Asegurar que no se salga por la derecha
+  const barRect2 = bar.getBoundingClientRect();
+  if (barRect2.right > window.innerWidth - 8) {
+    bar.style.left = Math.max(8, window.innerWidth - barRect2.width - 8) + 'px';
+  }
+
+  function updateBarPreview() {
+    const preview = bar.querySelector('.tfb-preview');
+    if (!preview) return;
+    const font = bar.querySelector('.tfb-font').value;
+    const size = parseInt(bar.querySelector('.tfb-size').value);
+    const color = bar.querySelector('.tfb-color').value;
+    const bold = bar.querySelector('[data-fmt="bold"]').classList.contains('active');
+    const italic = bar.querySelector('[data-fmt="italic"]').classList.contains('active');
+    const under = bar.querySelector('[data-fmt="underline"]').classList.contains('active');
+    const align = bar.querySelector('[data-align].active')?.dataset.align || 'left';
+    const valign = bar.querySelector('[data-valign].active')?.dataset.valign || 'top';
+    const text = (field && field.value) || (field && field.label) || 'Texto de muestra';
+    const alignItems = valign === 'middle' ? 'center' : valign === 'bottom' ? 'flex-end' : 'flex-start';
+    const justifyContent = align === 'center' ? 'center' : align === 'right' ? 'flex-end' : 'flex-start';
+    preview.style.fontFamily = font;
+    preview.style.fontSize = Math.min(size, 16) + 'px';
+    preview.style.color = color;
+    preview.style.fontWeight = bold ? 'bold' : 'normal';
+    preview.style.fontStyle = italic ? 'italic' : 'normal';
+    preview.style.textDecoration = under ? 'underline' : 'none';
+    preview.style.display = 'flex';
+    preview.style.alignItems = alignItems;
+    preview.style.justifyContent = justifyContent;
+    preview.style.textAlign = align;
+    preview.innerHTML = `<span>${text}</span>`;
+  }
+
+  function applyFormatToField() {
+    const font = bar.querySelector('.tfb-font').value;
+    const size = bar.querySelector('.tfb-size').value;
+    const color = bar.querySelector('.tfb-color').value;
+    const bold = bar.querySelector('[data-fmt="bold"]').classList.contains('active');
+    const italic = bar.querySelector('[data-fmt="italic"]').classList.contains('active');
+    const under = bar.querySelector('[data-fmt="underline"]').classList.contains('active');
+    const align = bar.querySelector('[data-align].active')?.dataset.align || 'left';
+    const valign = bar.querySelector('[data-valign].active')?.dataset.valign || 'top';
+
+    if (!field) return;
+    field.format = { fontFamily: font, fontSize: size, fontColor: color, isBold: bold, isItalic: italic, isUnderline: under, textAlign: align, verticalAlign: valign };
+
+    // Actualizar visual del campo si tiene texto
+    if (field.value) {
+      const fw = bold ? 'bold' : 'normal';
+      const fs = italic ? 'italic' : 'normal';
+      const td = under ? 'underline' : 'none';
+      const ai = valign === 'middle' ? 'center' : valign === 'bottom' ? 'flex-end' : 'flex-start';
+      const jc = align === 'center' ? 'center' : align === 'right' ? 'flex-end' : 'flex-start';
+      let fc = fieldEl.querySelector('.field-content');
+      if (fc) {
+        fc.style.fontFamily = font;
+        fc.style.fontSize = size + 'px';
+        fc.style.color = color;
+        fc.style.fontWeight = fw;
+        fc.style.fontStyle = fs;
+        fc.style.textDecoration = td;
+        fc.style.textAlign = align;
+        fc.style.alignItems = ai;
+        fc.style.justifyContent = jc;
+      }
+    }
+  }
+
+  // Listeners de controles
+  bar.querySelector('.tfb-font').addEventListener('change', () => { applyFormatToField(); updateBarPreview(); });
+  bar.querySelector('.tfb-size').addEventListener('change', () => { applyFormatToField(); updateBarPreview(); });
+  bar.querySelector('.tfb-color').addEventListener('input', () => { applyFormatToField(); updateBarPreview(); });
+
+  bar.querySelectorAll('[data-fmt]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      btn.classList.toggle('active');
+      applyFormatToField();
+      updateBarPreview();
+    });
+  });
+
+  bar.querySelectorAll('[data-align]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      bar.querySelectorAll('[data-align]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      applyFormatToField();
+      updateBarPreview();
+    });
+  });
+
+  bar.querySelectorAll('[data-valign]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      bar.querySelectorAll('[data-valign]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      applyFormatToField();
+      updateBarPreview();
+    });
+  });
+
+  bar.querySelector('[data-action="edit"]').addEventListener('click', (e) => {
+    e.stopPropagation();
+    hideFormatBar();
+    activeFieldId = fieldId;
+    // Sincronizar valores del modal con el formato actual
+    const f = fields.find(x => x.id === fieldId);
+    if (f && f.format) {
+      document.getElementById('fontFamily').value = f.format.fontFamily || 'Arial';
+      document.getElementById('fontSize').value = f.format.fontSize || '12';
+      document.getElementById('fontColor').value = f.format.fontColor || '#000000';
+      const cp = document.getElementById('colorPreview');
+      if (cp) cp.style.background = f.format.fontColor || '#000000';
+      document.getElementById('boldBtn').classList.toggle('active', !!f.format.isBold);
+      document.getElementById('italicBtn').classList.toggle('active', !!f.format.isItalic);
+      const ub = document.getElementById('underlineBtn');
+      if (ub) ub.classList.toggle('active', !!f.format.isUnderline);
+      document.querySelectorAll('[data-align]').forEach(b => b.classList.toggle('active', b.dataset.align === (f.format.textAlign || 'left')));
+      document.querySelectorAll('[data-valign]').forEach(b => b.classList.toggle('active', b.dataset.valign === (f.format.verticalAlign || 'top')));
+    }
+    textModal.classList.add('show');
+    textModal.setAttribute('aria-hidden', 'false');
+    updateTextPreview();
+  });
+
+  bar.querySelector('[data-action="close"]').addEventListener('click', (e) => {
+    e.stopPropagation();
+    hideFormatBar();
+  });
+
+  bar.addEventListener('mousedown', (e) => e.stopPropagation());
+  bar.addEventListener('click', (e) => e.stopPropagation());
+
+  updateBarPreview();
+}
+
+// Aplica documentTextFormat a todos los campos de texto y actualiza indicadores visuales
+function applyDocumentFormat(fmt) {
+  documentTextFormat = fmt;
+  fields.filter(f => f.type === 'text').forEach(f => { f.format = fmt ? Object.assign({}, fmt) : null; });
+  refreshTextFieldFormatIndicators();
+  updateFormatButtons();
+}
+
+// Refresca el indicador visual (borde + badge) en todos los campos de texto del DOM
+function refreshTextFieldFormatIndicators() {
+  document.querySelectorAll('.field[data-type="text"]').forEach(el => {
+    if (documentTextFormat) {
+      el.classList.add('text-formatted');
+    } else {
+      el.classList.remove('text-formatted');
+    }
+  });
+}
+
+// Actualiza el estado visible de los botones Formatear/Quitar formato
+function updateFormatButtons() {
+  const fmtBtn = document.getElementById('formatTextBtn');
+  const clrBtn = document.getElementById('clearFormatBtn');
+  if (documentTextFormat) {
+    if (fmtBtn) { fmtBtn.classList.remove('fmt-btn-hidden'); fmtBtn.classList.add('fmt-btn-visible', 'fmt-btn-active'); }
+    if (clrBtn) { clrBtn.classList.remove('fmt-btn-hidden'); clrBtn.classList.add('fmt-btn-visible'); }
+  } else {
+    // Solo mostrar "Formatear texto" si hay campos de texto; "Quitar formato" se oculta siempre
+    const hasText = fields.some(f => f.type === 'text');
+    if (fmtBtn) {
+      fmtBtn.classList.remove('fmt-btn-active');
+      if (hasText) { fmtBtn.classList.remove('fmt-btn-hidden'); fmtBtn.classList.add('fmt-btn-visible'); }
+      else { fmtBtn.classList.remove('fmt-btn-visible'); fmtBtn.classList.add('fmt-btn-hidden'); }
+    }
+    if (clrBtn) { clrBtn.classList.remove('fmt-btn-visible'); clrBtn.classList.add('fmt-btn-hidden'); }
+  }
+}
+
 // ===== Toast de confirmación de mapeo =====
 let _mapeoToastTimer = null;
 function showMapeoToast(label) {
@@ -48,6 +327,9 @@ let placingFieldType = null; // 'signature', 'text', 'date', 'seal', 'final_sign
 let currentMode = null; // 'prepare' o 'sign'
 let currentDocId = null; // ID del documento actual
 let _pdfModified = false; // true cuando se agregaron páginas via SUBIR PDF
+
+// Formato de texto a nivel de documento (aplica a todos los campos de texto)
+let documentTextFormat = null;
 
 // ✅ Detectar tipo de documento (normal o pagaré)
 const urlParams = new URLSearchParams(window.location.search);
@@ -134,28 +416,29 @@ function initEventListeners() {
   const italicBtn = document.getElementById('italicBtn');
   const underlineBtn = document.getElementById('underlineBtn');
   const alignButtons = document.querySelectorAll('[data-align]');
-  
+  const valignButtons = document.querySelectorAll('[data-valign]');
+
   if (boldBtn) {
     boldBtn.onclick = function() {
       this.classList.toggle('active');
       updateTextPreview();
     };
   }
-  
+
   if (italicBtn) {
     italicBtn.onclick = function() {
       this.classList.toggle('active');
       updateTextPreview();
     };
   }
-  
+
   if (underlineBtn) {
     underlineBtn.onclick = function() {
       this.classList.toggle('active');
       updateTextPreview();
     };
   }
-  
+
   alignButtons.forEach(btn => {
     btn.onclick = function() {
       alignButtons.forEach(b => b.classList.remove('active'));
@@ -163,14 +446,20 @@ function initEventListeners() {
       updateTextPreview();
     };
   });
+
+  valignButtons.forEach(btn => {
+    btn.onclick = function() {
+      valignButtons.forEach(b => b.classList.remove('active'));
+      this.classList.add('active');
+      updateTextPreview();
+    };
+  });
   
   // Vista previa en tiempo real
-  const textInput = document.getElementById('textInput');
   const fontFamilySelect = document.getElementById('fontFamily');
   const fontSizeSelect = document.getElementById('fontSize');
   const fontColorInput = document.getElementById('fontColor');
-  
-  if (textInput) textInput.addEventListener('input', updateTextPreview);
+
   if (fontFamilySelect) fontFamilySelect.addEventListener('change', updateTextPreview);
   if (fontSizeSelect) fontSizeSelect.addEventListener('change', updateTextPreview);
   if (fontColorInput) {
@@ -194,6 +483,30 @@ function initEventListeners() {
   if (saveBtn) {
     saveBtn.addEventListener('click', savePDF);
     console.log('✅ Event listener para guardar PDF agregado');
+  }
+
+  // Botón "Formatear texto" en barra superior
+  const formatTextBtn = document.getElementById('formatTextBtn');
+  if (formatTextBtn) {
+    formatTextBtn.addEventListener('click', () => {
+      // Usar el campo de texto activo, o el primero disponible (solo para tener un activeFieldId)
+      let field = null;
+      if (activeFieldId) field = fields.find(f => f.id === activeFieldId && f.type === 'text');
+      if (!field) field = fields.find(f => f.type === 'text');
+      if (field) activeFieldId = field.id;
+      // Abrir modal con el formato actual del documento (no del campo individual)
+      const fmtRef = { format: documentTextFormat };
+      openTextFormatModal(fmtRef);
+    });
+  }
+
+  // Botón "Quitar formato" en barra superior
+  const clearFormatBtn = document.getElementById('clearFormatBtn');
+  if (clearFormatBtn) {
+    clearFormatBtn.addEventListener('click', () => {
+      applyDocumentFormat(null);
+      toast.info('Formato quitado — los campos usarán el estilo por defecto');
+    });
   }
   
   // Eventos del signature pad
@@ -463,10 +776,9 @@ async function loadExistingFields(docId) {
     existingFields.forEach((field, index) => {
       const fieldData = {
         id: `field-${Date.now()}-${index}`,
-        field_id: field.field_id, // ✅ Guardar field_id de la base de datos
+        field_id: field.field_id,
         type: field.type,
         page: field.page || 1,
-        // Convertir de coordenadas PDF (reales) a coordenadas viewport (escaladas)
         x: parseFloat(field.x) * VIEWPORT_SCALE,
         y: parseFloat(field.y) * VIEWPORT_SCALE,
         w: parseFloat(field.width) * VIEWPORT_SCALE,
@@ -475,20 +787,28 @@ async function loadExistingFields(docId) {
         required: field.required !== false,
         signed: false,
         dataUrl: null,
-        roleId: field.partId || null, // 🔥 NUEVO
-        roleName: field.roleName || null, // 🔥 NUEVO
-        roleColor: field.roleColor || null // 🔥 NUEVO
+        roleId: field.partId || null,
+        roleName: field.roleName || null,
+        roleColor: field.roleColor || null,
+        format: field.format || null
       };
 
       fields.push(fieldData);
-      
+
+      // Si este campo tiene formato guardado y aún no tenemos documentTextFormat, tomarlo como referencia
+      if (field.type === 'text' && field.format && !documentTextFormat) {
+        documentTextFormat = Object.assign({}, field.format);
+      }
+
       const partInfo = field.roleName ? ` - Parte: ${field.roleName}` : '';
       console.log(`   ✓ Campo ${index + 1}: ${field.type} en página ${field.page} (field_id: ${field.field_id})${partInfo}`);
-      
-      // Renderizar el campo visualmente en el PDF
+
       renderFieldOnPage(fieldData);
     });
 
+    // Actualizar indicadores visuales y botones según el formato cargado
+    refreshTextFieldFormatIndicators();
+    updateFormatButtons();
     console.log(`✅ ${fields.length} campo(s) renderizado(s) en el PDF`);
 
   } catch (error) {
@@ -1291,7 +1611,9 @@ function initPageOverlays() {
         ? `<span class="mapped-label-badge" title="Mapeado a: ${mappedLabel.trim()}">${mappedLabel.trim()}</span>`
         : (placingFieldType === 'text' ? `<span class="mapped-label-badge no-map" title="Sin mapeo — coloca el campo junto a un texto del PDF">Sin mapeo</span>` : '');
 
-      if (placingFieldType === 'text') showMapeoToast(mappedLabel && mappedLabel.trim() ? mappedLabel.trim() : null);
+      if (placingFieldType === 'text') {
+        showMapeoToast(mappedLabel && mappedLabel.trim() ? mappedLabel.trim() : null);
+      }
 
       el.innerHTML = `
         <span class="label" style="color: ${labelColor}; font-weight: ${roleName || placingFieldType === 'seal' || placingFieldType === 'final_signature' ? '600' : '500'};">${fieldLabel}</span>
@@ -1365,10 +1687,22 @@ function initPageOverlays() {
         value: null,
         signed: false,
         label: labelToSave,
-        roleId: roleId, // 🔥 NUEVO
-        roleName: roleName, // 🔥 NUEVO
-        roleColor: roleColor // 🔥 NUEVO
+        roleId: roleId,
+        roleName: roleName,
+        roleColor: roleColor,
+        // Heredar formato de documento si existe
+        format: (placingFieldType === 'text' && documentTextFormat) ? Object.assign({}, documentTextFormat) : null
       });
+
+      // Aplicar indicador visual si ya hay formato activo
+      if (placingFieldType === 'text' && documentTextFormat) {
+        el.classList.add('text-formatted');
+      }
+
+      // Actualizar botones de formato después de agregar el campo al array
+      if (placingFieldType === 'text') {
+        updateFormatButtons();
+      }
       
       // Log con información de parte
       const partInfo = roleName ? ` - Asignado a: ${roleName}` : '';
@@ -1620,6 +1954,9 @@ function startDragField(e){
   fieldStartY = parseInt(draggingField.style.top) || 0;
   hasMoved = false;
 
+  // Actualizar campo activo
+  activeFieldId = draggingField.dataset.id;
+
   // Prevenir selección de texto mientras se arrastra
   e.preventDefault();
 
@@ -1724,6 +2061,44 @@ function hideModal(){
   dateModal.setAttribute('aria-hidden','true'); 
 }
 
+// Abrir modal de formato de texto para un campo dado
+function openTextFormatModal(field) {
+
+  if (field.format) {
+    document.getElementById('fontFamily').value = field.format.fontFamily || 'Arial';
+    document.getElementById('fontSize').value = field.format.fontSize || '12';
+    document.getElementById('fontColor').value = field.format.fontColor || '#000000';
+    const cp = document.getElementById('colorPreview');
+    if (cp) cp.style.background = field.format.fontColor || '#000000';
+    document.getElementById('boldBtn').classList.toggle('active', !!field.format.isBold);
+    document.getElementById('italicBtn').classList.toggle('active', !!field.format.isItalic);
+    const ub = document.getElementById('underlineBtn');
+    if (ub) ub.classList.toggle('active', !!field.format.isUnderline);
+    document.querySelectorAll('[data-align]').forEach(b =>
+      b.classList.toggle('active', b.dataset.align === (field.format.textAlign || 'left')));
+    document.querySelectorAll('[data-valign]').forEach(b =>
+      b.classList.toggle('active', b.dataset.valign === (field.format.verticalAlign || 'top')));
+  } else {
+    document.getElementById('fontFamily').value = 'Arial';
+    document.getElementById('fontSize').value = '12';
+    document.getElementById('fontColor').value = '#000000';
+    const cp = document.getElementById('colorPreview');
+    if (cp) cp.style.background = '#000000';
+    document.getElementById('boldBtn').classList.remove('active');
+    document.getElementById('italicBtn').classList.remove('active');
+    const ub = document.getElementById('underlineBtn');
+    if (ub) ub.classList.remove('active');
+    document.querySelectorAll('[data-align]').forEach(b =>
+      b.classList.toggle('active', b.dataset.align === 'left'));
+    document.querySelectorAll('[data-valign]').forEach(b =>
+      b.classList.toggle('active', b.dataset.valign === 'top'));
+  }
+
+  updateTextPreview();
+  textModal.classList.add('show');
+  textModal.setAttribute('aria-hidden', 'false');
+}
+
 // Abrir modal según tipo de campo
 function openFieldModal(e){
   // Si acabamos de arrastrar, no abrir modal
@@ -1739,7 +2114,8 @@ function openFieldModal(e){
   activeFieldId = fieldEl.dataset.id;
   const fieldType = fieldEl.dataset.type;
   const field = fields.find(f => f.id === activeFieldId);
-  
+
+
   console.log('🔓 Abriendo modal para campo:', fieldType);
   
   if(fieldType === 'signature'){
@@ -1759,68 +2135,8 @@ function openFieldModal(e){
       sigCtx.clearRect(0, 0, sigPad.width, sigPad.height);
     }
   } else if(fieldType === 'text'){
-    textModal.classList.add('show'); 
-    textModal.setAttribute('aria-hidden','false'); 
-    
-    // Si ya tiene texto, mostrarlo
-    document.getElementById('textInput').value = field && field.value ? field.value : '';
-    
-    // Restaurar opciones de formato si existen
-    if(field && field.format) {
-      document.getElementById('fontFamily').value = field.format.fontFamily || 'Arial';
-      document.getElementById('fontSize').value = field.format.fontSize || '12';
-      document.getElementById('fontColor').value = field.format.fontColor || '#000000';
-      
-      // Actualizar preview de color
-      const colorPreview = document.getElementById('colorPreview');
-      if(colorPreview) colorPreview.style.background = field.format.fontColor || '#000000';
-      
-      // Restaurar negrita/cursiva/subrayado
-      const boldBtn = document.getElementById('boldBtn');
-      const italicBtn = document.getElementById('italicBtn');
-      const underlineBtn = document.getElementById('underlineBtn');
-      
-      if(field.format.isBold) boldBtn.classList.add('active');
-      else boldBtn.classList.remove('active');
-      if(field.format.isItalic) italicBtn.classList.add('active');
-      else italicBtn.classList.remove('active');
-      if(field.format.isUnderline && underlineBtn) underlineBtn.classList.add('active');
-      else if(underlineBtn) underlineBtn.classList.remove('active');
-      
-      // Restaurar alineación
-      const alignButtons = document.querySelectorAll('[data-align]');
-      alignButtons.forEach(btn => {
-        if(btn.dataset.align === field.format.textAlign) {
-          btn.classList.add('active');
-        } else {
-          btn.classList.remove('active');
-        }
-      });
-    } else {
-      // Valores por defecto
-      document.getElementById('fontFamily').value = 'Arial';
-      document.getElementById('fontSize').value = '12';
-      document.getElementById('fontColor').value = '#000000';
-      
-      const colorPreview = document.getElementById('colorPreview');
-      if(colorPreview) colorPreview.style.background = '#000000';
-      
-      document.getElementById('boldBtn').classList.remove('active');
-      document.getElementById('italicBtn').classList.remove('active');
-      const underlineBtn = document.getElementById('underlineBtn');
-      if(underlineBtn) underlineBtn.classList.remove('active');
-      
-      const alignButtons = document.querySelectorAll('[data-align]');
-      alignButtons.forEach(btn => {
-        if(btn.dataset.align === 'left') btn.classList.add('active');
-        else btn.classList.remove('active');
-      });
-    }
-    
-    // Actualizar vista previa
-    updateTextPreview();
-    
-    document.getElementById('textInput').focus();
+    // El modal NO se abre al hacer click; solo el botón "Formatear texto" de la barra lo abre.
+    return;
   } else if(fieldType === 'date'){
     dateModal.classList.add('show'); 
     dateModal.setAttribute('aria-hidden','false'); 
@@ -1890,8 +2206,7 @@ function confirmSignature(){
 function updateTextPreview() {
   const preview = document.getElementById('textPreview');
   if (!preview) return;
-  
-  const textValue = document.getElementById('textInput').value.trim();
+
   const fontFamily = document.getElementById('fontFamily').value;
   const fontSize = document.getElementById('fontSize').value;
   const fontColor = document.getElementById('fontColor').value;
@@ -1899,42 +2214,29 @@ function updateTextPreview() {
   const isItalic = document.getElementById('italicBtn')?.classList.contains('active');
   const isUnderline = document.getElementById('underlineBtn')?.classList.contains('active');
   const textAlign = document.querySelector('[data-align].active')?.dataset.align || 'left';
-  
-  if (!textValue) {
-    preview.textContent = 'Tu texto aparecerá aquí...';
-    preview.style.cssText = 'color:#666;font-size:14px;font-family:inherit;';
-    return;
-  }
-  
+  const verticalAlign = document.querySelector('[data-valign].active')?.dataset.valign || 'top';
+
   const fontWeight = isBold ? 'bold' : 'normal';
   const fontStyle = isItalic ? 'italic' : 'normal';
   const textDecoration = isUnderline ? 'underline' : 'none';
-  
-  preview.textContent = textValue;
+  const alignItems = verticalAlign === 'middle' ? 'center' : verticalAlign === 'bottom' ? 'flex-end' : 'flex-start';
+  const justifyContent = textAlign === 'center' ? 'center' : textAlign === 'right' ? 'flex-end' : 'flex-start';
+
   preview.style.fontFamily = fontFamily;
-  preview.style.fontSize = fontSize + 'px';
+  preview.style.fontSize = Math.min(parseInt(fontSize), 20) + 'px';
   preview.style.color = fontColor;
   preview.style.fontWeight = fontWeight;
   preview.style.fontStyle = fontStyle;
   preview.style.textDecoration = textDecoration;
   preview.style.textAlign = textAlign;
-  preview.style.justifyContent = textAlign === 'center' ? 'center' : textAlign === 'right' ? 'flex-end' : 'flex-start';
+  preview.style.display = 'flex';
+  preview.style.alignItems = alignItems;
+  preview.style.justifyContent = justifyContent;
+  preview.innerHTML = `<span>Texto de ejemplo — Juan Pérez</span>`;
 }
 
-// Confirmar texto
+// Confirmar formato de texto (botón Aplicar del modal)
 function confirmText(){
-  if(!activeFieldId) return;
-  const textValue = document.getElementById('textInput').value.trim();
-  if(!textValue){ toast.warning('Escribe algo de texto'); return; }
-  
-  // 🔒 En modo preparación, solo permitir colocar el campo, NO llenarlo
-  if (currentMode === 'prepare') {
-    ToastManager.info('Campo de texto colocado', 'El campo se guardará cuando presiones GUARDAR');
-    hideModal();
-    return;
-  }
-  
-  // Obtener opciones de formato
   const fontFamily = document.getElementById('fontFamily').value;
   const fontSize = document.getElementById('fontSize').value;
   const fontColor = document.getElementById('fontColor').value;
@@ -1942,68 +2244,13 @@ function confirmText(){
   const isItalic = document.getElementById('italicBtn').classList.contains('active');
   const isUnderline = document.getElementById('underlineBtn')?.classList.contains('active') || false;
   const textAlign = document.querySelector('[data-align].active')?.dataset.align || 'left';
-  
-  const field = fields.find(f=>f.id===activeFieldId);
-  field.value = textValue;
-  field.signed = true;
-  
-  // Guardar opciones de formato en el field
-  field.format = {
-    fontFamily,
-    fontSize,
-    fontColor,
-    isBold,
-    isItalic,
-    isUnderline,
-    textAlign
-  };
+  const verticalAlign = document.querySelector('[data-valign].active')?.dataset.valign || 'top';
 
-  const el = overlay.querySelector(`.field[data-id="${activeFieldId}"]`);
-  el.classList.add('signed');
-  
-  // Construir estilo dinámico
-  const fontWeight = isBold ? 'bold' : 'normal';
-  const fontStyle = isItalic ? 'italic' : 'normal';
-  const textDecoration = isUnderline ? 'underline' : 'none';
-  
-  el.innerHTML = `
-    <span class="label">Texto</span>
-    <button class="delete-btn" title="Eliminar">×</button>
-    <div class="field-content" style="
-      font-family: ${fontFamily};
-      font-size: ${fontSize}px;
-      color: ${fontColor};
-      font-weight: ${fontWeight};
-      font-style: ${fontStyle};
-      text-decoration: ${textDecoration};
-      text-align: ${textAlign};
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-      word-wrap: break-word;
-      word-break: break-word;
-      display: flex;
-      align-items: center;
-      justify-content: ${textAlign === 'center' ? 'center' : textAlign === 'right' ? 'flex-end' : 'flex-start'};
-      box-sizing: border-box;
-      padding: 2px;
-    ">${textValue}</div>
-  `;
-
-  // Re-agregar event listeners
-  // ✅ Solo mousedown para manejar drag y click
-  el.addEventListener('mousedown', startDragField);
-    el.addEventListener('touchstart', startDragField, {passive: false});
-  const deleteBtn = el.querySelector('.delete-btn');
-  deleteBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    deleteField(activeFieldId);
-  });
-
-  // 🔥 NUEVO: Re-agregar manejadores de redimensionamiento
-  addResizeHandles(el);
+  const fmt = { fontFamily, fontSize, fontColor, isBold, isItalic, isUnderline, textAlign, verticalAlign };
+  applyDocumentFormat(fmt);
 
   hideModal();
+  toast.success('Formato aplicado a todos los campos de texto');
 }
 
 // Confirmar fecha
@@ -2190,8 +2437,9 @@ async function saveFieldsToBackend(skipRedirect = false) {
       height: parseFloat(f.h) / VIEWPORT_SCALE,
       label: f.label || null,
       required: f.required !== false,
-      roleId: f.roleId || null, // 🔥 NUEVO: Incluir roleId (será el part_id)
-      roleName: f.roleName || null // 🔥 NUEVO: Incluir nombre de la parte para referencia
+      roleId: f.roleId || null,
+      roleName: f.roleName || null,
+      format: f.format || null  // Estilos de texto: fuente, tamaño, color, alineación
     }));
 
     console.log('📤 Enviando campos al backend:', fieldsData);

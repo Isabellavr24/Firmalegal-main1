@@ -9,6 +9,13 @@ body{margin:0;background:#fbf7f5;font:16px/1.4 Inter,system-ui,Segoe UI,Arial}
 .chip{border:1px solid var(--stroke);background:#fff;border-radius:999px;
       padding:8px 14px;font-weight:800;cursor:pointer}
 .primary{background:var(--plum);color:#fff;border-color:var(--plum)}
+.fmt-btn-hidden{display:none !important;}
+.fmt-btn-visible{display:inline-flex !important;align-items:center;background:#ede7f0;color:#2a0d31;border-color:#c4a8d4;}
+.fmt-btn-active{background:#2a0d31;color:#fff;border-color:#2a0d31;}
+.fmt-clear-btn.fmt-btn-visible{background:#fff0f3;color:#c2185b;border-color:#f48fb1;}
+
+/* Indicador visual de formato aplicado en campos de texto */
+.field.text.text-formatted{outline:2px solid #7c3aed;outline-offset:1px;}
 
 .layout{display:grid;grid-template-columns:240px 1fr 280px;gap:16px;
         padding:16px;min-height:calc(100% - 62px)}
@@ -657,22 +664,45 @@ body{margin:0;background:#fbf7f5;font:16px/1.4 Inter,system-ui,Segoe UI,Arial}
   height:16px;
 }
 
+/* Botón Formatear texto dentro del campo */
+.format-text-btn {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #2a0d31;
+  background: #ede7f0;
+  border: 1px solid #c4a8d4;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  line-height: 1.6;
+  pointer-events: all;
+}
+.format-text-btn:hover {
+  background: #2a0d31;
+  color: #fff;
+}
+
 /* Vista previa */
 .preview-section{
   margin-top:20px;
 }
 .text-preview{
-  min-height:80px;
-  padding:16px;
+  height:90px;
+  padding:8px;
   border:2px dashed #d0d0d0;
   border-radius:10px;
   background:#fafafa;
   font-size:14px;
   color:#666;
   display:flex;
-  align-items:center;
+  align-items:flex-start;
+  overflow:hidden;
   word-wrap:break-word;
   word-break:break-word;
+  box-sizing:border-box;
 }
 
 /* Input de fecha */

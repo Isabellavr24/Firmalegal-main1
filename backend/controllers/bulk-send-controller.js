@@ -1309,7 +1309,7 @@ async function prefilPDFWithTemplateValues(db, documentId, pdfPath) {
         // 1. Obtener valores de la plantilla (document_field_values)
         const [templateValues] = await new Promise((resolve, reject) => {
             db.query(
-                `SELECT dfv.field_id, dfv.field_value, df.x_position, df.y_position, df.page_number, df.width, df.height
+                `SELECT dfv.field_id, dfv.field_value, df.x_position, df.y_position, df.page_number, df.width, df.height, df.field_config
                  FROM document_field_values dfv
                  JOIN document_fields df ON dfv.field_id = df.field_id
                  WHERE dfv.document_id = ? AND dfv.field_value IS NOT NULL AND dfv.field_value != ''
@@ -1332,11 +1332,34 @@ async function prefilPDFWithTemplateValues(db, documentId, pdfPath) {
         // 2. Leer el PDF original
         const existingPdfBytes = fs.readFileSync(pdfPath);
         const pdfDoc = await PDFDocument.load(existingPdfBytes);
-        const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        const fontHelvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        const fontHelveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+        const fontTimesRoman = await pdfDoc.embedFont(StandardFonts.TimesRoman);
+        const fontTimesBold = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
+        const fontCourier = await pdfDoc.embedFont(StandardFonts.Courier);
+
+        function resolveFont(fmt) {
+            if (!fmt) return fontHelvetica;
+            const family = (fmt.fontFamily || '').toLowerCase();
+            const bold = fmt.isBold;
+            if (family.includes('times') || family.includes('palatino') || family.includes('book antiqua') || family.includes('georgia') || family.includes('cambria')) {
+                return bold ? fontTimesBold : fontTimesRoman;
+            }
+            if (family.includes('courier')) return fontCourier;
+            return bold ? fontHelveticaBold : fontHelvetica;
+        }
+
+        function parseColor(hex) {
+            if (!hex || !hex.startsWith('#')) return rgb(0, 0, 0);
+            const r = parseInt(hex.slice(1, 3), 16) / 255;
+            const g = parseInt(hex.slice(3, 5), 16) / 255;
+            const b = parseInt(hex.slice(5, 7), 16) / 255;
+            return rgb(r, g, b);
+        }
 
         // Helper: calcular fontSize que cabe y truncar si excede el ancho
-        function fitText(font, text, fieldWidth, fieldHeight) {
-            let size = Math.min(fieldHeight * 0.65, 12);
+        function fitText(font, text, fieldWidth, fieldHeight, preferredSize) {
+            let size = preferredSize ? Math.min(parseFloat(preferredSize), fieldHeight * 0.85) : Math.min(fieldHeight * 0.65, 12);
             size = Math.max(size, 6);
             const maxW = fieldWidth - 4;
             while (size > 6 && font.widthOfTextAtSize(text, size) > maxW) size -= 0.5;
@@ -1358,17 +1381,37 @@ async function prefilPDFWithTemplateValues(db, documentId, pdfPath) {
             const fieldWidth = parseFloat(fieldData.width);
             const fieldHeight = parseFloat(fieldData.height);
 
+            const fmt = fieldData.field_config ? JSON.parse(fieldData.field_config) : null;
+            const chosenFont = resolveFont(fmt);
+            const chosenColor = parseColor(fmt && fmt.fontColor);
+            const { size, displayText } = fitText(chosenFont, fieldData.field_value, fieldWidth, fieldHeight, fmt && fmt.fontSize);
+
             // Y invertido: yPos es desde arriba en viewport, pdf-lib usa desde abajo
             const pdfY = pageHeight - yPos - fieldHeight;
-            const { size, displayText } = fitText(font, fieldData.field_value, fieldWidth, fieldHeight);
-            const textOffsetY = (fieldHeight - size) / 2;
+
+            // Alineación vertical
+            const valign = fmt && fmt.verticalAlign;
+            let textOffsetY = (fieldHeight - size) / 2; // middle por defecto
+            if (valign === 'top') textOffsetY = fieldHeight - size - 2;
+            else if (valign === 'bottom') textOffsetY = 2;
+
+            // Alineación horizontal
+            const halign = fmt && fmt.textAlign;
+            let textOffsetX = 2;
+            if (halign === 'center') {
+                const textWidth = chosenFont.widthOfTextAtSize(displayText, size);
+                textOffsetX = (fieldWidth - textWidth) / 2;
+            } else if (halign === 'right') {
+                const textWidth = chosenFont.widthOfTextAtSize(displayText, size);
+                textOffsetX = fieldWidth - textWidth - 2;
+            }
 
             page.drawText(displayText, {
-                x: xPos + 2,
+                x: xPos + textOffsetX,
                 y: pdfY + textOffsetY,
                 size,
-                font: font,
-                color: rgb(0, 0, 0),
+                font: chosenFont,
+                color: chosenColor,
             });
 
             console.log(`   ✍️ Escrito "${fieldData.field_value}" en página ${fieldData.page_number} (x=${xPos}, y=${pdfY})`);
@@ -1416,7 +1459,7 @@ async function prefillPDFWithRecipientData(db, documentId, pdfPath, recipientEma
         const placeholders = fieldIds.map(() => '?').join(',');
         const [fieldPositions] = await new Promise((resolve, reject) => {
             db.query(
-                `SELECT field_id, field_label, x_position, y_position, page_number, width, height
+                `SELECT field_id, field_label, x_position, y_position, page_number, width, height, field_config
                  FROM document_fields
                  WHERE document_id = ? AND field_type = 'text' AND field_id IN (${placeholders})`,
                 [documentId, ...fieldIds],
@@ -1437,20 +1480,41 @@ async function prefillPDFWithRecipientData(db, documentId, pdfPath, recipientEma
         // 2. Leer el PDF original
         const existingPdfBytes = fs.readFileSync(pdfPath);
         const pdfDoc = await PDFDocument.load(existingPdfBytes);
-        const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        const fontHlv = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        const fontHlvBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+        const fontTimes = await pdfDoc.embedFont(StandardFonts.TimesRoman);
+        const fontTimesBold = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
+        const fontCourier2 = await pdfDoc.embedFont(StandardFonts.Courier);
+
+        function resolveFont2(fmt) {
+            if (!fmt) return fontHlv;
+            const family = (fmt.fontFamily || '').toLowerCase();
+            const bold = fmt.isBold;
+            if (family.includes('times') || family.includes('palatino') || family.includes('book antiqua') || family.includes('georgia') || family.includes('cambria')) {
+                return bold ? fontTimesBold : fontTimes;
+            }
+            if (family.includes('courier')) return fontCourier2;
+            return bold ? fontHlvBold : fontHlv;
+        }
+
+        function parseColor2(hex) {
+            if (!hex || !hex.startsWith('#')) return rgb(0, 0, 0);
+            const r = parseInt(hex.slice(1, 3), 16) / 255;
+            const g = parseInt(hex.slice(3, 5), 16) / 255;
+            const b = parseInt(hex.slice(5, 7), 16) / 255;
+            return rgb(r, g, b);
+        }
 
         let writtenCount = 0;
 
         // Helper: calcular fontSize que cabe y truncar texto si es necesario
-        function fitTextInField(font, text, fieldWidth, fieldHeight) {
-            let size = Math.min(fieldHeight * 0.65, 12);
+        function fitTextInField(font, text, fieldWidth, fieldHeight, preferredSize) {
+            let size = preferredSize ? Math.min(parseFloat(preferredSize), fieldHeight * 0.85) : Math.min(fieldHeight * 0.65, 12);
             size = Math.max(size, 6);
-            // Reducir hasta que el texto quepa en el ancho disponible (con padding de 4px)
             const maxW = fieldWidth - 4;
             while (size > 6 && font.widthOfTextAtSize(text, size) > maxW) {
                 size -= 0.5;
             }
-            // Si aún no cabe, truncar texto
             let displayText = text;
             while (font.widthOfTextAtSize(displayText, size) > maxW && displayText.length > 1) {
                 displayText = displayText.slice(0, -1);
@@ -1547,16 +1611,32 @@ async function prefillPDFWithRecipientData(db, documentId, pdfPath, recipientEma
 
             // Y en pdf-lib: origen abajo-izquierda. yPos es desde arriba → invertir
             const pdfY = pageHeight - yPos - fieldHeight;
-            const { size, displayText } = fitTextInField(font, value.toString(), fieldWidth, fieldHeight);
-            // Centrar verticalmente dentro del campo
-            const textOffsetY = (fieldHeight - size) / 2;
+            const fmt2 = fieldPos.field_config ? JSON.parse(fieldPos.field_config) : null;
+            const chosenFont2 = resolveFont2(fmt2);
+            const chosenColor2 = parseColor2(fmt2 && fmt2.fontColor);
+            const { size, displayText } = fitTextInField(chosenFont2, value.toString(), fieldWidth, fieldHeight, fmt2 && fmt2.fontSize);
+
+            const valign2 = fmt2 && fmt2.verticalAlign;
+            let textOffsetY = (fieldHeight - size) / 2;
+            if (valign2 === 'top') textOffsetY = fieldHeight - size - 2;
+            else if (valign2 === 'bottom') textOffsetY = 2;
+
+            const halign2 = fmt2 && fmt2.textAlign;
+            let textOffsetX = 2;
+            if (halign2 === 'center') {
+                const tw = chosenFont2.widthOfTextAtSize(displayText, size);
+                textOffsetX = (fieldWidth - tw) / 2;
+            } else if (halign2 === 'right') {
+                const tw = chosenFont2.widthOfTextAtSize(displayText, size);
+                textOffsetX = fieldWidth - tw - 2;
+            }
 
             page.drawText(displayText, {
-                x: xPos + 2,
+                x: xPos + textOffsetX,
                 y: pdfY + textOffsetY,
                 size,
-                font: font,
-                color: rgb(0, 0, 0),
+                font: chosenFont2,
+                color: chosenColor2,
             });
 
             console.log(`   ✍️ Escrito "${displayText}" (size=${size.toFixed(1)}) en campo "${csvLabel}" (field_id=${fieldId})`);

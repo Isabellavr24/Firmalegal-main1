@@ -149,6 +149,8 @@
   <div class="bar">
     <strong>Prueba</strong>
     <div class="actions">
+      <button id="formatTextBtn" class="chip fmt-btn-hidden" title="Definir formato para todos los campos de texto">Formatear texto</button>
+      <button id="clearFormatBtn" class="chip fmt-btn-hidden fmt-clear-btn" title="Quitar formato — volver al estilo por defecto">Quitar formato</button>
       <button id="saveBtn" class="chip primary"> GUARDAR</button>
     </div>
   </div>
@@ -245,11 +247,6 @@
       </div>
       
       <div class="modal-body">
-        <div class="text-input-section">
-          <label class="input-label">Contenido</label>
-          <textarea id="textInput" class="text-area" placeholder="Escribe tu texto aquí..." rows="3"></textarea>
-        </div>
-        
         <div class="format-toolbar">
           <!-- Fila 1: Fuente y Tamaño -->
           <div class="toolbar-row">
@@ -264,6 +261,8 @@
                 <option value="Verdana">Verdana</option>
                 <option value="Calibri">Calibri</option>
                 <option value="Cambria">Cambria</option>
+                <option value="Palatino Linotype">Palatino Linotype</option>
+                <option value="Book Antiqua">Book Antiqua</option>
               </select>
             </div>
             
@@ -313,7 +312,7 @@
             </div>
             
             <div class="toolbar-group">
-              <label class="toolbar-label">Alineación</label>
+              <label class="toolbar-label">Alineación H</label>
               <div class="format-buttons">
                 <button type="button" id="alignLeft" class="format-btn active" data-align="left" title="Alinear izquierda">
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
@@ -328,6 +327,33 @@
                 <button type="button" id="alignRight" class="format-btn" data-align="right" title="Alinear derecha">
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                     <path d="M2 3h12v2H2V3zm4 4h8v2H6V7zm-4 4h12v2H2v-2z"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="toolbar-group">
+              <label class="toolbar-label">Alineación V</label>
+              <div class="format-buttons">
+                <button type="button" id="valignTop" class="format-btn active" data-valign="top" title="Parte superior">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <rect x="2" y="2" width="12" height="2"/>
+                    <rect x="5" y="5" width="6" height="2"/>
+                    <rect x="5" y="8" width="6" height="2"/>
+                  </svg>
+                </button>
+                <button type="button" id="valignMiddle" class="format-btn" data-valign="middle" title="Centro vertical">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <rect x="5" y="3" width="6" height="2"/>
+                    <rect x="2" y="7" width="12" height="2"/>
+                    <rect x="5" y="11" width="6" height="2"/>
+                  </svg>
+                </button>
+                <button type="button" id="valignBottom" class="format-btn" data-valign="bottom" title="Parte inferior">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <rect x="5" y="4" width="6" height="2"/>
+                    <rect x="5" y="7" width="6" height="2"/>
+                    <rect x="2" y="12" width="12" height="2"/>
                   </svg>
                 </button>
               </div>

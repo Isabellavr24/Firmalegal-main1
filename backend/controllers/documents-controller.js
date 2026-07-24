@@ -1152,9 +1152,9 @@ router.get('/:id/fields', requireAuth, async (req, res) => {
     try {
         const results = await new Promise((resolve, reject) => {
             db.query(
-                `SELECT df.field_id, df.field_type, df.page_number, df.x_position, df.y_position, 
+                `SELECT df.field_id, df.field_type, df.page_number, df.x_position, df.y_position,
                         df.width, df.height, df.required, df.field_label, df.created_at,
-                        df.part_id, dp.role_name, dp.color
+                        df.part_id, df.field_config, dp.role_name, dp.color
                  FROM document_fields df
                  LEFT JOIN document_parts dp ON df.part_id = dp.part_id
                  WHERE df.document_id = ?
@@ -1179,9 +1179,10 @@ router.get('/:id/fields', requireAuth, async (req, res) => {
             required: f.required === 1,
             label: f.field_label,
             created_at: f.created_at,
-            partId: f.part_id || null, // 🔥 NUEVO
-            roleName: f.role_name || null, // 🔥 NUEVO
-            roleColor: f.color || null // 🔥 NUEVO
+            partId: f.part_id || null,
+            roleName: f.role_name || null,
+            roleColor: f.color || null,
+            format: f.field_config ? JSON.parse(f.field_config) : null
         }));
 
         console.log(`✅ [DOCUMENTS] ${fields.length} campo(s) encontrado(s)`);
@@ -1340,10 +1341,10 @@ router.post('/:id/fields', requireAuth, async (req, res) => {
                 }
                 const result = await new Promise((resolve, reject) => {
                     db.query(
-                        `INSERT INTO document_fields 
-                         (document_id, field_type, page_number, x_position, y_position, 
-                          width, height, required, field_label, part_id)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        `INSERT INTO document_fields
+                         (document_id, field_type, page_number, x_position, y_position,
+                          width, height, required, field_label, part_id, field_config)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                         [
                             documentId,
                             field.type,
@@ -1354,7 +1355,8 @@ router.post('/:id/fields', requireAuth, async (req, res) => {
                             field.height,
                             field.required !== false ? 1 : 0,
                             field.label || null,
-                            partId
+                            partId,
+                            field.format ? JSON.stringify(field.format) : null
                         ],
                         (err, result) => {
                             if (err) reject(err);
