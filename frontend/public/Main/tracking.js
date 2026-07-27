@@ -1277,11 +1277,11 @@ async function loadPagareFieldsInfo(docId) {
       if (field.partId !== null && field.partId !== undefined) {
         viewerIds.add(field.partId);
       }
-      // 🔥 CORRECCIÓN: usar field.type en lugar de field.fieldType
       if (field.type === 'text' && field.label) {
         textFields.push({
           label: field.label,
-          viewer: field.partId || null
+          viewer: field.partId || null,
+          format: field.format || null
         });
       }
     });
@@ -1289,6 +1289,25 @@ async function loadPagareFieldsInfo(docId) {
     // Actualizar UI
     document.getElementById('pagareViewersCount').textContent = viewerIds.size || 0;
     document.getElementById('pagareTextFieldsCount').textContent = textFields.length || 0;
+
+    // Detectar si hay formato definido (tomar el del primer campo de texto que tenga)
+    const docFormat = textFields.find(f => f.format)?.format || null;
+    const formatBadgeEl = document.getElementById('pagareFormatBadge');
+    if (formatBadgeEl) {
+      if (docFormat) {
+        const alignLabel = { left: 'Izquierda', center: 'Centro', right: 'Derecha' }[docFormat.textAlign] || docFormat.textAlign || 'Izquierda';
+        const valignLabel = { top: 'Arriba', middle: 'Centro', bottom: 'Abajo' }[docFormat.verticalAlign] || docFormat.verticalAlign || 'Arriba';
+        const boldStr = docFormat.isBold ? ' · Negrita' : '';
+        const italicStr = docFormat.isItalic ? ' · Cursiva' : '';
+        formatBadgeEl.style.display = 'flex';
+        formatBadgeEl.innerHTML = `
+          <svg style="width:14px;height:14px;flex-shrink:0;" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+          <span><strong>Formato aplicado:</strong> ${docFormat.fontFamily || 'Arial'} ${docFormat.fontSize || '12'}pt · Alin. H: ${alignLabel} · Alin. V: ${valignLabel}${boldStr}${italicStr}</span>
+        `;
+      } else {
+        formatBadgeEl.style.display = 'none';
+      }
+    }
 
     // Detectar firmante definitivo
     const hasFinalSignatureField = fields.some(f => f.type === 'final_signature');

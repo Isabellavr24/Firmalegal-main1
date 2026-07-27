@@ -1449,7 +1449,8 @@ async function prefillPDFWithRecipientData(db, documentId, pdfPath, recipientEma
         }
 
         // 1. Obtener información de posiciones de los campos de texto
-        const fieldIds = Object.values(fieldLabelMap).filter(id => id); // Filtrar nulls
+        // fieldLabelMap es { label → [field_id1, field_id2, ...] }, hay que aplanar
+        const fieldIds = Object.values(fieldLabelMap).flat().filter(id => id);
 
         if (fieldIds.length === 0) {
             console.log(`   ⚠️ No se encontraron field_ids válidos`);
