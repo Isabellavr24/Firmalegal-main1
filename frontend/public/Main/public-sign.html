@@ -2290,7 +2290,12 @@ function showPendingFieldToast(message) {
 function checkAllFieldsSigned() {
   const allRequiredSigned = fields
     .filter(f => f.required)
-    .every(f => f.signed);
+    .every(f => {
+      if (f.type === 'signature' || f.type === 'final_signature') {
+        return f.signed && !!f.dataUrl;
+      }
+      return f.signed;
+    });
 
   if (allRequiredSigned) {
     console.log('✅ Todos los campos requeridos están completados');
@@ -2385,6 +2390,27 @@ async function submitDocument() {
               <p style="color:#6d6270;font-size:15px;margin:0;">Los operadores de la plataforma no pueden firmar documentos como destinatarios.</p>
             </div>
           </div>`;
+        return;
+      }
+      // Si el servidor rechazó por firma vacía, limpiar campos de firma para que vuelva a firmar
+      if (response.status === 400 && data.message && data.message.includes('imagen de firma')) {
+        hideSigningProgress();
+        fields.forEach(f => {
+          if (f.type === 'signature' || f.type === 'final_signature') {
+            f.signed = false;
+            f.dataUrl = null;
+            const fieldDiv = document.getElementById(f.id);
+            if (fieldDiv) {
+              fieldDiv.classList.remove('signed');
+              fieldDiv.innerHTML = `<div class="label">${f.label || 'Firma'}</div>`;
+            }
+          }
+        });
+        btn.disabled = false;
+        btn.innerHTML = '<svg style="width:16px;height:16px;vertical-align:middle;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Enviar Documento Firmado';
+        btn.style.opacity = '1';
+        btn.style.display = 'none';
+        alert('La firma no llegó correctamente. Por favor, vuelve a dibujar tu firma en el campo correspondiente.');
         return;
       }
       // Mostrar mensaje de error específico del servidor

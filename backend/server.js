@@ -4734,6 +4734,22 @@ app.post('/api/public/sign/:token', async (req, res) => {
             });
         }
 
+        // Validar que todos los campos de firma requeridos traigan dataUrl
+        if (fields && fields.length > 0) {
+            const missingSignatures = fields.filter(f =>
+                (f.type === 'signature' || f.type === 'final_signature') &&
+                f.required &&
+                !f.dataUrl
+            );
+            if (missingSignatures.length > 0) {
+                console.error(`❌ Firma(s) requerida(s) sin dataUrl: field_ids=${missingSignatures.map(f => f.field_id).join(',')}`);
+                return res.status(400).json({
+                    success: false,
+                    message: 'No se recibió la imagen de firma para uno o más campos requeridos. Por favor vuelve a firmar.'
+                });
+            }
+        }
+
         // Guardar los valores de los campos en la base de datos
         if (fields && fields.length > 0) {
             console.log('💾 Guardando valores de campos en field_values...');
