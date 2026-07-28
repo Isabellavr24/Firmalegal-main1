@@ -4702,6 +4702,7 @@ app.post('/api/public/sign/:token', async (req, res) => {
                 dr.viewer_group_id,
                 dr.is_final_signer,
                 d.file_path,
+                d.doc_only_path,
                 d.title,
                 d.owner_id
             FROM document_recipients dr
@@ -4732,6 +4733,27 @@ app.post('/api/public/sign/:token', async (req, res) => {
                 success: false,
                 message: 'Este documento ya ha sido firmado'
             });
+        }
+
+        // Validar que todos los campos de firma requeridos traigan dataUrl
+        // Para el firmante definitivo (is_final_signer), solo validar final_signature
+        if (fields && fields.length > 0) {
+            const missingSignatures = fields.filter(f => {
+                if (!f.required || !f.signed) return false;
+                if (!f.dataUrl) {
+                    // Firmante definitivo: ignorar campos 'signature' regulares (son PROTEGIDO)
+                    if (recipient.is_final_signer && f.type === 'signature') return false;
+                    if (f.type === 'signature' || f.type === 'final_signature') return true;
+                }
+                return false;
+            });
+            if (missingSignatures.length > 0) {
+                console.error(`❌ Firma(s) requerida(s) sin dataUrl: field_ids=${missingSignatures.map(f => f.field_id).join(',')}`);
+                return res.status(400).json({
+                    success: false,
+                    message: 'No se recibió la imagen de firma para uno o más campos requeridos. Por favor vuelve a firmar.'
+                });
+            }
         }
 
         // Guardar los valores de los campos en la base de datos
@@ -5238,16 +5260,18 @@ app.post('/api/public/sign/:token', async (req, res) => {
                 });
             }
 
-            // 4. Leer el PDF (usar custom_pdf_path si existe, sino file_path compartido)
-            // 🔥 IMPORTANTE: Si tiene custom_pdf_path, usar ese (CSV personalizado)
-            // ⚠️ EXCEPCIÓN VI: Si el custom_pdf_path es un vi_personal (tiene traza VI),
-            // usar el personal_pdf_path o file_path como base limpia.
-            // La traza se re-agrega al final del sellado en el paso VI-TRAZA.
+            // 4. Leer el PDF base para esta firma
+            // Preferencia: doc_only_path (acumula todas las firmas anteriores) > custom_pdf_path > file_path
+            // ⚠️ EXCEPCIÓN VI: Si hay traza VI en custom_pdf_path, usar base limpia sin traza.
             let sourcePath;
             if (recipient.vi_traza_path && recipient.custom_pdf_path && !recipient.personal_pdf_path) {
-                // Documento normal con VI: custom_pdf_path = vi_personal (tiene traza), usar file_path limpio
-                sourcePath = recipient.file_path;
-                console.log(`📄 [VI-FIX] Usando file_path limpio (sin traza VI) como base de firma intermedia`);
+                // Documento normal con VI: custom_pdf_path tiene traza adjunta, usar doc_only_path o file_path
+                sourcePath = recipient.doc_only_path || recipient.file_path;
+                console.log(`📄 [VI-FIX] Usando base limpia (sin traza VI) como base de firma intermedia`);
+            } else if (recipient.doc_only_path && recipient.doc_only_path !== recipient.custom_pdf_path) {
+                // Hay firmas acumuladas en doc_only_path — usarlo para no perder firmas anteriores
+                sourcePath = recipient.doc_only_path;
+                console.log(`📄 [ACUM] Usando doc_only_path con firmas acumuladas como base`);
             } else {
                 sourcePath = recipient.custom_pdf_path || recipient.file_path;
             }

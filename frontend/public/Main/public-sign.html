@@ -2288,9 +2288,16 @@ function showPendingFieldToast(message) {
 }
 
 function checkAllFieldsSigned() {
-  const allRequiredSigned = fields
-    .filter(f => f.required)
-    .every(f => f.signed);
+  let allRequiredSigned;
+  if (isFinalSigner) {
+    // Para firmante definitivo solo verificar que el campo final_signature esté firmado
+    const finalField = fields.find(f => f.type === 'final_signature');
+    allRequiredSigned = finalField && finalField.signed;
+  } else {
+    allRequiredSigned = fields
+      .filter(f => f.required)
+      .every(f => f.signed);
+  }
 
   if (allRequiredSigned) {
     console.log('✅ Todos los campos requeridos están completados');

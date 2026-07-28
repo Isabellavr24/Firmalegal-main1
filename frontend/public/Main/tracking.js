@@ -3367,18 +3367,16 @@ async function downloadPagareTemplate(docId) {
       }
     });
 
-    // Función para escapar valores CSV (manejar comas y comillas)
+    // Usar punto y coma como separador para evitar conflictos con comas en nombres de campos
     const escapeCsvValue = (value) => {
       const str = String(value);
-      // Si contiene comas, comillas o saltos de línea, envolver en comillas
-      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+      if (str.includes(';') || str.includes('"') || str.includes('\n')) {
         return `"${str.replace(/"/g, '""')}"`;
       }
       return str;
     };
 
-    // Crear CSV usando comas como separador
-    const csvRows = [headers.map(escapeCsvValue).join(',')];
+    const csvRows = [headers.map(escapeCsvValue).join(';')];
 
     // Agregar 3 filas de ejemplo
     for (let i = 1; i <= 3; i++) {
@@ -3394,7 +3392,7 @@ async function downloadPagareTemplate(docId) {
         row.push(`Valor ${label} ${i}`);
       });
 
-      csvRows.push(row.map(escapeCsvValue).join(','));
+      csvRows.push(row.map(escapeCsvValue).join(';'));
     }
 
     const csvContent = csvRows.join('\n');
@@ -3435,6 +3433,7 @@ function handlePagareCsvUpload(file) {
     Papa.parse(csvContent, {
       header: true,
       skipEmptyLines: true,
+      delimiter: ';',
       complete: (results) => {
         _processPagareCsvData(results, file.name).catch(err => console.error('Error procesando CSV pagaré:', err));
       },
