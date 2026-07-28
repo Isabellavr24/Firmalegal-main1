@@ -3032,7 +3032,43 @@ async function generatePersonalizedPagare(sourcePdfPath, viewerGroupId, fieldVal
         // Leer el PDF original
         const existingPdfBytes = fs.readFileSync(sourcePdfPath);
         const pdfDoc = await PDFDocument.load(existingPdfBytes);
-        const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+        // Embeber todas las fuentes necesarias para aplicar field_config
+        const fontHelvetica   = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        const fontHelveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+        const fontTimesRoman  = await pdfDoc.embedFont(StandardFonts.TimesRoman);
+        const fontTimesBold   = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
+        const fontCourier     = await pdfDoc.embedFont(StandardFonts.Courier);
+
+        function resolveFont(fmt) {
+            if (!fmt) return fontHelvetica;
+            const family = (fmt.fontFamily || '').toLowerCase();
+            const bold = fmt.isBold;
+            if (family.includes('times') || family.includes('palatino') || family.includes('book antiqua') || family.includes('georgia') || family.includes('cambria')) {
+                return bold ? fontTimesBold : fontTimesRoman;
+            }
+            if (family.includes('courier') || family.includes('mono')) return fontCourier;
+            return bold ? fontHelveticaBold : fontHelvetica;
+        }
+
+        function parseColor(hex) {
+            if (!hex || !hex.startsWith('#')) return rgb(0, 0, 0);
+            const r = parseInt(hex.slice(1, 3), 16) / 255;
+            const g = parseInt(hex.slice(3, 5), 16) / 255;
+            const b = parseInt(hex.slice(5, 7), 16) / 255;
+            return rgb(r, g, b);
+        }
+
+        function fitText(font, text, fieldWidth, fieldHeight, preferredSize) {
+            let size = preferredSize ? Math.min(parseFloat(preferredSize), fieldHeight * 0.85) : Math.min(fieldHeight * 0.65, 12);
+            size = Math.max(size, 6);
+            const maxW = fieldWidth - 4;
+            let displayText = text;
+            while (font.widthOfTextAtSize(displayText, size) > maxW && displayText.length > 1) {
+                displayText = displayText.slice(0, -1);
+            }
+            return { size, displayText };
+        }
 
         // Filtrar solo campos de texto
         const textFields = allFields.filter(f => f.field_type === 'text');
@@ -3064,25 +3100,46 @@ async function generatePersonalizedPagare(sourcePdfPath, viewerGroupId, fieldVal
                 const page = pdfDoc.getPage(field.page_number - 1);
                 const { height } = page.getSize();
 
-                // 🔥 Convertir coordenadas a números (vienen como strings de la BD)
-                const fieldX = parseFloat(field.x_position);
-                const fieldY = parseFloat(field.y_position);
+                const fieldX      = parseFloat(field.x_position);
+                const fieldY      = parseFloat(field.y_position);
+                const fieldWidth  = parseFloat(field.width);
                 const fieldHeight = parseFloat(field.height);
 
-                // Convertir coordenadas (Y invertido en PDF)
-                const x = fieldX;
-                const y = height - fieldY - fieldHeight;
+                // Leer formato configurado en el editor
+                const fmt = field.field_config ? JSON.parse(field.field_config) : null;
+                const chosenFont  = resolveFont(fmt);
+                const chosenColor = parseColor(fmt && fmt.fontColor);
+                const { size, displayText } = fitText(chosenFont, String(value), fieldWidth, fieldHeight, fmt && fmt.fontSize);
 
-                // Escribir el texto en el PDF
-                page.drawText(String(value), {
-                    x: x + 4, // Pequeño padding
-                    y: y + (fieldHeight / 2) - 4, // Centrar verticalmente
-                    size: 12,
-                    font: font,
-                    color: rgb(0, 0, 0)
+                // Alineación vertical
+                const valign = fmt && fmt.verticalAlign;
+                let textOffsetY = (fieldHeight - size) / 2;
+                if (valign === 'top')    textOffsetY = fieldHeight - size - 2;
+                else if (valign === 'bottom') textOffsetY = 2;
+
+                // Alineación horizontal
+                const halign = fmt && fmt.textAlign;
+                let textOffsetX = 4;
+                if (halign === 'center') {
+                    const textWidth = chosenFont.widthOfTextAtSize(displayText, size);
+                    textOffsetX = (fieldWidth - textWidth) / 2;
+                } else if (halign === 'right') {
+                    const textWidth = chosenFont.widthOfTextAtSize(displayText, size);
+                    textOffsetX = fieldWidth - textWidth - 4;
+                }
+
+                // Coordenadas PDF (Y invertido)
+                const pdfY = height - fieldY - fieldHeight;
+
+                page.drawText(displayText, {
+                    x: fieldX + textOffsetX,
+                    y: pdfY + textOffsetY,
+                    size,
+                    font: chosenFont,
+                    color: chosenColor
                 });
 
-                console.log(`         ✅ ${fieldLabel} [CSV: "${csvKey}"] = "${value}" escrito en PDF`);
+                console.log(`         ✅ ${fieldLabel} [CSV: "${csvKey}"] = "${value}" escrito en PDF (fmt: ${fmt ? JSON.stringify({font: fmt.fontFamily, size: fmt.fontSize, align: fmt.textAlign}) : 'default'})`);
             }
         }
 
@@ -3426,7 +3483,7 @@ router.post('/:docId/pagare/send-bulk', requireAuth, async (req, res) => {
 
         // Obtener campos del documento
         const [fields] = await db.promise().query(
-            `SELECT field_id, part_id, field_type, field_label, x_position, y_position, page_number, width, height
+            `SELECT field_id, part_id, field_type, field_label, x_position, y_position, page_number, width, height, field_config
              FROM document_fields
              WHERE document_id = ?
              ORDER BY part_id, field_id`,

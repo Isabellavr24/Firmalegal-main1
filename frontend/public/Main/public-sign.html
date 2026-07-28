@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="utf-8" />
@@ -2288,14 +2288,21 @@ function showPendingFieldToast(message) {
 }
 
 function checkAllFieldsSigned() {
-  const allRequiredSigned = fields
-    .filter(f => f.required)
-    .every(f => {
-      if (f.type === 'signature' || f.type === 'final_signature') {
-        return f.signed && !!f.dataUrl;
-      }
-      return f.signed;
-    });
+  let allRequiredSigned;
+  if (isFinalSigner) {
+    // Para firmante definitivo solo verificar que el campo final_signature esté firmado
+    const finalField = fields.find(f => f.type === 'final_signature');
+    allRequiredSigned = finalField && finalField.signed;
+  } else {
+    allRequiredSigned = fields
+      .filter(f => f.required)
+      .every(f => {
+        if (f.type === 'signature' || f.type === 'final_signature') {
+          return f.signed && !!f.dataUrl;
+        }
+        return f.signed;
+      });
+  }
 
   if (allRequiredSigned) {
     console.log('✅ Todos los campos requeridos están completados');
