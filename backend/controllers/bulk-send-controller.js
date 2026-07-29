@@ -17,6 +17,98 @@ const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 const fs = require('fs');
 const path = require('path');
 
+// Directorio donde se almacenan las fuentes TTF en producción
+const FONTS_DIR = process.env.FONTS_DIR || path.join(__dirname, '..', 'fonts');
+
+// Mapeo de familias de fuentes a archivos TTF
+const FONT_FILES = {
+    arial:       { regular: 'arial.ttf',     bold: 'arialbd.ttf' },
+    calibri:     { regular: 'calibri.ttf',   bold: 'calibrib.ttf' },
+    georgia:     { regular: 'georgia.ttf',   bold: 'georgiab.ttf' },
+    verdana:     { regular: 'verdana.ttf',   bold: 'verdanab.ttf' },
+    times:       { regular: 'times.ttf',     bold: 'timesbd.ttf' },
+    tinos:       { regular: 'Tinos-Regular.ttf', bold: 'Tinos-Bold.ttf' },
+    carlito:     { regular: 'Carlito-Regular.ttf', bold: 'Carlito-Bold.ttf' },
+};
+
+// Carga todas las fuentes disponibles en el PDF. Si un TTF no existe, cae a StandardFonts.
+async function loadCustomFonts(pdfDoc) {
+    const fonts = {};
+
+    async function embedTTF(key, filename) {
+        const ttfPath = path.join(FONTS_DIR, filename);
+        if (fs.existsSync(ttfPath)) {
+            try {
+                const bytes = fs.readFileSync(ttfPath);
+                fonts[key] = await pdfDoc.embedFont(bytes, { subset: true });
+                return;
+            } catch (e) {
+                console.warn(`⚠️ No se pudo cargar fuente TTF ${filename}: ${e.message}`);
+            }
+        }
+        // Fallback a StandardFonts
+        if (key.includes('Bold') || key.includes('bold')) {
+            fonts[key] = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+        } else {
+            fonts[key] = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        }
+    }
+
+    for (const [family, files] of Object.entries(FONT_FILES)) {
+        await embedTTF(family, files.regular);
+        await embedTTF(family + 'Bold', files.bold);
+    }
+
+    // Siempre tener fallback disponible
+    fonts.helvetica = fonts.helvetica || await pdfDoc.embedFont(StandardFonts.Helvetica);
+    fonts.helveticaBold = fonts.helveticaBold || await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    fonts.courier = await pdfDoc.embedFont(StandardFonts.Courier);
+
+    return fonts;
+}
+
+// Resuelve la fuente correcta según el formato del campo
+function resolveCustomFont(fonts, fmt) {
+    if (!fmt) return fonts.arial || fonts.helvetica;
+    const family = (fmt.fontFamily || '').toLowerCase();
+    const bold = fmt.isBold;
+
+    if (family.includes('calibri') || family.includes('carlito')) {
+        return bold ? (fonts.calibriBold || fonts.carlitoBold || fonts.helveticaBold)
+                    : (fonts.calibri || fonts.carlito || fonts.helvetica);
+    }
+    if (family.includes('arial') || family.includes('sans-serif')) {
+        return bold ? (fonts.arialBold || fonts.helveticaBold)
+                    : (fonts.arial || fonts.helvetica);
+    }
+    if (family.includes('verdana')) {
+        return bold ? (fonts.verdanaBold || fonts.helveticaBold)
+                    : (fonts.verdana || fonts.helvetica);
+    }
+    if (family.includes('georgia') || family.includes('cambria')) {
+        return bold ? (fonts.georgiaBold || fonts.tinosBold || fonts.helveticaBold)
+                    : (fonts.georgia || fonts.tinos || fonts.helvetica);
+    }
+    if (family.includes('times') || family.includes('palatino') || family.includes('book antiqua')) {
+        return bold ? (fonts.timesBold || fonts.tinosBold || fonts.helveticaBold)
+                    : (fonts.times || fonts.tinos || fonts.helvetica);
+    }
+    if (family.includes('courier')) return fonts.courier;
+
+    // Default: Arial si está disponible, si no Helvetica
+    return bold ? (fonts.arialBold || fonts.helveticaBold)
+                : (fonts.arial || fonts.helvetica);
+}
+
+// Convierte color hex a rgb() de pdf-lib
+function parseHexColor(hex) {
+    if (!hex || !hex.startsWith('#')) return rgb(0, 0, 0);
+    const r = parseInt(hex.slice(1, 3), 16) / 255;
+    const g = parseInt(hex.slice(3, 5), 16) / 255;
+    const b = parseInt(hex.slice(5, 7), 16) / 255;
+    return rgb(r, g, b);
+}
+
 // =============================================
 // CONFIGURACIÓN DE MULTER PARA SUBIDA DE ARCHIVOS
 // =============================================
@@ -1332,29 +1424,14 @@ async function prefilPDFWithTemplateValues(db, documentId, pdfPath) {
         // 2. Leer el PDF original
         const existingPdfBytes = fs.readFileSync(pdfPath);
         const pdfDoc = await PDFDocument.load(existingPdfBytes);
-        const fontHelvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
-        const fontHelveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-        const fontTimesRoman = await pdfDoc.embedFont(StandardFonts.TimesRoman);
-        const fontTimesBold = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
-        const fontCourier = await pdfDoc.embedFont(StandardFonts.Courier);
+        const customFonts = await loadCustomFonts(pdfDoc);
 
         function resolveFont(fmt) {
-            if (!fmt) return fontHelvetica;
-            const family = (fmt.fontFamily || '').toLowerCase();
-            const bold = fmt.isBold;
-            if (family.includes('times') || family.includes('palatino') || family.includes('book antiqua') || family.includes('georgia') || family.includes('cambria')) {
-                return bold ? fontTimesBold : fontTimesRoman;
-            }
-            if (family.includes('courier')) return fontCourier;
-            return bold ? fontHelveticaBold : fontHelvetica;
+            return resolveCustomFont(customFonts, fmt);
         }
 
         function parseColor(hex) {
-            if (!hex || !hex.startsWith('#')) return rgb(0, 0, 0);
-            const r = parseInt(hex.slice(1, 3), 16) / 255;
-            const g = parseInt(hex.slice(3, 5), 16) / 255;
-            const b = parseInt(hex.slice(5, 7), 16) / 255;
-            return rgb(r, g, b);
+            return parseHexColor(hex);
         }
 
         // Helper: calcular fontSize que cabe y truncar si excede el ancho
@@ -1481,29 +1558,14 @@ async function prefillPDFWithRecipientData(db, documentId, pdfPath, recipientEma
         // 2. Leer el PDF original
         const existingPdfBytes = fs.readFileSync(pdfPath);
         const pdfDoc = await PDFDocument.load(existingPdfBytes);
-        const fontHlv = await pdfDoc.embedFont(StandardFonts.Helvetica);
-        const fontHlvBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-        const fontTimes = await pdfDoc.embedFont(StandardFonts.TimesRoman);
-        const fontTimesBold = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
-        const fontCourier2 = await pdfDoc.embedFont(StandardFonts.Courier);
+        const customFonts2 = await loadCustomFonts(pdfDoc);
 
         function resolveFont2(fmt) {
-            if (!fmt) return fontHlv;
-            const family = (fmt.fontFamily || '').toLowerCase();
-            const bold = fmt.isBold;
-            if (family.includes('times') || family.includes('palatino') || family.includes('book antiqua') || family.includes('georgia') || family.includes('cambria')) {
-                return bold ? fontTimesBold : fontTimes;
-            }
-            if (family.includes('courier')) return fontCourier2;
-            return bold ? fontHlvBold : fontHlv;
+            return resolveCustomFont(customFonts2, fmt);
         }
 
         function parseColor2(hex) {
-            if (!hex || !hex.startsWith('#')) return rgb(0, 0, 0);
-            const r = parseInt(hex.slice(1, 3), 16) / 255;
-            const g = parseInt(hex.slice(3, 5), 16) / 255;
-            const b = parseInt(hex.slice(5, 7), 16) / 255;
-            return rgb(r, g, b);
+            return parseHexColor(hex);
         }
 
         let writtenCount = 0;
