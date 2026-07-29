@@ -15,7 +15,7 @@ body{margin:0;background:#fbf7f5;font:16px/1.4 Inter,system-ui,Segoe UI,Arial}
 .fmt-clear-btn.fmt-btn-visible{background:#fff0f3;color:#c2185b;border-color:#f48fb1;}
 
 /* Indicador visual de formato aplicado en campos de texto */
-.field.text.text-formatted{outline:2px solid #7c3aed;outline-offset:1px;}
+.field.text.text-formatted{outline:2px solid #2a0d31;outline-offset:1px;}
 
 .layout{display:grid;grid-template-columns:240px 1fr 280px;gap:16px;
         padding:16px;min-height:calc(100% - 62px)}

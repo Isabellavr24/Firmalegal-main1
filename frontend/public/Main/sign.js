@@ -2222,8 +2222,18 @@ function updateTextPreview() {
   const alignItems = verticalAlign === 'middle' ? 'center' : verticalAlign === 'bottom' ? 'flex-end' : 'flex-start';
   const justifyContent = textAlign === 'center' ? 'center' : textAlign === 'right' ? 'flex-end' : 'flex-start';
 
+  // Calcular tamaño representativo: escalar pt a px del contenedor de preview
+  // 1pt ≈ 1.333px; el preview mide 90px de alto; campo típico ~40px → ratio 90/40 = 2.25
+  const ptToPx = 1.333;
+  const activeField = activeFieldId ? fields.find(f => f.id === activeFieldId) : null;
+  const fieldHeightPx = activeField ? (activeField.height || 40) : 40;
+  const previewHeightPx = 90;
+  const scale = previewHeightPx / fieldHeightPx;
+  const rawPx = parseInt(fontSize) * ptToPx;
+  const scaledPx = Math.min(Math.round(rawPx * scale), previewHeightPx - 10);
+
   preview.style.fontFamily = fontFamily;
-  preview.style.fontSize = Math.min(parseInt(fontSize), 20) + 'px';
+  preview.style.fontSize = scaledPx + 'px';
   preview.style.color = fontColor;
   preview.style.fontWeight = fontWeight;
   preview.style.fontStyle = fontStyle;
