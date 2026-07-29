@@ -3044,10 +3044,14 @@ async function generatePersonalizedPagare(sourcePdfPath, viewerGroupId, fieldVal
             if (!fmt) return fontHelvetica;
             const family = (fmt.fontFamily || '').toLowerCase();
             const bold = fmt.isBold;
-            if (family.includes('times') || family.includes('palatino') || family.includes('book antiqua') || family.includes('georgia') || family.includes('cambria')) {
+            // Serif: Times New Roman, Georgia, Cambria, Palatino, Book Antiqua → TimesRoman
+            if (family.includes('times') || family.includes('georgia') || family.includes('cambria') ||
+                family.includes('palatino') || family.includes('book antiqua')) {
                 return bold ? fontTimesBold : fontTimesRoman;
             }
+            // Monospace: Courier New → Courier
             if (family.includes('courier') || family.includes('mono')) return fontCourier;
+            // Sans-serif: Arial, Helvetica, Calibri, Verdana, Tahoma → Helvetica
             return bold ? fontHelveticaBold : fontHelvetica;
         }
 
