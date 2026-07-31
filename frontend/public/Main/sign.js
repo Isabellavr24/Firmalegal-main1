@@ -1559,16 +1559,17 @@ function initPageOverlays() {
                 );
                 const anchorVIdx = virtualItems.findIndex(t => t === anchor);
 
-                // Expandir hacia la izquierda usando el gap máximo como umbral de corte
+                // Expandir hacia la izquierda con gap fijo de 30px.
+                // En párrafos justificados los gaps entre palabras son < 15px.
+                // Un gap >= 30px indica separación entre secciones de texto.
+                const CUT_GAP = 30;
                 let start = anchorVIdx;
-                let maxGap = 15;
-                for (let i = 1; i <= anchorVIdx; i++) {
-                  const g = virtualItems[i].x - (virtualItems[i-1].x + virtualItems[i-1].w);
-                  if (g > maxGap) maxGap = g;
-                }
                 for (let i = anchorVIdx; i > 0; i--) {
                   const g = virtualItems[i].x - (virtualItems[i-1].x + virtualItems[i-1].w);
-                  if (g >= maxGap || /^_+$/.test(virtualItems[i-1].str.trim())) { start = i; break; }
+                  if (g >= CUT_GAP || /^_+$/.test(virtualItems[i-1].str.trim())) {
+                    start = i;
+                    break;
+                  }
                 }
 
                 const group = virtualItems.slice(start, anchorVIdx + 1);
