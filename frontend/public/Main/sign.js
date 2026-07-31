@@ -1508,46 +1508,55 @@ function initPageOverlays() {
               .filter(t => Math.abs(t.y - best.y) <= LINE_TOLERANCE)
               .sort((a, b) => a.x - b.x);
 
-            // Log de diagnóstico: fragmentos de la línea
-            console.log('[MAPEO DEBUG] Línea completa:', sameLineItems.map(t =>
-              `"${t.str.substring(0,20)}" x=${Math.round(t.x)} right=${Math.round(t.x+t.w)}`
-            ), 'fieldLeft=', Math.round(fieldLeft));
+            // Construir lista de fragmentos "virtuales": si un fragmento contiene guiones
+            // bajos internos, partirlo y tomar solo la porción antes del primer guión.
+            // Así "Responsable 1 ___ con C.C." se convierte en "Responsable 1" con su x/w real.
+            const virtualItems = [];
+            for (const t of sameLineItems) {
+              const underscoreIdx = t.str.search(/_+/);
+              if (underscoreIdx > 0) {
+                // Hay texto antes de los guiones — estimar el ancho proporcional
+                const ratio = underscoreIdx / t.str.length;
+                const leftPart = t.str.substring(0, underscoreIdx).trimEnd();
+                if (leftPart.length > 0) {
+                  virtualItems.push({ ...t, str: leftPart, w: t.w * ratio, _virtual: true });
+                }
+                // Añadir también el fragmento completo para que otros campos lo vean
+                virtualItems.push(t);
+              } else {
+                virtualItems.push(t);
+              }
+            }
 
-            // Ancla: el fragmento cuyo borde DERECHO (x+w) sea el más cercano al borde
-            // izquierdo del campo, estando completamente a su izquierda (right <= fieldLeft+5).
-            // Esto ignora fragmentos que solapan o están dentro del campo.
-            const candidatesLeft = sameLineItems.filter(t =>
+            // Ancla: el fragmento (o virtual) cuyo borde derecho esté más cerca del campo
+            // por la izquierda (right <= fieldLeft + 5), excluyendo guiones puros.
+            const candidatesLeft = virtualItems.filter(t =>
               (t.x + t.w) <= fieldLeft + 5 && !/^_+$/.test(t.str.trim())
             );
 
-            if (candidatesLeft.length === 0) {
-              // Nada a la izquierda del campo
-            } else {
+            if (candidatesLeft.length > 0) {
+              // De los candidatos, tomar el más cercano al campo (borde derecho mayor)
               const anchor = candidatesLeft.reduce((a, t) =>
                 (t.x + t.w) > (a.x + a.w) ? t : a
               );
-              const anchorIdx = sameLineItems.findIndex(t => t.idx === anchor.idx);
 
-              // Expandir hacia la izquierda desde el ancla.
-              // Parar en guiones bajos o en el gap más grande de la línea
-              // (el gap grande separa el label del texto de párrafo anterior).
-              let start = anchorIdx;
-              // Calcular el gap máximo entre fragmentos a la izquierda del ancla
+              // Expandir hacia la izquierda desde el ancla en virtualItems
+              const anchorVIdx = virtualItems.findIndex(t => t === anchor);
+              let start = anchorVIdx;
               let maxGap = 15;
-              for (let i = 1; i <= anchorIdx; i++) {
-                const g = sameLineItems[i].x - (sameLineItems[i-1].x + sameLineItems[i-1].w);
+              for (let i = 1; i <= anchorVIdx; i++) {
+                const g = virtualItems[i].x - (virtualItems[i-1].x + virtualItems[i-1].w);
                 if (g > maxGap) maxGap = g;
               }
-              // Usar el gap máximo como umbral de corte
-              for (let i = anchorIdx; i > 0; i--) {
-                const g = sameLineItems[i].x - (sameLineItems[i-1].x + sameLineItems[i-1].w);
-                if (g >= maxGap || /^_+$/.test(sameLineItems[i-1].str.trim())) {
+              for (let i = anchorVIdx; i > 0; i--) {
+                const g = virtualItems[i].x - (virtualItems[i-1].x + virtualItems[i-1].w);
+                if (g >= maxGap || /^_+$/.test(virtualItems[i-1].str.trim())) {
                   start = i;
                   break;
                 }
               }
 
-              const group = sameLineItems.slice(start, anchorIdx + 1);
+              const group = virtualItems.slice(start, anchorVIdx + 1);
               let fullLabel = group[0].str;
               for (let i = 1; i < group.length; i++) {
                 const gap = group[i].x - (group[i-1].x + group[i-1].w);
