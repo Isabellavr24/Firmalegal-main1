@@ -1502,31 +1502,45 @@ function initPageOverlays() {
             best = candidates[0];
           }
           if (best) {
-            // Concatenar fragmentos adyacentes de la misma línea (mismo y ± 4px)
-            // Solo incluir fragmentos que estén a menos de 20px de distancia entre sí,
-            // empezando desde el fragmento más a la izquierda del grupo del best
+            // Reunir fragmentos de la misma línea (mismo y ± 4px), ordenados de izq a der
             const LINE_TOLERANCE = 4;
             const sameLineItems = items
               .filter(t => Math.abs(t.y - best.y) <= LINE_TOLERANCE)
               .sort((a, b) => a.x - b.x);
 
-            // Encontrar el índice del best en la línea
             const bestIdx = sameLineItems.findIndex(t => t.idx === best.idx);
-            // Expandir hacia la izquierda y derecha mientras los fragmentos sean adyacentes (gap < 20px)
             const MAX_GAP = 20;
-            let start = bestIdx, end = bestIdx;
-            while (start > 0 && sameLineItems[start].x - (sameLineItems[start-1].x + sameLineItems[start-1].w) < MAX_GAP) start--;
-            while (end < sameLineItems.length - 1 && sameLineItems[end+1].x - (sameLineItems[end].x + sameLineItems[end].w) < MAX_GAP) end++;
+
+            // Solo expandir hacia la IZQUIERDA: el label precede al campo.
+            // Detener si el fragmento es solo guiones bajos (marca del espacio a rellenar).
+            let start = bestIdx;
+            while (start > 0) {
+              const prev = sameLineItems[start - 1];
+              const gap = sameLineItems[start].x - (prev.x + prev.w);
+              if (gap >= MAX_GAP) break;
+              if (/^_+$/.test(prev.str.trim())) break; // guiones bajos = límite del label
+              start--;
+            }
+            // Expandir hacia la DERECHA solo mientras NO haya guiones bajos ni gap grande,
+            // y el fragmento esté aún a la izquierda del campo (no capturar texto posterior).
+            let end = bestIdx;
+            while (end < sameLineItems.length - 1) {
+              const next = sameLineItems[end + 1];
+              const gap = next.x - (sameLineItems[end].x + sameLineItems[end].w);
+              if (gap >= MAX_GAP) break;
+              if (/^_+$/.test(next.str.trim())) break; // guiones bajos = fin del label
+              if (next.x >= fieldLeft) break;           // ya pasamos el borde del campo
+              end++;
+            }
+
             const group = sameLineItems.slice(start, end + 1);
-            // Unir con espacio solo si el gap entre fragmentos es > 2px (palabras separadas)
-            // Sin espacio si están pegados (misma palabra partida por PDF.js)
             let fullLabel = group[0].str;
             for (let i = 1; i < group.length; i++) {
               const gap = group[i].x - (group[i-1].x + group[i-1].w);
               fullLabel += (gap > 2 ? ' ' : '') + group[i].str;
             }
 
-            // LIMPIAR guiones bajos y espacios extras del label
+            // Limpiar guiones bajos y espacios extras
             mappedLabel = fullLabel
               .replace(/_+/g, '')
               .replace(/\s+/g, ' ')
