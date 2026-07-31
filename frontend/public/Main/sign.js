@@ -1508,31 +1508,32 @@ function initPageOverlays() {
               .filter(t => Math.abs(t.y - best.y) <= LINE_TOLERANCE)
               .sort((a, b) => a.x - b.x);
 
-            // El label son TODOS los fragmentos de la línea cuyo borde derecho
-            // esté completamente antes del borde izquierdo del campo, sin guiones bajos,
-            // y en un grupo continuo (gap < MAX_GAP) que termine tocando el campo.
             const MAX_GAP = 20;
 
-            // Paso 1: filtrar solo fragmentos que terminan antes del campo y no son guiones bajos
-            const leftOfField = sameLineItems.filter(t =>
-              (t.x + t.w) <= fieldLeft + 4 && !/^_+$/.test(t.str.trim())
-            );
-
-            // Paso 2: tomar el grupo continuo más cercano al campo (de derecha a izquierda)
-            // hasta encontrar un gap >= MAX_GAP
-            let group = [];
-            for (let i = leftOfField.length - 1; i >= 0; i--) {
-              if (group.length === 0) {
-                group.unshift(leftOfField[i]);
-              } else {
-                const gap = group[0].x - (leftOfField[i].x + leftOfField[i].w);
-                if (gap >= MAX_GAP) break;
-                group.unshift(leftOfField[i]);
-              }
+            // Anclar en el fragmento más a la derecha que todavía esté a la izquierda
+            // del borde del campo (con 30px de margen para absorber pequeños solapamientos).
+            // Si best está dentro/a la derecha del campo, buscar el fragmento anterior.
+            let anchorIdx = sameLineItems.findIndex(t => t.idx === best.idx);
+            while (anchorIdx >= 0 && sameLineItems[anchorIdx].x >= fieldLeft + 30) {
+              anchorIdx--;
             }
-            if (group.length === 0) {
-              // No hay texto a la izquierda del campo en esta línea — sin mapeo
+
+            if (anchorIdx < 0 || /^_+$/.test(sameLineItems[anchorIdx].str.trim())) {
+              // No hay label válido a la izquierda del campo
             } else {
+              // Expandir hacia la izquierda desde el ancla mientras:
+              // - el gap entre fragmentos sea < MAX_GAP
+              // - el fragmento no sea solo guiones bajos
+              let start = anchorIdx;
+              while (start > 0) {
+                const prev = sameLineItems[start - 1];
+                const gap = sameLineItems[start].x - (prev.x + prev.w);
+                if (gap >= MAX_GAP) break;
+                if (/^_+$/.test(prev.str.trim())) break;
+                start--;
+              }
+
+              const group = sameLineItems.slice(start, anchorIdx + 1);
               let fullLabel = group[0].str;
               for (let i = 1; i < group.length; i++) {
                 const gap = group[i].x - (group[i-1].x + group[i-1].w);
