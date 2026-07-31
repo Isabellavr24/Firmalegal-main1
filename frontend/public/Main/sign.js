@@ -1508,52 +1508,42 @@ function initPageOverlays() {
               .filter(t => Math.abs(t.y - best.y) <= LINE_TOLERANCE)
               .sort((a, b) => a.x - b.x);
 
-            // Ancla: fragmento cuyo borde derecho (x+w) sea el más cercano al borde izquierdo
-            // del campo, y que no empiece después del campo.
-            // Ignorar fragmentos que empiezan dentro o a la derecha del campo.
-            const candidatesLeft = sameLineItems.filter(t =>
-              t.x < fieldLeft && !/^_+$/.test(t.str.trim())
-            );
-
-            // Log de diagnóstico: gaps entre fragmentos de la línea
+            // Log de diagnóstico: fragmentos de la línea
             console.log('[MAPEO DEBUG] Línea completa:', sameLineItems.map(t =>
-              `"${t.str}" x=${Math.round(t.x)} w=${Math.round(t.w)} right=${Math.round(t.x+t.w)}`
+              `"${t.str.substring(0,20)}" x=${Math.round(t.x)} right=${Math.round(t.x+t.w)}`
             ), 'fieldLeft=', Math.round(fieldLeft));
+
+            // Ancla: el fragmento cuyo borde DERECHO (x+w) sea el más cercano al borde
+            // izquierdo del campo, estando completamente a su izquierda (right <= fieldLeft+5).
+            // Esto ignora fragmentos que solapan o están dentro del campo.
+            const candidatesLeft = sameLineItems.filter(t =>
+              (t.x + t.w) <= fieldLeft + 5 && !/^_+$/.test(t.str.trim())
+            );
 
             if (candidatesLeft.length === 0) {
               // Nada a la izquierda del campo
             } else {
-              // Elegir el fragmento cuyo borde derecho esté más cerca del campo
-              const anchor = candidatesLeft.reduce((best, t) =>
-                (t.x + t.w) > (best.x + best.w) ? t : best
+              const anchor = candidatesLeft.reduce((a, t) =>
+                (t.x + t.w) > (a.x + a.w) ? t : a
               );
               const anchorIdx = sameLineItems.findIndex(t => t.idx === anchor.idx);
 
-              // Calcular gaps entre palabras en la porción a la izquierda del ancla
-              // para detectar el gap entre el label y el párrafo que lo precede.
-              // Usamos el gap más grande como punto de corte natural.
-              const gaps = [];
+              // Expandir hacia la izquierda desde el ancla.
+              // Parar en guiones bajos o en el gap más grande de la línea
+              // (el gap grande separa el label del texto de párrafo anterior).
+              let start = anchorIdx;
+              // Calcular el gap máximo entre fragmentos a la izquierda del ancla
+              let maxGap = 15;
               for (let i = 1; i <= anchorIdx; i++) {
-                gaps.push({
-                  i,
-                  gap: sameLineItems[i].x - (sameLineItems[i-1].x + sameLineItems[i-1].w)
-                });
+                const g = sameLineItems[i].x - (sameLineItems[i-1].x + sameLineItems[i-1].w);
+                if (g > maxGap) maxGap = g;
               }
-
-              // Encontrar el gap máximo en la línea a la izquierda del ancla.
-              // Si hay guiones bajos en la línea, cortar ahí también.
-              // Umbral: gap >= 2× el gap promedio de palabras normales (mínimo 15px).
-              let start = 0;
-              if (gaps.length > 0) {
-                const avgGap = gaps.reduce((s, g) => s + g.gap, 0) / gaps.length;
-                const cutoffGap = Math.max(avgGap * 2, 15);
-                // Buscar desde el ancla hacia la izquierda el primer gap >= cutoff
-                for (let i = anchorIdx; i > 0; i--) {
-                  const g = sameLineItems[i].x - (sameLineItems[i-1].x + sameLineItems[i-1].w);
-                  if (g >= cutoffGap || /^_+$/.test(sameLineItems[i-1].str.trim())) {
-                    start = i;
-                    break;
-                  }
+              // Usar el gap máximo como umbral de corte
+              for (let i = anchorIdx; i > 0; i--) {
+                const g = sameLineItems[i].x - (sameLineItems[i-1].x + sameLineItems[i-1].w);
+                if (g >= maxGap || /^_+$/.test(sameLineItems[i-1].str.trim())) {
+                  start = i;
+                  break;
                 }
               }
 
