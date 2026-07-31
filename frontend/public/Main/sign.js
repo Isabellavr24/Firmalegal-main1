@@ -1508,43 +1508,43 @@ function initPageOverlays() {
               .filter(t => Math.abs(t.y - best.y) <= LINE_TOLERANCE)
               .sort((a, b) => a.x - b.x);
 
-            const bestIdx = sameLineItems.findIndex(t => t.idx === best.idx);
+            // El label son TODOS los fragmentos de la línea cuyo borde derecho
+            // esté completamente antes del borde izquierdo del campo, sin guiones bajos,
+            // y en un grupo continuo (gap < MAX_GAP) que termine tocando el campo.
             const MAX_GAP = 20;
 
-            // Solo expandir hacia la IZQUIERDA: el label precede al campo.
-            // Detener si el fragmento es solo guiones bajos (marca del espacio a rellenar).
-            let start = bestIdx;
-            while (start > 0) {
-              const prev = sameLineItems[start - 1];
-              const gap = sameLineItems[start].x - (prev.x + prev.w);
-              if (gap >= MAX_GAP) break;
-              if (/^_+$/.test(prev.str.trim())) break; // guiones bajos = límite del label
-              start--;
-            }
-            // Expandir hacia la DERECHA solo mientras NO haya guiones bajos ni gap grande,
-            // y el fragmento esté aún a la izquierda del campo (no capturar texto posterior).
-            let end = bestIdx;
-            while (end < sameLineItems.length - 1) {
-              const next = sameLineItems[end + 1];
-              const gap = next.x - (sameLineItems[end].x + sameLineItems[end].w);
-              if (gap >= MAX_GAP) break;
-              if (/^_+$/.test(next.str.trim())) break; // guiones bajos = fin del label
-              if (next.x >= fieldLeft) break;           // ya pasamos el borde del campo
-              end++;
-            }
+            // Paso 1: filtrar solo fragmentos que terminan antes del campo y no son guiones bajos
+            const leftOfField = sameLineItems.filter(t =>
+              (t.x + t.w) <= fieldLeft + 4 && !/^_+$/.test(t.str.trim())
+            );
 
-            const group = sameLineItems.slice(start, end + 1);
-            let fullLabel = group[0].str;
-            for (let i = 1; i < group.length; i++) {
-              const gap = group[i].x - (group[i-1].x + group[i-1].w);
-              fullLabel += (gap > 2 ? ' ' : '') + group[i].str;
+            // Paso 2: tomar el grupo continuo más cercano al campo (de derecha a izquierda)
+            // hasta encontrar un gap >= MAX_GAP
+            let group = [];
+            for (let i = leftOfField.length - 1; i >= 0; i--) {
+              if (group.length === 0) {
+                group.unshift(leftOfField[i]);
+              } else {
+                const gap = group[0].x - (leftOfField[i].x + leftOfField[i].w);
+                if (gap >= MAX_GAP) break;
+                group.unshift(leftOfField[i]);
+              }
             }
+            if (group.length === 0) {
+              // No hay texto a la izquierda del campo en esta línea — sin mapeo
+            } else {
+              let fullLabel = group[0].str;
+              for (let i = 1; i < group.length; i++) {
+                const gap = group[i].x - (group[i-1].x + group[i-1].w);
+                fullLabel += (gap > 2 ? ' ' : '') + group[i].str;
+              }
 
-            // Limpiar guiones bajos y espacios extras
-            mappedLabel = fullLabel
-              .replace(/_+/g, '')
-              .replace(/\s+/g, ' ')
-              .trim();
+              // Limpiar guiones bajos y espacios extras
+              mappedLabel = fullLabel
+                .replace(/_+/g, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+            }
 
             console.log('[MAPEO PDF] Campo texto colocado:', {
               id,
