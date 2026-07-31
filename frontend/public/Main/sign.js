@@ -1532,55 +1532,74 @@ function initPageOverlays() {
               mappedLabel = group.map(t => t.str).join('').replace(/_+/g, '').replace(/\s+/g, ' ').trim();
 
             } else {
-              // --- Estrategia 2: fragmento virtual (parte antes del primer guión bajo) ---
-              // Para "Responsable 1 ___ con C.C." → virtual "Responsable 1"
-              const virtualItems = [];
-              for (const t of sameLineItems) {
-                const uIdx = t.str.search(/_+/);
-                if (uIdx > 0) {
-                  const leftPart = t.str.substring(0, uIdx).trimEnd();
-                  if (leftPart.length > 0) {
-                    const ratio = uIdx / t.str.length;
-                    virtualItems.push({ ...t, str: leftPart, w: t.w * ratio });
-                  }
-                }
-                virtualItems.push(t);
-              }
-              virtualItems.sort((a, b) => a.x - b.x);
+              // --- Estrategia 2: extracción posicional desde fragmentos largos ---
+              // Cuando PDF.js fusiona todo en un fragmento (ej: "Responsable 1 ___ con C.C. n°__ mayores"),
+              // estimamos qué palabra del string cae justo antes del fieldLeft usando proporción x/w,
+              // y extraemos el segmento de texto entre el último guión bajo anterior y el campo.
 
-              // Ancla: el virtual/fragmento más cercano al campo por la izquierda
-              const candidatesLeft = virtualItems.filter(t =>
-                (t.x + t.w) <= fieldLeft + 5 && !/^_+$/.test(t.str.trim())
+              // Fragmentos que CONTIENEN el fieldLeft (el campo está dentro del fragmento)
+              const containingFrag = sameLineItems.find(t =>
+                t.x < fieldLeft && (t.x + t.w) > fieldLeft - 5 && !/^_+$/.test(t.str.trim())
               );
 
-              if (candidatesLeft.length > 0) {
-                const anchor = candidatesLeft.reduce((a, t) =>
-                  (t.x + t.w) > (a.x + a.w) ? t : a
-                );
-                const anchorVIdx = virtualItems.findIndex(t => t === anchor);
-
-                // Expandir hacia la izquierda con gap fijo de 30px.
-                // En párrafos justificados los gaps entre palabras son < 15px.
-                // Un gap >= 30px indica separación entre secciones de texto.
-                const CUT_GAP = 30;
-                let start = anchorVIdx;
-                for (let i = anchorVIdx; i > 0; i--) {
-                  const g = virtualItems[i].x - (virtualItems[i-1].x + virtualItems[i-1].w);
-                  if (g >= CUT_GAP || /^_+$/.test(virtualItems[i-1].str.trim())) {
-                    start = i;
-                    break;
+              if (containingFrag) {
+                // Estimar el índice de carácter en la posición del campo
+                const ratio = (fieldLeft - containingFrag.x) / containingFrag.w;
+                const charPos = Math.floor(ratio * containingFrag.str.length);
+                // Tomar la subcadena hasta charPos, limpiar guiones y extraer el último segmento
+                const leftStr = containingFrag.str.substring(0, charPos);
+                // Partir por guiones bajos y tomar el último segmento no vacío
+                const segments = leftStr.split(/_+/).map(s => s.trim()).filter(s => s.length > 0);
+                if (segments.length > 0) {
+                  mappedLabel = segments[segments.length - 1]
+                    .replace(/^(y|o|e)\s+/i, '')
+                    .trim();
+                }
+              } else {
+                // --- Estrategia 3: fragmento virtual (parte antes del primer guión bajo) ---
+                // Para fragmentos que terminan antes del campo.
+                const virtualItems = [];
+                for (const t of sameLineItems) {
+                  const uIdx = t.str.search(/_+/);
+                  if (uIdx > 0) {
+                    const leftPart = t.str.substring(0, uIdx).trimEnd();
+                    if (leftPart.length > 0) {
+                      const ratio = uIdx / t.str.length;
+                      virtualItems.push({ ...t, str: leftPart, w: t.w * ratio });
+                    }
                   }
+                  virtualItems.push(t);
                 }
+                virtualItems.sort((a, b) => a.x - b.x);
 
-                const group = virtualItems.slice(start, anchorVIdx + 1);
-                let fullLabel = group[0].str;
-                for (let i = 1; i < group.length; i++) {
-                  const gap = group[i].x - (group[i-1].x + group[i-1].w);
-                  fullLabel += (gap > 2 ? ' ' : '') + group[i].str;
+                const candidatesLeft = virtualItems.filter(t =>
+                  (t.x + t.w) <= fieldLeft + 5 && !/^_+$/.test(t.str.trim())
+                );
+
+                if (candidatesLeft.length > 0) {
+                  const anchor = candidatesLeft.reduce((a, t) =>
+                    (t.x + t.w) > (a.x + a.w) ? t : a
+                  );
+                  const anchorVIdx = virtualItems.findIndex(t => t === anchor);
+
+                  let start = anchorVIdx;
+                  for (let i = anchorVIdx; i > 0; i--) {
+                    const g = virtualItems[i].x - (virtualItems[i-1].x + virtualItems[i-1].w);
+                    if (g >= 30 || /^_+$/.test(virtualItems[i-1].str.trim())) {
+                      start = i; break;
+                    }
+                  }
+
+                  const group = virtualItems.slice(start, anchorVIdx + 1);
+                  let fullLabel = group[0].str;
+                  for (let i = 1; i < group.length; i++) {
+                    const gap = group[i].x - (group[i-1].x + group[i-1].w);
+                    fullLabel += (gap > 2 ? ' ' : '') + group[i].str;
+                  }
+                  mappedLabel = fullLabel
+                    .replace(/_+/g, '').replace(/\s+/g, ' ').trim()
+                    .replace(/^(y|o|e)\s+/i, '');
                 }
-                mappedLabel = fullLabel
-                  .replace(/_+/g, '').replace(/\s+/g, ' ').trim()
-                  .replace(/^(y|o|e)\s+/i, '');
               }
             }
 
