@@ -60,5 +60,29 @@ tmpclaude-*
 *.backup-*
 *.server
 
+# Fuentes propietarias (Microsoft) — copiar manualmente al servidor
+backend/fonts/arial.ttf
+backend/fonts/arialbd.ttf
+backend/fonts/ariali.ttf
+backend/fonts/arialbi.ttf
+backend/fonts/calibri.ttf
+backend/fonts/calibrib.ttf
+backend/fonts/calibrii.ttf
+backend/fonts/calibril.ttf
+backend/fonts/calibrili.ttf
+backend/fonts/calibriz.ttf
+backend/fonts/georgia.ttf
+backend/fonts/georgiab.ttf
+backend/fonts/georgiai.ttf
+backend/fonts/georgiaz.ttf
+backend/fonts/verdana.ttf
+backend/fonts/verdanab.ttf
+backend/fonts/verdanai.ttf
+backend/fonts/verdanaz.ttf
+backend/fonts/times.ttf
+backend/fonts/timesbd.ttf
+backend/fonts/timesbi.ttf
+backend/fonts/timesi.ttf
+
 # Avatar temp files
 frontend/avatar-pht/avatar_temp_*
