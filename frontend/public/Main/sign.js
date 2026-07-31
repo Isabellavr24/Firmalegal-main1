@@ -1508,29 +1508,53 @@ function initPageOverlays() {
               .filter(t => Math.abs(t.y - best.y) <= LINE_TOLERANCE)
               .sort((a, b) => a.x - b.x);
 
-            const MAX_GAP = 20;
+            // Ancla: fragmento cuyo borde derecho (x+w) sea el más cercano al borde izquierdo
+            // del campo, y que no empiece después del campo.
+            // Ignorar fragmentos que empiezan dentro o a la derecha del campo.
+            const candidatesLeft = sameLineItems.filter(t =>
+              t.x < fieldLeft && !/^_+$/.test(t.str.trim())
+            );
 
-            // Anclar en el fragmento más a la derecha que todavía esté a la izquierda
-            // del borde del campo (con 30px de margen para absorber pequeños solapamientos).
-            // Si best está dentro/a la derecha del campo, buscar el fragmento anterior.
-            let anchorIdx = sameLineItems.findIndex(t => t.idx === best.idx);
-            while (anchorIdx >= 0 && sameLineItems[anchorIdx].x >= fieldLeft + 30) {
-              anchorIdx--;
-            }
+            // Log de diagnóstico: gaps entre fragmentos de la línea
+            console.log('[MAPEO DEBUG] Línea completa:', sameLineItems.map(t =>
+              `"${t.str}" x=${Math.round(t.x)} w=${Math.round(t.w)} right=${Math.round(t.x+t.w)}`
+            ), 'fieldLeft=', Math.round(fieldLeft));
 
-            if (anchorIdx < 0 || /^_+$/.test(sameLineItems[anchorIdx].str.trim())) {
-              // No hay label válido a la izquierda del campo
+            if (candidatesLeft.length === 0) {
+              // Nada a la izquierda del campo
             } else {
-              // Expandir hacia la izquierda desde el ancla mientras:
-              // - el gap entre fragmentos sea < MAX_GAP
-              // - el fragmento no sea solo guiones bajos
-              let start = anchorIdx;
-              while (start > 0) {
-                const prev = sameLineItems[start - 1];
-                const gap = sameLineItems[start].x - (prev.x + prev.w);
-                if (gap >= MAX_GAP) break;
-                if (/^_+$/.test(prev.str.trim())) break;
-                start--;
+              // Elegir el fragmento cuyo borde derecho esté más cerca del campo
+              const anchor = candidatesLeft.reduce((best, t) =>
+                (t.x + t.w) > (best.x + best.w) ? t : best
+              );
+              const anchorIdx = sameLineItems.findIndex(t => t.idx === anchor.idx);
+
+              // Calcular gaps entre palabras en la porción a la izquierda del ancla
+              // para detectar el gap entre el label y el párrafo que lo precede.
+              // Usamos el gap más grande como punto de corte natural.
+              const gaps = [];
+              for (let i = 1; i <= anchorIdx; i++) {
+                gaps.push({
+                  i,
+                  gap: sameLineItems[i].x - (sameLineItems[i-1].x + sameLineItems[i-1].w)
+                });
+              }
+
+              // Encontrar el gap máximo en la línea a la izquierda del ancla.
+              // Si hay guiones bajos en la línea, cortar ahí también.
+              // Umbral: gap >= 2× el gap promedio de palabras normales (mínimo 15px).
+              let start = 0;
+              if (gaps.length > 0) {
+                const avgGap = gaps.reduce((s, g) => s + g.gap, 0) / gaps.length;
+                const cutoffGap = Math.max(avgGap * 2, 15);
+                // Buscar desde el ancla hacia la izquierda el primer gap >= cutoff
+                for (let i = anchorIdx; i > 0; i--) {
+                  const g = sameLineItems[i].x - (sameLineItems[i-1].x + sameLineItems[i-1].w);
+                  if (g >= cutoffGap || /^_+$/.test(sameLineItems[i-1].str.trim())) {
+                    start = i;
+                    break;
+                  }
+                }
               }
 
               const group = sameLineItems.slice(start, anchorIdx + 1);
@@ -1540,11 +1564,12 @@ function initPageOverlays() {
                 fullLabel += (gap > 2 ? ' ' : '') + group[i].str;
               }
 
-              // Limpiar guiones bajos y espacios extras
+              // Limpiar guiones bajos, espacios extras y conjunciones iniciales (y, o, e)
               mappedLabel = fullLabel
                 .replace(/_+/g, '')
                 .replace(/\s+/g, ' ')
-                .trim();
+                .trim()
+                .replace(/^(y|o|e)\s+/i, '');
             }
 
             console.log('[MAPEO PDF] Campo texto colocado:', {
@@ -1554,19 +1579,12 @@ function initPageOverlays() {
               label_original: best.str,
               label_limpio: mappedLabel,
               label_coords: { x: best.x, y: best.y, w: best.w, h: best.h },
-              distancia: best.dist,
-              solape_vertical: true,
-              solape_horizontal: true,
-              tolerancia_vertical: VERTICAL_TOLERANCE,
-              tolerancia_horizontal: HORIZONTAL_TOLERANCE
             });
           } else {
-            console.warn('[MAPEO PDF] No se encontró texto alineado (con solape vertical y horizontal, y tolerancia) al campo:', {
+            console.warn('[MAPEO PDF] No se encontró texto alineado al campo:', {
               id,
               page: pageData.pageNum,
               coords: { left: fieldLeft, top: fieldTop, width, height },
-              tolerancia_vertical: VERTICAL_TOLERANCE,
-              tolerancia_horizontal: HORIZONTAL_TOLERANCE
             });
           }
         } catch (err) {
