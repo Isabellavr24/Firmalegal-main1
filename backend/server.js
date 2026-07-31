@@ -5070,12 +5070,13 @@ app.post('/api/public/sign/:token', async (req, res) => {
                     const currentOrder = signerInfo.length ? (signerInfo[0].signing_order || 1) : 1;
                     const nextOrder = currentOrder + 1;
 
-                    // Buscar el siguiente firmante en espera
+                    // Buscar el siguiente firmante pendiente (waiting o sent sin can_sign_at)
                     const [nextRecipients] = await new Promise((resolve, reject) => {
                         db.query(
                             `SELECT dr.recipient_id, dr.email, dr.name, dr.token
                              FROM document_recipients dr
-                             WHERE dr.document_id = ? AND dr.signing_order = ? AND dr.status = 'waiting'`,
+                             WHERE dr.document_id = ? AND dr.signing_order = ?
+                               AND dr.status IN ('waiting', 'sent') AND dr.can_sign_at IS NULL`,
                             [recipient.document_id, nextOrder],
                             (err, r) => { if (err) reject(err); else resolve([r]); }
                         );
@@ -5085,8 +5086,9 @@ app.post('/api/public/sign/:token', async (req, res) => {
                         // Activar todos los del siguiente orden (puede haber múltiples en el mismo orden)
                         await new Promise((resolve, reject) => {
                             db.query(
-                                `UPDATE document_recipients SET status = 'sent', sent_at = NOW()
-                                 WHERE document_id = ? AND signing_order = ? AND status = 'waiting'`,
+                                `UPDATE document_recipients SET status = 'sent', sent_at = NOW(), can_sign_at = NOW()
+                                 WHERE document_id = ? AND signing_order = ?
+                                   AND status IN ('waiting', 'sent') AND can_sign_at IS NULL`,
                                 [recipient.document_id, nextOrder],
                                 (err) => { if (err) reject(err); else resolve(); }
                             );
