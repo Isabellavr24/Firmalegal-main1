@@ -1508,67 +1508,79 @@ function initPageOverlays() {
               .filter(t => Math.abs(t.y - best.y) <= LINE_TOLERANCE)
               .sort((a, b) => a.x - b.x);
 
-            // Construir lista de fragmentos "virtuales": si un fragmento contiene guiones
-            // bajos internos, partirlo y tomar solo la porción antes del primer guión.
-            // Así "Responsable 1 ___ con C.C." se convierte en "Responsable 1" con su x/w real.
-            const virtualItems = [];
-            for (const t of sameLineItems) {
-              const underscoreIdx = t.str.search(/_+/);
-              if (underscoreIdx > 0) {
-                // Hay texto antes de los guiones — estimar el ancho proporcional
-                const ratio = underscoreIdx / t.str.length;
-                const leftPart = t.str.substring(0, underscoreIdx).trimEnd();
-                if (leftPart.length > 0) {
-                  virtualItems.push({ ...t, str: leftPart, w: t.w * ratio, _virtual: true });
-                }
-                // Añadir también el fragmento completo para que otros campos lo vean
-                virtualItems.push(t);
-              } else {
-                virtualItems.push(t);
-              }
-            }
-
-            // Ancla: el fragmento (o virtual) cuyo borde derecho esté más cerca del campo
-            // por la izquierda (right <= fieldLeft + 5), excluyendo guiones puros.
-            const candidatesLeft = virtualItems.filter(t =>
-              (t.x + t.w) <= fieldLeft + 5 && !/^_+$/.test(t.str.trim())
-            );
-
-            if (candidatesLeft.length > 0) {
-              // De los candidatos, tomar el más cercano al campo (borde derecho mayor)
-              const anchor = candidatesLeft.reduce((a, t) =>
-                (t.x + t.w) > (a.x + a.w) ? t : a
+            // --- Estrategia 1: buscar fragmento que termina en ':' antes del campo ---
+            // Los labels de formulario casi siempre terminan en ':' (Nombre:, C.C. N°:, etc.)
+            const FIELD_MARGIN = 80; // px de margen para buscar label con ':'
+            const colonCandidate = [...sameLineItems]
+              .reverse()
+              .find(t =>
+                t.str.trimEnd().endsWith(':') &&
+                t.x < fieldLeft &&
+                (t.x + t.w) <= fieldLeft + FIELD_MARGIN &&
+                !/^_+$/.test(t.str.trim())
               );
 
-              // Expandir hacia la izquierda desde el ancla en virtualItems
-              const anchorVIdx = virtualItems.findIndex(t => t === anchor);
-              let start = anchorVIdx;
-              let maxGap = 15;
-              for (let i = 1; i <= anchorVIdx; i++) {
-                const g = virtualItems[i].x - (virtualItems[i-1].x + virtualItems[i-1].w);
-                if (g > maxGap) maxGap = g;
+            if (colonCandidate) {
+              // Expandir hacia la izquierda desde el fragmento con ':' (captura "C.C. N°:")
+              const colonIdx = sameLineItems.findIndex(t => t.idx === colonCandidate.idx);
+              let start = colonIdx;
+              for (let i = colonIdx; i > 0; i--) {
+                const g = sameLineItems[i].x - (sameLineItems[i-1].x + sameLineItems[i-1].w);
+                if (g >= 20 || /^_+$/.test(sameLineItems[i-1].str.trim())) { start = i; break; }
               }
-              for (let i = anchorVIdx; i > 0; i--) {
-                const g = virtualItems[i].x - (virtualItems[i-1].x + virtualItems[i-1].w);
-                if (g >= maxGap || /^_+$/.test(virtualItems[i-1].str.trim())) {
-                  start = i;
-                  break;
+              const group = sameLineItems.slice(start, colonIdx + 1);
+              mappedLabel = group.map(t => t.str).join('').replace(/_+/g, '').replace(/\s+/g, ' ').trim();
+
+            } else {
+              // --- Estrategia 2: fragmento virtual (parte antes del primer guión bajo) ---
+              // Para "Responsable 1 ___ con C.C." → virtual "Responsable 1"
+              const virtualItems = [];
+              for (const t of sameLineItems) {
+                const uIdx = t.str.search(/_+/);
+                if (uIdx > 0) {
+                  const leftPart = t.str.substring(0, uIdx).trimEnd();
+                  if (leftPart.length > 0) {
+                    const ratio = uIdx / t.str.length;
+                    virtualItems.push({ ...t, str: leftPart, w: t.w * ratio });
+                  }
                 }
+                virtualItems.push(t);
               }
+              virtualItems.sort((a, b) => a.x - b.x);
 
-              const group = virtualItems.slice(start, anchorVIdx + 1);
-              let fullLabel = group[0].str;
-              for (let i = 1; i < group.length; i++) {
-                const gap = group[i].x - (group[i-1].x + group[i-1].w);
-                fullLabel += (gap > 2 ? ' ' : '') + group[i].str;
+              // Ancla: el virtual/fragmento más cercano al campo por la izquierda
+              const candidatesLeft = virtualItems.filter(t =>
+                (t.x + t.w) <= fieldLeft + 5 && !/^_+$/.test(t.str.trim())
+              );
+
+              if (candidatesLeft.length > 0) {
+                const anchor = candidatesLeft.reduce((a, t) =>
+                  (t.x + t.w) > (a.x + a.w) ? t : a
+                );
+                const anchorVIdx = virtualItems.findIndex(t => t === anchor);
+
+                // Expandir hacia la izquierda usando el gap máximo como umbral de corte
+                let start = anchorVIdx;
+                let maxGap = 15;
+                for (let i = 1; i <= anchorVIdx; i++) {
+                  const g = virtualItems[i].x - (virtualItems[i-1].x + virtualItems[i-1].w);
+                  if (g > maxGap) maxGap = g;
+                }
+                for (let i = anchorVIdx; i > 0; i--) {
+                  const g = virtualItems[i].x - (virtualItems[i-1].x + virtualItems[i-1].w);
+                  if (g >= maxGap || /^_+$/.test(virtualItems[i-1].str.trim())) { start = i; break; }
+                }
+
+                const group = virtualItems.slice(start, anchorVIdx + 1);
+                let fullLabel = group[0].str;
+                for (let i = 1; i < group.length; i++) {
+                  const gap = group[i].x - (group[i-1].x + group[i-1].w);
+                  fullLabel += (gap > 2 ? ' ' : '') + group[i].str;
+                }
+                mappedLabel = fullLabel
+                  .replace(/_+/g, '').replace(/\s+/g, ' ').trim()
+                  .replace(/^(y|o|e)\s+/i, '');
               }
-
-              // Limpiar guiones bajos, espacios extras y conjunciones iniciales (y, o, e)
-              mappedLabel = fullLabel
-                .replace(/_+/g, '')
-                .replace(/\s+/g, ' ')
-                .trim()
-                .replace(/^(y|o|e)\s+/i, '');
             }
 
             console.log('[MAPEO PDF] Campo texto colocado:', {
