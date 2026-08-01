@@ -1543,17 +1543,99 @@ function initPageOverlays() {
               );
 
               if (containingFrag) {
-                // Estimar el índice de carácter en la posición del campo
-                const ratio = (fieldLeft - containingFrag.x) / containingFrag.w;
-                const charPos = Math.floor(ratio * containingFrag.str.length);
-                // Tomar la subcadena hasta charPos, limpiar guiones y extraer el último segmento
-                const leftStr = containingFrag.str.substring(0, charPos);
-                // Partir por guiones bajos y tomar el último segmento no vacío
-                const segments = leftStr.split(/_+/).map(s => s.trim()).filter(s => s.length > 0);
-                if (segments.length > 0) {
-                  mappedLabel = segments[segments.length - 1]
-                    .replace(/^(y|o|e)\s+/i, '')
-                    .trim();
+                // El fragmento contiene el campo dentro de su span horizontal.
+                const str = containingFrag.str;
+                const charW = containingFrag.w / str.length; // ancho promedio por carácter
+                const fieldLeftRel = fieldLeft - containingFrag.x; // px desde inicio del fragmento
+
+                // Encontrar todos los rangos de guiones bajos en el string
+                const underscoreRanges = [];
+                const uRe = /_+/g;
+                let um;
+                while ((um = uRe.exec(str)) !== null) {
+                  const startPx = um.index * charW;
+                  const endPx = (um.index + um[0].length) * charW;
+                  underscoreRanges.push({ start: um.index, end: um.index + um[0].length, startPx, endPx });
+                }
+
+                // Encontrar el rango de guiones que está justo a la izquierda del campo
+                // (el campo empieza dentro o justo después de este rango)
+                const leftUnder = underscoreRanges
+                  .filter(r => r.startPx <= fieldLeftRel + charW * 3)
+                  .sort((a, b) => b.startPx - a.startPx)[0];
+
+                if (underscoreRanges.length === 0) {
+                  // containingFrag es texto puro sin guiones (ej: "alumno(a)" solapado por el campo).
+                  // El label es el grupo de fragmentos de texto consecutivos hasta el containingFrag inclusive,
+                  // expandiendo hacia la izquierda mientras no haya guiones ni gap > 30px.
+                  const contIdx = sameLineItems.findIndex(t => t === containingFrag);
+                  let start = contIdx;
+                  for (let i = contIdx; i > 0; i--) {
+                    if (/^_+$/.test(sameLineItems[i-1].str.trim())) { start = i; break; }
+                    const g = sameLineItems[i].x - (sameLineItems[i-1].x + sameLineItems[i-1].w);
+                    if (g >= 30) { start = i; break; }
+                    start = i - 1;
+                  }
+                  const group = sameLineItems.slice(start, contIdx + 1).filter(t => !/^_+$/.test(t.str.trim()));
+                  let fullLabel = group[0].str;
+                  for (let i = 1; i < group.length; i++) {
+                    const gap = group[i].x - (group[i-1].x + group[i-1].w);
+                    fullLabel += (gap > 2 ? ' ' : '') + group[i].str;
+                  }
+                  mappedLabel = fullLabel.replace(/\s+/g, ' ').trim()
+                    .replace(/^(y|o|e)\s+/i, '').trim();
+
+                } else if (leftUnder) {
+                  // Encontrar el rango de guiones anterior a leftUnder (si existe)
+                  const prevUnder = underscoreRanges
+                    .filter(r => r.endPx <= leftUnder.startPx - 1)
+                    .sort((a, b) => b.endPx - a.endPx)[0];
+
+                  const textStart = prevUnder ? prevUnder.end : 0;
+                  const textEnd = leftUnder.start;
+                  const segment = str.substring(textStart, textEnd).trim();
+                  if (segment.length >= 2) {
+                    mappedLabel = segment.replace(/^(y|o|e)\s+/i, '').trim();
+                  }
+
+                  // Si el fragmento empieza con guiones y no hay texto útil dentro,
+                  // buscar fragmentos de texto inmediatamente anteriores en la línea.
+                  if (!mappedLabel) {
+                    const contIdx2 = sameLineItems.findIndex(t => t === containingFrag);
+                    const prevFrags = sameLineItems
+                      .slice(0, contIdx2)
+                      .filter(t => !/^_+$/.test(t.str.trim()) && t.str.trim().length >= 2);
+                    if (prevFrags.length > 0) {
+                      // Tomar grupo contiguo desde el más cercano hacia la izquierda
+                      let gStart = prevFrags.length - 1;
+                      for (let i = prevFrags.length - 1; i > 0; i--) {
+                        const g = prevFrags[i].x - (prevFrags[i-1].x + prevFrags[i-1].w);
+                        if (g >= 30) { gStart = i; break; }
+                        gStart = i - 1;
+                      }
+                      const pg = prevFrags.slice(gStart);
+                      let lbl = pg[0].str;
+                      for (let i = 1; i < pg.length; i++) {
+                        const g = pg[i].x - (pg[i-1].x + pg[i-1].w);
+                        lbl += (g > 2 ? ' ' : '') + pg[i].str;
+                      }
+                      mappedLabel = lbl.replace(/\s+/g, ' ').trim()
+                        .replace(/^(y|o|e)\s+/i, '').trim();
+                    }
+                  }
+                }
+
+                // Si no se extrajo nada útil, buscar a la derecha del campo
+                if (!mappedLabel) {
+                  const fieldRight = fieldLeft + width;
+                  const afterFrag = sameLineItems.find(t =>
+                    t.x >= fieldRight - 5 && t.x <= fieldRight + 80 &&
+                    !/^_+$/.test(t.str.trim()) && t.str.trim().length > 1
+                  );
+                  if (afterFrag) {
+                    mappedLabel = afterFrag.str.trim()
+                      .replace(/^[,;:\s]+/, '').replace(/[,;:\s]+$/, '').trim();
+                  }
                 }
               } else {
                 // --- Estrategia 3: fragmento virtual (parte antes del primer guión bajo) ---
@@ -1572,9 +1654,16 @@ function initPageOverlays() {
                 }
                 virtualItems.sort((a, b) => a.x - b.x);
 
-                const candidatesLeft = virtualItems.filter(t =>
-                  (t.x + t.w) <= fieldLeft + 5 && !/^_+$/.test(t.str.trim())
-                );
+                // Candidatos a la izquierda: fragmentos sin guiones que terminan antes del campo.
+                // Para fragmentos donde w incluye espacio hasta el siguiente elemento,
+                // usamos el ancho real estimado (charW * chars_sin_espacios_finales).
+                const candidatesLeft = virtualItems.filter(t => {
+                  if (/^_+$/.test(t.str.trim())) return false;
+                  if (t.x >= fieldLeft) return false;
+                  const charW = t.str.length > 0 ? t.w / t.str.length : 0;
+                  const textRight = t.x + charW * t.str.trimEnd().length;
+                  return textRight <= fieldLeft + 20;
+                });
 
                 if (candidatesLeft.length > 0) {
                   const anchor = candidatesLeft.reduce((a, t) =>
@@ -1599,6 +1688,23 @@ function initPageOverlays() {
                   mappedLabel = fullLabel
                     .replace(/_+/g, '').replace(/\s+/g, ' ').trim()
                     .replace(/^(y|o|e)\s+/i, '');
+                } else {
+                  // --- Estrategia 4: el label está a la DERECHA del campo (ej: "_____ Acudientes del alumno(a),")
+                  // Buscar el fragmento de texto inmediatamente después del campo, sin guiones bajos.
+                  const fieldRight = fieldLeft + width;
+                  const candidatesRight = sameLineItems.filter(t =>
+                    t.x >= fieldRight - 5 &&
+                    t.x <= fieldRight + 80 &&
+                    !/^_+$/.test(t.str.trim()) &&
+                    t.str.trim().length > 1
+                  );
+                  if (candidatesRight.length > 0) {
+                    const rightAnchor = candidatesRight.reduce((a, t) => t.x < a.x ? t : a);
+                    // Tomar el fragmento y limpiar puntuación inicial/final
+                    mappedLabel = rightAnchor.str.trim()
+                      .replace(/^[,;:\s]+/, '').replace(/[,;:\s]+$/, '')
+                      .replace(/^(y|o|e)\s+/i, '').trim();
+                  }
                 }
               }
             }
