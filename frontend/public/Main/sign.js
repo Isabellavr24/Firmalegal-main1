@@ -418,8 +418,14 @@ function initEventListeners() {
   const textCancelBtn = document.getElementById('textCancel');
   const textOkBtn = document.getElementById('textOk');
   const textCloseBtn = document.getElementById('textClose');
-  if (textCancelBtn) textCancelBtn.onclick = hideModal;
-  if (textCloseBtn) textCloseBtn.onclick = hideModal;
+  const resetTextModalTitle = () => {
+    _formattingDateFieldId = null;
+    const modalTitle = document.querySelector('#textModal h3');
+    if (modalTitle) modalTitle.lastChild.textContent = ' Personalizar Texto';
+    hideModal();
+  };
+  if (textCancelBtn) textCancelBtn.onclick = resetTextModalTitle;
+  if (textCloseBtn) textCloseBtn.onclick = resetTextModalTitle;
   if (textOkBtn) textOkBtn.onclick = confirmText;
   
   // Botones de estilo de texto
@@ -524,13 +530,15 @@ function initEventListeners() {
   const formatDateBtn = document.getElementById('formatDateBtn');
   if (formatDateBtn) {
     formatDateBtn.addEventListener('click', () => {
-      // Usar el campo de fecha activo, o el primero disponible
       let field = null;
       if (activeFieldId) field = fields.find(f => f.id === activeFieldId && f.type === 'date');
       if (!field) field = fields.find(f => f.type === 'date');
       if (!field) return;
       _formattingDateFieldId = field.id;
       activeFieldId = field.id;
+      // Cambiar título del modal a "Personalizar Fecha"
+      const modalTitle = document.querySelector('#textModal h3');
+      if (modalTitle) modalTitle.lastChild.textContent = ' Personalizar Fecha';
       openTextFormatModal({ format: field.format });
     });
   }
@@ -2459,7 +2467,10 @@ function updateTextPreview() {
   preview.style.display = 'flex';
   preview.style.alignItems = alignItems;
   preview.style.justifyContent = justifyContent;
-  preview.innerHTML = `<span>Texto de ejemplo — Juan Pérez</span>`;
+  const previewText = _formattingDateFieldId
+    ? new Date().toLocaleDateString('es-ES', {year:'numeric', month:'long', day:'numeric'})
+    : 'Texto de ejemplo — Juan Pérez';
+  preview.innerHTML = `<span>${previewText}</span>`;
 }
 
 // Confirmar formato de texto (botón Aplicar del modal)
@@ -2479,13 +2490,14 @@ function confirmText(){
   const fmt = { fontFamily, fontSize, fontColor, isBold, isItalic, isUnderline, textAlign, verticalAlign };
 
   if (_formattingDateFieldId) {
-    // Aplicar formato solo al campo de fecha
     const field = fields.find(f => f.id === _formattingDateFieldId);
     if (field) {
       field.format = fmt;
       renderDateField(field);
     }
     _formattingDateFieldId = null;
+    const modalTitle = document.querySelector('#textModal h3');
+    if (modalTitle) modalTitle.lastChild.textContent = ' Personalizar Texto';
     hideModal();
     toast.success('Formato de fecha aplicado');
   } else {
@@ -2496,7 +2508,12 @@ function confirmText(){
 }
 
 function renderDateField(field) {
-  const el = overlay.querySelector(`.field[data-id="${field.id}"]`);
+  // Buscar en todos los overlays de todas las páginas
+  let el = null;
+  for (const pageData of allPages) {
+    const found = pageData.overlay.querySelector(`.field[data-id="${field.id}"]`);
+    if (found) { el = found; break; }
+  }
   if (!el || !field.value) return;
   const formattedDate = new Date(field.value + 'T00:00:00').toLocaleDateString('es-ES', {year:'numeric', month:'long', day:'numeric'});
   const fmt = field.format || {};
@@ -2504,14 +2521,19 @@ function renderDateField(field) {
   const ff = fmt.fontFamily || 'Arial';
   const fw = fmt.isBold ? 'bold' : 'normal';
   const fi = fmt.isItalic ? 'italic' : 'normal';
+  const td = fmt.isUnderline ? 'underline' : 'none';
   const ta = fmt.textAlign || 'left';
+  const va = fmt.verticalAlign || 'middle';
   const color = fmt.fontColor || '#000000';
+  const alignItems = va === 'middle' ? 'center' : va === 'bottom' ? 'flex-end' : 'flex-start';
   el.classList.add('signed', 'text-formatted');
   el.innerHTML = `
     <span class="label">Fecha</span>
     <button class="delete-btn" title="Eliminar">×</button>
-    <div class="field-content date-content" style="font-family:${ff};font-size:${fs};font-weight:${fw};font-style:${fi};text-align:${ta};color:${color};display:flex;align-items:center;width:100%;height:100%;padding:0 4px;box-sizing:border-box;">${formattedDate}</div>
+    <div class="field-content date-content" style="font-family:${ff};font-size:${fs};font-weight:${fw};font-style:${fi};text-decoration:${td};color:${color};display:flex;align-items:${alignItems};width:100%;height:100%;padding:2px;box-sizing:border-box;overflow:hidden;"><span style="display:block;width:100%;text-align:${ta};">${formattedDate}</span></div>
   `;
+  el.addEventListener('mousedown', startDragField);
+  el.addEventListener('touchstart', startDragField, {passive: false});
   el.querySelector('.delete-btn').addEventListener('click', (e) => {
     e.stopPropagation();
     deleteField(field.id);

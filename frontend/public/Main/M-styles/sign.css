@@ -312,8 +312,7 @@ body{margin:0;background:#fbf7f5;font:16px/1.4 Inter,system-ui,Segoe UI,Arial}
   background:transparent;
   padding:0;
 }
-.field.text.signed,
-.field.date.signed{
+.field.text.signed{
   border-style:solid;
   background:#fff;
   display:flex;
@@ -323,11 +322,25 @@ body{margin:0;background:#fbf7f5;font:16px/1.4 Inter,system-ui,Segoe UI,Arial}
   overflow:visible;
   box-sizing:border-box;
 }
-.field.text.signed .field-content,
-.field.date.signed .field-content{
+.field.text.signed .field-content{
   margin-top:0;
   padding-top:0;
   box-sizing:border-box;
+}
+.field.date.signed{
+  border-style:solid;
+  background:transparent;
+  display:block;
+  padding:0;
+  overflow:hidden;
+  box-sizing:border-box;
+}
+.field.date.signed .field-content{
+  margin:0;
+  padding:0;
+  box-sizing:border-box;
+  width:100%;
+  height:100%;
 }
 .field .label{
   position:absolute;

@@ -5180,7 +5180,8 @@ app.post('/api/public/sign/:token', async (req, res) => {
                     x_position as x,
                     y_position as y,
                     width,
-                    height
+                    height,
+                    field_config
                 FROM document_fields
                 WHERE document_id = ?
             `;
@@ -5250,9 +5251,12 @@ app.post('/api/public/sign/:token', async (req, res) => {
                 });
             }
 
-            // 3. Filtrar campos tipo 'seal'
+            // 3. Filtrar campos tipo 'seal' y 'date'
             const sealFields = allFields.filter(f => f.type === 'seal');
             console.log(`🔐 Sellos PKI encontrados: ${sealFields.length}`);
+
+            const dateFields = allFields.filter(f => f.type === 'date');
+            console.log(`📅 Campos de fecha encontrados: ${dateFields.length}`);
 
             if (sealFields.length > 0) {
                 sealFields.forEach((seal, idx) => {
@@ -5296,7 +5300,7 @@ app.post('/api/public/sign/:token', async (req, res) => {
 
             // 5. DIBUJAR FIRMAS MANUSCRITAS Y PREPARAR SELLOS PKI
             let sealsForPython = [];
-            if (signatureFields.length > 0 || sealFields.length > 0) {
+            if (signatureFields.length > 0 || sealFields.length > 0 || dateFields.length > 0) {
                 try {
                     const { PDFDocument, rgb } = require('pdf-lib');
                     const pdfDoc = await PDFDocument.load(pdfBuffer);
@@ -5479,6 +5483,83 @@ app.post('/api/public/sign/:token', async (req, res) => {
                     } else {
                         // Para pagarés: textos ya están en el PDF, no dibujar nada
                         console.log(`   ⏭️ PAGARÉ: Textos ya escritos permanentemente en PDF por generatePersonalizedPagare (no se redibujan)`);
+                    }
+
+                    // 5.1.6 Dibujar campos de fecha (valor fijo definido en prepare mode)
+                    if (dateFields.length > 0) {
+                        console.log(`\n📅 Procesando ${dateFields.length} campo(s) de fecha...`);
+                        const { StandardFonts } = require('pdf-lib');
+
+                        const dateValueQuery = `
+                            SELECT df.field_id, dfv.field_value
+                            FROM document_fields df
+                            INNER JOIN document_field_values dfv ON df.field_id = dfv.field_id AND dfv.document_id = ?
+                            WHERE df.document_id = ? AND df.field_type = 'date' AND dfv.field_value IS NOT NULL
+                        `;
+                        const [dateValues] = await new Promise((resolve, reject) => {
+                            db.query(dateValueQuery, [recipient.document_id, recipient.document_id], (err, results) => {
+                                if (err) reject(err);
+                                else resolve([results]);
+                            });
+                        });
+
+                        const dateValuesMap = {};
+                        dateValues.forEach(dv => { dateValuesMap[dv.field_id] = dv.field_value; });
+
+                        for (const df of dateFields) {
+                            const dateText = dateValuesMap[df.field_id];
+                            if (!dateText) continue;
+
+                            const pageNum = (df.page || 1) - 1;
+                            if (pageNum < 0 || pageNum >= pdfDoc.getPageCount()) continue;
+
+                            const page = pdfDoc.getPage(pageNum);
+                            const { height: pageHeight } = page.getSize();
+
+                            let fmt = {};
+                            try { if (df.field_config) fmt = JSON.parse(df.field_config); } catch(e) {}
+
+                            const fontSize = parseInt(fmt.fontSize) || 12;
+                            const fontColor = fmt.fontColor || '#000000';
+                            const textAlign = fmt.textAlign || 'left';
+                            const isBold = fmt.isBold || false;
+
+                            const hexToRgbDate = (hex) => {
+                                const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+                                return r ? { r: parseInt(r[1],16)/255, g: parseInt(r[2],16)/255, b: parseInt(r[3],16)/255 } : {r:0,g:0,b:0};
+                            };
+                            const col = hexToRgbDate(fontColor);
+
+                            const fontName = isBold ? StandardFonts.HelveticaBold : StandardFonts.Helvetica;
+                            const font = await pdfDoc.embedFont(fontName);
+
+                            const fieldX = parseFloat(df.x) || 0;
+                            const fieldY = parseFloat(df.y) || 0;
+                            const fieldW = parseFloat(df.width) || 100;
+                            const fieldH = parseFloat(df.height) || 20;
+
+                            const textWidth = font.widthOfTextAtSize(dateText, fontSize);
+                            const textHeight = font.heightAtSize(fontSize);
+
+                            let drawX = fieldX + 4;
+                            if (textAlign === 'center') drawX = fieldX + (fieldW - textWidth) / 2;
+                            else if (textAlign === 'right') drawX = fieldX + fieldW - textWidth - 4;
+
+                            const drawY = pageHeight - fieldY - fieldH + (fieldH - textHeight) / 2;
+
+                            try {
+                                page.drawText(dateText, {
+                                    x: drawX,
+                                    y: drawY,
+                                    size: fontSize,
+                                    font: font,
+                                    color: rgb(col.r, col.g, col.b)
+                                });
+                                console.log(`   ✅ Fecha dibujada: "${dateText}" en página ${pageNum + 1}`);
+                            } catch (drawErr) {
+                                console.error(`   ❌ Error dibujando fecha: ${drawErr.message}`);
+                            }
+                        }
                     }
 
                     // 5.2 Preparar sellos PKI para el microservicio Python (con QR)
