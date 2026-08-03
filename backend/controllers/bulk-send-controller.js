@@ -1405,7 +1405,7 @@ async function prefilPDFWithTemplateValues(db, documentId, pdfPath) {
                  FROM document_field_values dfv
                  JOIN document_fields df ON dfv.field_id = df.field_id
                  WHERE dfv.document_id = ? AND dfv.field_value IS NOT NULL AND dfv.field_value != ''
-                 AND df.field_type = 'text'`,
+                 AND df.field_type IN ('text', 'date')`,
                 [documentId],
                 (err, results) => {
                     if (err) reject(err);

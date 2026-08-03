@@ -262,11 +262,12 @@ function refreshTextFieldFormatIndicators() {
 function updateFormatButtons() {
   const fmtBtn = document.getElementById('formatTextBtn');
   const clrBtn = document.getElementById('clearFormatBtn');
+  const fmtDateBtn = document.getElementById('formatDateBtn');
+
   if (documentTextFormat) {
     if (fmtBtn) { fmtBtn.classList.remove('fmt-btn-hidden'); fmtBtn.classList.add('fmt-btn-visible', 'fmt-btn-active'); }
     if (clrBtn) { clrBtn.classList.remove('fmt-btn-hidden'); clrBtn.classList.add('fmt-btn-visible'); }
   } else {
-    // Solo mostrar "Formatear texto" si hay campos de texto; "Quitar formato" se oculta siempre
     const hasText = fields.some(f => f.type === 'text');
     if (fmtBtn) {
       fmtBtn.classList.remove('fmt-btn-active');
@@ -274,6 +275,16 @@ function updateFormatButtons() {
       else { fmtBtn.classList.remove('fmt-btn-visible'); fmtBtn.classList.add('fmt-btn-hidden'); }
     }
     if (clrBtn) { clrBtn.classList.remove('fmt-btn-visible'); clrBtn.classList.add('fmt-btn-hidden'); }
+  }
+
+  // Botón "Formatear fecha": visible solo si hay campos de fecha en modo prepare
+  if (fmtDateBtn) {
+    const hasDate = fields.some(f => f.type === 'date');
+    if (hasDate && currentMode === 'prepare') {
+      fmtDateBtn.classList.remove('fmt-btn-hidden'); fmtDateBtn.classList.add('fmt-btn-visible');
+    } else {
+      fmtDateBtn.classList.remove('fmt-btn-visible'); fmtDateBtn.classList.add('fmt-btn-hidden');
+    }
   }
 }
 
@@ -506,6 +517,21 @@ function initEventListeners() {
     clearFormatBtn.addEventListener('click', () => {
       applyDocumentFormat(null);
       toast.info('Formato quitado — los campos usarán el estilo por defecto');
+    });
+  }
+
+  // Botón "Formatear fecha" en barra superior
+  const formatDateBtn = document.getElementById('formatDateBtn');
+  if (formatDateBtn) {
+    formatDateBtn.addEventListener('click', () => {
+      // Usar el campo de fecha activo, o el primero disponible
+      let field = null;
+      if (activeFieldId) field = fields.find(f => f.id === activeFieldId && f.type === 'date');
+      if (!field) field = fields.find(f => f.type === 'date');
+      if (!field) return;
+      _formattingDateFieldId = field.id;
+      activeFieldId = field.id;
+      openTextFormatModal({ format: field.format });
     });
   }
   
@@ -1846,6 +1872,10 @@ function initPageOverlays() {
         labelToSave = 'Fecha';
       }
 
+      // Para campos de fecha en modo prepare: insertar fecha de hoy automáticamente
+      const isDateInPrepare = (placingFieldType === 'date' && currentMode === 'prepare');
+      const todayValue = isDateInPrepare ? new Date().toISOString().split('T')[0] : null;
+
       fields.push({
         id,
         type: placingFieldType,
@@ -1854,23 +1884,38 @@ function initPageOverlays() {
         y: top,
         w: width,
         h: height,
-        value: null,
-        signed: false,
+        value: isDateInPrepare ? todayValue : null,
+        signed: isDateInPrepare,
         label: labelToSave,
         roleId: roleId,
         roleName: roleName,
         roleColor: roleColor,
-        // Heredar formato de documento si existe
         format: (placingFieldType === 'text' && documentTextFormat) ? Object.assign({}, documentTextFormat) : null
       });
+
+      // Mostrar la fecha inmediatamente en el campo visual
+      if (isDateInPrepare) {
+        const formattedDate = new Date(todayValue + 'T00:00:00').toLocaleDateString('es-ES', {year:'numeric', month:'long', day:'numeric'});
+        el.classList.add('signed');
+        el.innerHTML = `
+          <span class="label">Fecha</span>
+          <button class="delete-btn" title="Eliminar">×</button>
+          <div class="field-content date-content">${formattedDate}</div>
+        `;
+        el.querySelector('.delete-btn').addEventListener('click', (e) => {
+          e.stopPropagation();
+          deleteField(id);
+        });
+        addResizeHandles(el);
+      }
 
       // Aplicar indicador visual si ya hay formato activo
       if (placingFieldType === 'text' && documentTextFormat) {
         el.classList.add('text-formatted');
       }
 
-      // Actualizar botones de formato después de agregar el campo al array
-      if (placingFieldType === 'text') {
+      // Actualizar botones de formato
+      if (placingFieldType === 'text' || placingFieldType === 'date') {
         updateFormatButtons();
       }
       
@@ -1932,8 +1977,9 @@ async function deleteField(fieldId, pageNum){
   // Eliminar del array
   const index = fields.findIndex(f => f.id === fieldId);
   if(index > -1) fields.splice(index, 1);
-  
+
   console.log('🗑️ Campo eliminado:', fieldId);
+  updateFormatButtons();
 }
 
 // ===== Redimensionamiento de campos =====
@@ -2308,9 +2354,10 @@ function openFieldModal(e){
     // El modal NO se abre al hacer click; solo el botón "Formatear texto" de la barra lo abre.
     return;
   } else if(fieldType === 'date'){
-    dateModal.classList.add('show'); 
-    dateModal.setAttribute('aria-hidden','false'); 
-    // Si ya tiene fecha, mostrarla, si no usar hoy
+    // En modo prepare, el campo de fecha se formatea desde el botón "Formatear fecha"
+    if (currentMode === 'prepare') return;
+    dateModal.classList.add('show');
+    dateModal.setAttribute('aria-hidden','false');
     const dateValue = field && field.value ? field.value : new Date().toISOString().split('T')[0];
     document.getElementById('dateInput').value = dateValue;
     document.getElementById('dateInput').focus();
@@ -2416,6 +2463,9 @@ function updateTextPreview() {
 }
 
 // Confirmar formato de texto (botón Aplicar del modal)
+// Flag para saber si el modal de texto se abrió para formatear una fecha
+let _formattingDateFieldId = null;
+
 function confirmText(){
   const fontFamily = document.getElementById('fontFamily').value;
   const fontSize = document.getElementById('fontSize').value;
@@ -2427,10 +2477,46 @@ function confirmText(){
   const verticalAlign = document.querySelector('[data-valign].active')?.dataset.valign || 'top';
 
   const fmt = { fontFamily, fontSize, fontColor, isBold, isItalic, isUnderline, textAlign, verticalAlign };
-  applyDocumentFormat(fmt);
 
-  hideModal();
-  toast.success('Formato aplicado a todos los campos de texto');
+  if (_formattingDateFieldId) {
+    // Aplicar formato solo al campo de fecha
+    const field = fields.find(f => f.id === _formattingDateFieldId);
+    if (field) {
+      field.format = fmt;
+      renderDateField(field);
+    }
+    _formattingDateFieldId = null;
+    hideModal();
+    toast.success('Formato de fecha aplicado');
+  } else {
+    applyDocumentFormat(fmt);
+    hideModal();
+    toast.success('Formato aplicado a todos los campos de texto');
+  }
+}
+
+function renderDateField(field) {
+  const el = overlay.querySelector(`.field[data-id="${field.id}"]`);
+  if (!el || !field.value) return;
+  const formattedDate = new Date(field.value + 'T00:00:00').toLocaleDateString('es-ES', {year:'numeric', month:'long', day:'numeric'});
+  const fmt = field.format || {};
+  const fs = fmt.fontSize ? `${parseFloat(fmt.fontSize) * 1.333}px` : '12px';
+  const ff = fmt.fontFamily || 'Arial';
+  const fw = fmt.isBold ? 'bold' : 'normal';
+  const fi = fmt.isItalic ? 'italic' : 'normal';
+  const ta = fmt.textAlign || 'left';
+  const color = fmt.fontColor || '#000000';
+  el.classList.add('signed', 'text-formatted');
+  el.innerHTML = `
+    <span class="label">Fecha</span>
+    <button class="delete-btn" title="Eliminar">×</button>
+    <div class="field-content date-content" style="font-family:${ff};font-size:${fs};font-weight:${fw};font-style:${fi};text-align:${ta};color:${color};display:flex;align-items:center;width:100%;height:100%;padding:0 4px;box-sizing:border-box;">${formattedDate}</div>
+  `;
+  el.querySelector('.delete-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    deleteField(field.id);
+  });
+  addResizeHandles(el);
 }
 
 // Confirmar fecha
@@ -2610,7 +2696,6 @@ async function saveFieldsToBackend(skipRedirect = false) {
     const fieldsData = fields.map(f => ({
       type: f.type,
       page: f.page || 1,
-      // Convertir de coordenadas viewport (escaladas) a coordenadas PDF (reales)
       x: parseFloat(f.x) / VIEWPORT_SCALE,
       y: parseFloat(f.y) / VIEWPORT_SCALE,
       width: parseFloat(f.w) / VIEWPORT_SCALE,
@@ -2619,7 +2704,8 @@ async function saveFieldsToBackend(skipRedirect = false) {
       required: f.required !== false,
       roleId: f.roleId || null,
       roleName: f.roleName || null,
-      format: f.format || null  // Estilos de texto: fuente, tamaño, color, alineación
+      format: f.format || null,
+      value: f.type === 'date' ? (f.value || null) : null  // Fecha pre-fijada en modo prepare
     }));
 
     console.log('📤 Enviando campos al backend:', fieldsData);

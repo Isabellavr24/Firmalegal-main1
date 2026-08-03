@@ -1384,6 +1384,27 @@ router.post('/:id/fields', requireAuth, async (req, res) => {
 
             console.log(`   ✅ ${insertedFields.length} campo(s) insertado(s)`);
 
+            // Guardar valores de campos de fecha (se insertan como texto plano en el PDF)
+            for (let i = 0; i < fields.length; i++) {
+                const field = fields[i];
+                const inserted = insertedFields[i];
+                if (field.type === 'date' && field.value) {
+                    // Formatear la fecha igual que el frontend: "3 de agosto de 2026"
+                    const dateObj = new Date(field.value + 'T00:00:00');
+                    const formattedDate = dateObj.toLocaleDateString('es-ES', {year:'numeric', month:'long', day:'numeric'});
+                    await new Promise((resolve, reject) => {
+                        db.query(
+                            `INSERT INTO document_field_values (document_id, field_id, field_value)
+                             VALUES (?, ?, ?)
+                             ON DUPLICATE KEY UPDATE field_value = VALUES(field_value)`,
+                            [documentId, inserted.id, formattedDate],
+                            (err) => { if (err) reject(err); else resolve(); }
+                        );
+                    });
+                    console.log(`   📅 Fecha guardada en campo ${inserted.id}: "${formattedDate}"`);
+                }
+            }
+
             // Commit transacción
             await new Promise((resolve, reject) => {
                 db.query('COMMIT', (err) => {
