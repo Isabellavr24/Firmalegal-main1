@@ -1301,7 +1301,7 @@ async function loadPagareFieldsInfo(docId) {
         const italicStr = docFormat.isItalic ? ' · Cursiva' : '';
         formatBadgeEl.style.display = 'flex';
         formatBadgeEl.innerHTML = `
-          <svg style="width:14px;height:14px;flex-shrink:0;" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+          <svg style="width:14px;height:14px;flex-shrink:0;" viewBox="0 0 24 24" fill="none" stroke="#2a0d31" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
           <span><strong>Formato aplicado:</strong> ${docFormat.fontFamily || 'Arial'} ${docFormat.fontSize || '12'}pt · Alin. H: ${alignLabel} · Alin. V: ${valignLabel}${boldStr}${italicStr}</span>
         `;
       } else {
@@ -3367,16 +3367,16 @@ async function downloadPagareTemplate(docId) {
       }
     });
 
-    // Usar punto y coma como separador para evitar conflictos con comas en nombres de campos
+    // Escapar valores según RFC 4180: si contiene coma, comilla o salto de línea, envolver en comillas
     const escapeCsvValue = (value) => {
       const str = String(value);
-      if (str.includes(';') || str.includes('"') || str.includes('\n')) {
+      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
         return `"${str.replace(/"/g, '""')}"`;
       }
       return str;
     };
 
-    const csvRows = [headers.map(escapeCsvValue).join(';')];
+    const csvRows = [headers.map(escapeCsvValue).join(',')];
 
     // Agregar 3 filas de ejemplo
     for (let i = 1; i <= 3; i++) {
@@ -3392,7 +3392,7 @@ async function downloadPagareTemplate(docId) {
         row.push(`Valor ${label} ${i}`);
       });
 
-      csvRows.push(row.map(escapeCsvValue).join(';'));
+      csvRows.push(row.map(escapeCsvValue).join(','));
     }
 
     const csvContent = csvRows.join('\n');
@@ -3433,7 +3433,7 @@ function handlePagareCsvUpload(file) {
     Papa.parse(csvContent, {
       header: true,
       skipEmptyLines: true,
-      delimiter: ';',
+      delimiter: ',',
       complete: (results) => {
         _processPagareCsvData(results, file.name).catch(err => console.error('Error procesando CSV pagaré:', err));
       },

@@ -262,11 +262,12 @@ function refreshTextFieldFormatIndicators() {
 function updateFormatButtons() {
   const fmtBtn = document.getElementById('formatTextBtn');
   const clrBtn = document.getElementById('clearFormatBtn');
+  const fmtDateBtn = document.getElementById('formatDateBtn');
+
   if (documentTextFormat) {
     if (fmtBtn) { fmtBtn.classList.remove('fmt-btn-hidden'); fmtBtn.classList.add('fmt-btn-visible', 'fmt-btn-active'); }
     if (clrBtn) { clrBtn.classList.remove('fmt-btn-hidden'); clrBtn.classList.add('fmt-btn-visible'); }
   } else {
-    // Solo mostrar "Formatear texto" si hay campos de texto; "Quitar formato" se oculta siempre
     const hasText = fields.some(f => f.type === 'text');
     if (fmtBtn) {
       fmtBtn.classList.remove('fmt-btn-active');
@@ -274,6 +275,16 @@ function updateFormatButtons() {
       else { fmtBtn.classList.remove('fmt-btn-visible'); fmtBtn.classList.add('fmt-btn-hidden'); }
     }
     if (clrBtn) { clrBtn.classList.remove('fmt-btn-visible'); clrBtn.classList.add('fmt-btn-hidden'); }
+  }
+
+  // Botón "Formatear fecha": visible solo si hay campos de fecha en modo prepare
+  if (fmtDateBtn) {
+    const hasDate = fields.some(f => f.type === 'date');
+    if (hasDate && currentMode === 'prepare') {
+      fmtDateBtn.classList.remove('fmt-btn-hidden'); fmtDateBtn.classList.add('fmt-btn-visible');
+    } else {
+      fmtDateBtn.classList.remove('fmt-btn-visible'); fmtDateBtn.classList.add('fmt-btn-hidden');
+    }
   }
 }
 
@@ -407,8 +418,14 @@ function initEventListeners() {
   const textCancelBtn = document.getElementById('textCancel');
   const textOkBtn = document.getElementById('textOk');
   const textCloseBtn = document.getElementById('textClose');
-  if (textCancelBtn) textCancelBtn.onclick = hideModal;
-  if (textCloseBtn) textCloseBtn.onclick = hideModal;
+  const resetTextModalTitle = () => {
+    _formattingDateFieldId = null;
+    const modalTitle = document.querySelector('#textModal h3');
+    if (modalTitle) modalTitle.lastChild.textContent = ' Personalizar Texto';
+    hideModal();
+  };
+  if (textCancelBtn) textCancelBtn.onclick = resetTextModalTitle;
+  if (textCloseBtn) textCloseBtn.onclick = resetTextModalTitle;
   if (textOkBtn) textOkBtn.onclick = confirmText;
   
   // Botones de estilo de texto
@@ -506,6 +523,23 @@ function initEventListeners() {
     clearFormatBtn.addEventListener('click', () => {
       applyDocumentFormat(null);
       toast.info('Formato quitado — los campos usarán el estilo por defecto');
+    });
+  }
+
+  // Botón "Formatear fecha" en barra superior
+  const formatDateBtn = document.getElementById('formatDateBtn');
+  if (formatDateBtn) {
+    formatDateBtn.addEventListener('click', () => {
+      let field = null;
+      if (activeFieldId) field = fields.find(f => f.id === activeFieldId && f.type === 'date');
+      if (!field) field = fields.find(f => f.type === 'date');
+      if (!field) return;
+      _formattingDateFieldId = field.id;
+      activeFieldId = field.id;
+      // Cambiar título del modal a "Personalizar Fecha"
+      const modalTitle = document.querySelector('#textModal h3');
+      if (modalTitle) modalTitle.lastChild.textContent = ' Personalizar Fecha';
+      openTextFormatModal({ format: field.format });
     });
   }
   
@@ -1502,35 +1536,212 @@ function initPageOverlays() {
             best = candidates[0];
           }
           if (best) {
-            // Concatenar fragmentos adyacentes de la misma línea (mismo y ± 4px)
-            // Solo incluir fragmentos que estén a menos de 20px de distancia entre sí,
-            // empezando desde el fragmento más a la izquierda del grupo del best
+            // Reunir fragmentos de la misma línea (mismo y ± 4px), ordenados de izq a der
             const LINE_TOLERANCE = 4;
             const sameLineItems = items
               .filter(t => Math.abs(t.y - best.y) <= LINE_TOLERANCE)
               .sort((a, b) => a.x - b.x);
 
-            // Encontrar el índice del best en la línea
-            const bestIdx = sameLineItems.findIndex(t => t.idx === best.idx);
-            // Expandir hacia la izquierda y derecha mientras los fragmentos sean adyacentes (gap < 20px)
-            const MAX_GAP = 20;
-            let start = bestIdx, end = bestIdx;
-            while (start > 0 && sameLineItems[start].x - (sameLineItems[start-1].x + sameLineItems[start-1].w) < MAX_GAP) start--;
-            while (end < sameLineItems.length - 1 && sameLineItems[end+1].x - (sameLineItems[end].x + sameLineItems[end].w) < MAX_GAP) end++;
-            const group = sameLineItems.slice(start, end + 1);
-            // Unir con espacio solo si el gap entre fragmentos es > 2px (palabras separadas)
-            // Sin espacio si están pegados (misma palabra partida por PDF.js)
-            let fullLabel = group[0].str;
-            for (let i = 1; i < group.length; i++) {
-              const gap = group[i].x - (group[i-1].x + group[i-1].w);
-              fullLabel += (gap > 2 ? ' ' : '') + group[i].str;
-            }
+            // --- Estrategia 1: buscar fragmento que termina en ':' antes del campo ---
+            // Los labels de formulario casi siempre terminan en ':' (Nombre:, C.C. N°:, etc.)
+            const FIELD_MARGIN = 80; // px de margen para buscar label con ':'
+            const colonCandidate = [...sameLineItems]
+              .reverse()
+              .find(t =>
+                t.str.trimEnd().endsWith(':') &&
+                t.x < fieldLeft &&
+                (t.x + t.w) <= fieldLeft + FIELD_MARGIN &&
+                !/^_+$/.test(t.str.trim())
+              );
 
-            // LIMPIAR guiones bajos y espacios extras del label
-            mappedLabel = fullLabel
-              .replace(/_+/g, '')
-              .replace(/\s+/g, ' ')
-              .trim();
+            if (colonCandidate) {
+              // Expandir hacia la izquierda desde el fragmento con ':' (captura "C.C. N°:")
+              const colonIdx = sameLineItems.findIndex(t => t.idx === colonCandidate.idx);
+              let start = colonIdx;
+              for (let i = colonIdx; i > 0; i--) {
+                const g = sameLineItems[i].x - (sameLineItems[i-1].x + sameLineItems[i-1].w);
+                if (g >= 20 || /^_+$/.test(sameLineItems[i-1].str.trim())) { start = i; break; }
+              }
+              const group = sameLineItems.slice(start, colonIdx + 1);
+              mappedLabel = group.map(t => t.str).join('').replace(/_+/g, '').replace(/\s+/g, ' ').trim();
+
+            } else {
+              // --- Estrategia 2: extracción posicional desde fragmentos largos ---
+              // Cuando PDF.js fusiona todo en un fragmento (ej: "Responsable 1 ___ con C.C. n°__ mayores"),
+              // estimamos qué palabra del string cae justo antes del fieldLeft usando proporción x/w,
+              // y extraemos el segmento de texto entre el último guión bajo anterior y el campo.
+
+              // Fragmentos que CONTIENEN el fieldLeft (el campo está dentro del fragmento)
+              const containingFrag = sameLineItems.find(t =>
+                t.x < fieldLeft && (t.x + t.w) > fieldLeft - 5 && !/^_+$/.test(t.str.trim())
+              );
+
+              if (containingFrag) {
+                // El fragmento contiene el campo dentro de su span horizontal.
+                const str = containingFrag.str;
+                const charW = containingFrag.w / str.length; // ancho promedio por carácter
+                const fieldLeftRel = fieldLeft - containingFrag.x; // px desde inicio del fragmento
+
+                // Encontrar todos los rangos de guiones bajos en el string
+                const underscoreRanges = [];
+                const uRe = /_+/g;
+                let um;
+                while ((um = uRe.exec(str)) !== null) {
+                  const startPx = um.index * charW;
+                  const endPx = (um.index + um[0].length) * charW;
+                  underscoreRanges.push({ start: um.index, end: um.index + um[0].length, startPx, endPx });
+                }
+
+                // Encontrar el rango de guiones que está justo a la izquierda del campo
+                // (el campo empieza dentro o justo después de este rango)
+                const leftUnder = underscoreRanges
+                  .filter(r => r.startPx <= fieldLeftRel + charW * 3)
+                  .sort((a, b) => b.startPx - a.startPx)[0];
+
+                if (underscoreRanges.length === 0) {
+                  // containingFrag es texto puro sin guiones (ej: "alumno(a)" solapado por el campo).
+                  // El label es el grupo de fragmentos de texto consecutivos hasta el containingFrag inclusive,
+                  // expandiendo hacia la izquierda mientras no haya guiones ni gap > 30px.
+                  const contIdx = sameLineItems.findIndex(t => t === containingFrag);
+                  let start = contIdx;
+                  for (let i = contIdx; i > 0; i--) {
+                    if (/^_+$/.test(sameLineItems[i-1].str.trim())) { start = i; break; }
+                    const g = sameLineItems[i].x - (sameLineItems[i-1].x + sameLineItems[i-1].w);
+                    if (g >= 30) { start = i; break; }
+                    start = i - 1;
+                  }
+                  const group = sameLineItems.slice(start, contIdx + 1).filter(t => !/^_+$/.test(t.str.trim()));
+                  let fullLabel = group[0].str;
+                  for (let i = 1; i < group.length; i++) {
+                    const gap = group[i].x - (group[i-1].x + group[i-1].w);
+                    fullLabel += (gap > 2 ? ' ' : '') + group[i].str;
+                  }
+                  mappedLabel = fullLabel.replace(/\s+/g, ' ').trim()
+                    .replace(/^(y|o|e)\s+/i, '').trim();
+
+                } else if (leftUnder) {
+                  // Encontrar el rango de guiones anterior a leftUnder (si existe)
+                  const prevUnder = underscoreRanges
+                    .filter(r => r.endPx <= leftUnder.startPx - 1)
+                    .sort((a, b) => b.endPx - a.endPx)[0];
+
+                  const textStart = prevUnder ? prevUnder.end : 0;
+                  const textEnd = leftUnder.start;
+                  const segment = str.substring(textStart, textEnd).trim();
+                  if (segment.length >= 2) {
+                    mappedLabel = segment.replace(/^(y|o|e)\s+/i, '').trim();
+                  }
+
+                  // Si el fragmento empieza con guiones y no hay texto útil dentro,
+                  // buscar fragmentos de texto inmediatamente anteriores en la línea.
+                  if (!mappedLabel) {
+                    const contIdx2 = sameLineItems.findIndex(t => t === containingFrag);
+                    const prevFrags = sameLineItems
+                      .slice(0, contIdx2)
+                      .filter(t => !/^_+$/.test(t.str.trim()) && t.str.trim().length >= 2);
+                    if (prevFrags.length > 0) {
+                      // Tomar grupo contiguo desde el más cercano hacia la izquierda
+                      let gStart = prevFrags.length - 1;
+                      for (let i = prevFrags.length - 1; i > 0; i--) {
+                        const g = prevFrags[i].x - (prevFrags[i-1].x + prevFrags[i-1].w);
+                        if (g >= 30) { gStart = i; break; }
+                        gStart = i - 1;
+                      }
+                      const pg = prevFrags.slice(gStart);
+                      let lbl = pg[0].str;
+                      for (let i = 1; i < pg.length; i++) {
+                        const g = pg[i].x - (pg[i-1].x + pg[i-1].w);
+                        lbl += (g > 2 ? ' ' : '') + pg[i].str;
+                      }
+                      mappedLabel = lbl.replace(/\s+/g, ' ').trim()
+                        .replace(/^(y|o|e)\s+/i, '').trim();
+                    }
+                  }
+                }
+
+                // Si no se extrajo nada útil, buscar a la derecha del campo
+                if (!mappedLabel) {
+                  const fieldRight = fieldLeft + width;
+                  const afterFrag = sameLineItems.find(t =>
+                    t.x >= fieldRight - 5 && t.x <= fieldRight + 80 &&
+                    !/^_+$/.test(t.str.trim()) && t.str.trim().length > 1
+                  );
+                  if (afterFrag) {
+                    mappedLabel = afterFrag.str.trim()
+                      .replace(/^[,;:\s]+/, '').replace(/[,;:\s]+$/, '').trim();
+                  }
+                }
+              } else {
+                // --- Estrategia 3: fragmento virtual (parte antes del primer guión bajo) ---
+                // Para fragmentos que terminan antes del campo.
+                const virtualItems = [];
+                for (const t of sameLineItems) {
+                  const uIdx = t.str.search(/_+/);
+                  if (uIdx > 0) {
+                    const leftPart = t.str.substring(0, uIdx).trimEnd();
+                    if (leftPart.length > 0) {
+                      const ratio = uIdx / t.str.length;
+                      virtualItems.push({ ...t, str: leftPart, w: t.w * ratio });
+                    }
+                  }
+                  virtualItems.push(t);
+                }
+                virtualItems.sort((a, b) => a.x - b.x);
+
+                // Candidatos a la izquierda: fragmentos sin guiones que terminan antes del campo.
+                // Para fragmentos donde w incluye espacio hasta el siguiente elemento,
+                // usamos el ancho real estimado (charW * chars_sin_espacios_finales).
+                const candidatesLeft = virtualItems.filter(t => {
+                  if (/^_+$/.test(t.str.trim())) return false;
+                  if (t.x >= fieldLeft) return false;
+                  const charW = t.str.length > 0 ? t.w / t.str.length : 0;
+                  const textRight = t.x + charW * t.str.trimEnd().length;
+                  return textRight <= fieldLeft + 20;
+                });
+
+                if (candidatesLeft.length > 0) {
+                  const anchor = candidatesLeft.reduce((a, t) =>
+                    (t.x + t.w) > (a.x + a.w) ? t : a
+                  );
+                  const anchorVIdx = virtualItems.findIndex(t => t === anchor);
+
+                  let start = anchorVIdx;
+                  for (let i = anchorVIdx; i > 0; i--) {
+                    const g = virtualItems[i].x - (virtualItems[i-1].x + virtualItems[i-1].w);
+                    if (g >= 30 || /^_+$/.test(virtualItems[i-1].str.trim())) {
+                      start = i; break;
+                    }
+                  }
+
+                  const group = virtualItems.slice(start, anchorVIdx + 1);
+                  let fullLabel = group[0].str;
+                  for (let i = 1; i < group.length; i++) {
+                    const gap = group[i].x - (group[i-1].x + group[i-1].w);
+                    fullLabel += (gap > 2 ? ' ' : '') + group[i].str;
+                  }
+                  mappedLabel = fullLabel
+                    .replace(/_+/g, '').replace(/\s+/g, ' ').trim()
+                    .replace(/^(y|o|e)\s+/i, '');
+                } else {
+                  // --- Estrategia 4: el label está a la DERECHA del campo (ej: "_____ Acudientes del alumno(a),")
+                  // Buscar el fragmento de texto inmediatamente después del campo, sin guiones bajos.
+                  const fieldRight = fieldLeft + width;
+                  const candidatesRight = sameLineItems.filter(t =>
+                    t.x >= fieldRight - 5 &&
+                    t.x <= fieldRight + 80 &&
+                    !/^_+$/.test(t.str.trim()) &&
+                    t.str.trim().length > 1
+                  );
+                  if (candidatesRight.length > 0) {
+                    const rightAnchor = candidatesRight.reduce((a, t) => t.x < a.x ? t : a);
+                    // Tomar el fragmento y limpiar puntuación inicial/final
+                    mappedLabel = rightAnchor.str.trim()
+                      .replace(/^[,;:\s]+/, '').replace(/[,;:\s]+$/, '')
+                      .replace(/^(y|o|e)\s+/i, '').trim();
+                  }
+                }
+              }
+            }
 
             console.log('[MAPEO PDF] Campo texto colocado:', {
               id,
@@ -1539,19 +1750,12 @@ function initPageOverlays() {
               label_original: best.str,
               label_limpio: mappedLabel,
               label_coords: { x: best.x, y: best.y, w: best.w, h: best.h },
-              distancia: best.dist,
-              solape_vertical: true,
-              solape_horizontal: true,
-              tolerancia_vertical: VERTICAL_TOLERANCE,
-              tolerancia_horizontal: HORIZONTAL_TOLERANCE
             });
           } else {
-            console.warn('[MAPEO PDF] No se encontró texto alineado (con solape vertical y horizontal, y tolerancia) al campo:', {
+            console.warn('[MAPEO PDF] No se encontró texto alineado al campo:', {
               id,
               page: pageData.pageNum,
               coords: { left: fieldLeft, top: fieldTop, width, height },
-              tolerancia_vertical: VERTICAL_TOLERANCE,
-              tolerancia_horizontal: HORIZONTAL_TOLERANCE
             });
           }
         } catch (err) {
@@ -1676,6 +1880,10 @@ function initPageOverlays() {
         labelToSave = 'Fecha';
       }
 
+      // Para campos de fecha en modo prepare: insertar fecha de hoy automáticamente
+      const isDateInPrepare = (placingFieldType === 'date' && currentMode === 'prepare');
+      const todayValue = isDateInPrepare ? new Date().toISOString().split('T')[0] : null;
+
       fields.push({
         id,
         type: placingFieldType,
@@ -1684,23 +1892,38 @@ function initPageOverlays() {
         y: top,
         w: width,
         h: height,
-        value: null,
-        signed: false,
+        value: isDateInPrepare ? todayValue : null,
+        signed: isDateInPrepare,
         label: labelToSave,
         roleId: roleId,
         roleName: roleName,
         roleColor: roleColor,
-        // Heredar formato de documento si existe
         format: (placingFieldType === 'text' && documentTextFormat) ? Object.assign({}, documentTextFormat) : null
       });
+
+      // Mostrar la fecha inmediatamente en el campo visual
+      if (isDateInPrepare) {
+        const formattedDate = new Date(todayValue + 'T00:00:00').toLocaleDateString('es-ES', {year:'numeric', month:'long', day:'numeric'});
+        el.classList.add('signed');
+        el.innerHTML = `
+          <span class="label">Fecha</span>
+          <button class="delete-btn" title="Eliminar">×</button>
+          <div class="field-content date-content">${formattedDate}</div>
+        `;
+        el.querySelector('.delete-btn').addEventListener('click', (e) => {
+          e.stopPropagation();
+          deleteField(id);
+        });
+        addResizeHandles(el);
+      }
 
       // Aplicar indicador visual si ya hay formato activo
       if (placingFieldType === 'text' && documentTextFormat) {
         el.classList.add('text-formatted');
       }
 
-      // Actualizar botones de formato después de agregar el campo al array
-      if (placingFieldType === 'text') {
+      // Actualizar botones de formato
+      if (placingFieldType === 'text' || placingFieldType === 'date') {
         updateFormatButtons();
       }
       
@@ -1762,8 +1985,9 @@ async function deleteField(fieldId, pageNum){
   // Eliminar del array
   const index = fields.findIndex(f => f.id === fieldId);
   if(index > -1) fields.splice(index, 1);
-  
+
   console.log('🗑️ Campo eliminado:', fieldId);
+  updateFormatButtons();
 }
 
 // ===== Redimensionamiento de campos =====
@@ -2138,9 +2362,10 @@ function openFieldModal(e){
     // El modal NO se abre al hacer click; solo el botón "Formatear texto" de la barra lo abre.
     return;
   } else if(fieldType === 'date'){
-    dateModal.classList.add('show'); 
-    dateModal.setAttribute('aria-hidden','false'); 
-    // Si ya tiene fecha, mostrarla, si no usar hoy
+    // En modo prepare, el campo de fecha se formatea desde el botón "Formatear fecha"
+    if (currentMode === 'prepare') return;
+    dateModal.classList.add('show');
+    dateModal.setAttribute('aria-hidden','false');
     const dateValue = field && field.value ? field.value : new Date().toISOString().split('T')[0];
     document.getElementById('dateInput').value = dateValue;
     document.getElementById('dateInput').focus();
@@ -2222,8 +2447,18 @@ function updateTextPreview() {
   const alignItems = verticalAlign === 'middle' ? 'center' : verticalAlign === 'bottom' ? 'flex-end' : 'flex-start';
   const justifyContent = textAlign === 'center' ? 'center' : textAlign === 'right' ? 'flex-end' : 'flex-start';
 
+  // Calcular tamaño representativo: escalar pt a px del contenedor de preview
+  // 1pt ≈ 1.333px; el preview mide 90px de alto; campo típico ~40px → ratio 90/40 = 2.25
+  const ptToPx = 1.333;
+  const activeField = activeFieldId ? fields.find(f => f.id === activeFieldId) : null;
+  const fieldHeightPx = activeField ? (activeField.height || 40) : 40;
+  const previewHeightPx = 90;
+  const scale = previewHeightPx / fieldHeightPx;
+  const rawPx = parseInt(fontSize) * ptToPx;
+  const scaledPx = Math.min(Math.round(rawPx * scale), previewHeightPx - 10);
+
   preview.style.fontFamily = fontFamily;
-  preview.style.fontSize = Math.min(parseInt(fontSize), 20) + 'px';
+  preview.style.fontSize = scaledPx + 'px';
   preview.style.color = fontColor;
   preview.style.fontWeight = fontWeight;
   preview.style.fontStyle = fontStyle;
@@ -2232,10 +2467,16 @@ function updateTextPreview() {
   preview.style.display = 'flex';
   preview.style.alignItems = alignItems;
   preview.style.justifyContent = justifyContent;
-  preview.innerHTML = `<span>Texto de ejemplo — Juan Pérez</span>`;
+  const previewText = _formattingDateFieldId
+    ? new Date().toLocaleDateString('es-ES', {year:'numeric', month:'long', day:'numeric'})
+    : 'Texto de ejemplo — Juan Pérez';
+  preview.innerHTML = `<span>${previewText}</span>`;
 }
 
 // Confirmar formato de texto (botón Aplicar del modal)
+// Flag para saber si el modal de texto se abrió para formatear una fecha
+let _formattingDateFieldId = null;
+
 function confirmText(){
   const fontFamily = document.getElementById('fontFamily').value;
   const fontSize = document.getElementById('fontSize').value;
@@ -2247,10 +2488,57 @@ function confirmText(){
   const verticalAlign = document.querySelector('[data-valign].active')?.dataset.valign || 'top';
 
   const fmt = { fontFamily, fontSize, fontColor, isBold, isItalic, isUnderline, textAlign, verticalAlign };
-  applyDocumentFormat(fmt);
 
-  hideModal();
-  toast.success('Formato aplicado a todos los campos de texto');
+  if (_formattingDateFieldId) {
+    const field = fields.find(f => f.id === _formattingDateFieldId);
+    if (field) {
+      field.format = fmt;
+      renderDateField(field);
+    }
+    _formattingDateFieldId = null;
+    const modalTitle = document.querySelector('#textModal h3');
+    if (modalTitle) modalTitle.lastChild.textContent = ' Personalizar Texto';
+    hideModal();
+    toast.success('Formato de fecha aplicado');
+  } else {
+    applyDocumentFormat(fmt);
+    hideModal();
+    toast.success('Formato aplicado a todos los campos de texto');
+  }
+}
+
+function renderDateField(field) {
+  // Buscar en todos los overlays de todas las páginas
+  let el = null;
+  for (const pageData of allPages) {
+    const found = pageData.overlay.querySelector(`.field[data-id="${field.id}"]`);
+    if (found) { el = found; break; }
+  }
+  if (!el || !field.value) return;
+  const formattedDate = new Date(field.value + 'T00:00:00').toLocaleDateString('es-ES', {year:'numeric', month:'long', day:'numeric'});
+  const fmt = field.format || {};
+  const fs = fmt.fontSize ? `${parseFloat(fmt.fontSize) * 1.333}px` : '12px';
+  const ff = fmt.fontFamily || 'Arial';
+  const fw = fmt.isBold ? 'bold' : 'normal';
+  const fi = fmt.isItalic ? 'italic' : 'normal';
+  const td = fmt.isUnderline ? 'underline' : 'none';
+  const ta = fmt.textAlign || 'left';
+  const va = fmt.verticalAlign || 'middle';
+  const color = fmt.fontColor || '#000000';
+  const alignItems = va === 'middle' ? 'center' : va === 'bottom' ? 'flex-end' : 'flex-start';
+  el.classList.add('signed', 'text-formatted');
+  el.innerHTML = `
+    <span class="label">Fecha</span>
+    <button class="delete-btn" title="Eliminar">×</button>
+    <div class="field-content date-content" style="font-family:${ff};font-size:${fs};font-weight:${fw};font-style:${fi};text-decoration:${td};color:${color};display:flex;align-items:${alignItems};width:100%;height:100%;padding:2px;box-sizing:border-box;overflow:hidden;"><span style="display:block;width:100%;text-align:${ta};">${formattedDate}</span></div>
+  `;
+  el.addEventListener('mousedown', startDragField);
+  el.addEventListener('touchstart', startDragField, {passive: false});
+  el.querySelector('.delete-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    deleteField(field.id);
+  });
+  addResizeHandles(el);
 }
 
 // Confirmar fecha
@@ -2430,7 +2718,6 @@ async function saveFieldsToBackend(skipRedirect = false) {
     const fieldsData = fields.map(f => ({
       type: f.type,
       page: f.page || 1,
-      // Convertir de coordenadas viewport (escaladas) a coordenadas PDF (reales)
       x: parseFloat(f.x) / VIEWPORT_SCALE,
       y: parseFloat(f.y) / VIEWPORT_SCALE,
       width: parseFloat(f.w) / VIEWPORT_SCALE,
@@ -2439,7 +2726,8 @@ async function saveFieldsToBackend(skipRedirect = false) {
       required: f.required !== false,
       roleId: f.roleId || null,
       roleName: f.roleName || null,
-      format: f.format || null  // Estilos de texto: fuente, tamaño, color, alineación
+      format: f.format || null,
+      value: f.type === 'date' ? (f.value || null) : null  // Fecha pre-fijada en modo prepare
     }));
 
     console.log('📤 Enviando campos al backend:', fieldsData);
