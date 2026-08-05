@@ -1978,7 +1978,7 @@
 
       function processPdfs(files) {
         files.forEach(f => {
-          const match = f.name.match(/^(\d+)_firmado\.pdf$/i);
+          const match = f.name.match(/^([\d\-]+)_firmado\.pdf$/i);
           if (match) {
             const num = match[1];
             // Solo aceptar si existe en metadata
