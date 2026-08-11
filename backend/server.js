@@ -4739,13 +4739,13 @@ app.post('/api/public/sign/:token', async (req, res) => {
         // Para el firmante definitivo (is_final_signer), solo validar final_signature
         if (fields && fields.length > 0) {
             const missingSignatures = fields.filter(f => {
-                if (!f.required || !f.signed) return false;
-                if (!f.dataUrl) {
-                    // Firmante definitivo: ignorar campos 'signature' regulares (son PROTEGIDO)
-                    if (recipient.is_final_signer && f.type === 'signature') return false;
-                    if (f.type === 'signature' || f.type === 'final_signature') return true;
-                }
-                return false;
+                if (!f.required) return false;
+                const isSignatureField = f.type === 'signature' || f.type === 'final_signature';
+                if (!isSignatureField) return false;
+                // Firmante definitivo: ignorar campos 'signature' regulares (son PROTEGIDO)
+                if (recipient.is_final_signer && f.type === 'signature') return false;
+                // Rechazar si no tiene imagen, independientemente de signed
+                return !f.dataUrl;
             });
             if (missingSignatures.length > 0) {
                 console.error(`❌ Firma(s) requerida(s) sin dataUrl: field_ids=${missingSignatures.map(f => f.field_id).join(',')}`);
@@ -9442,10 +9442,10 @@ app.post('/api/etitulo/subir-masivo', requireAuth, etituloUpload.fields([
         const iNomDoc      = col('NOMBRE DOCUMENTO');
 
         // Construir mapa PDF: numeroPagare -> buffer
+        // Acepta: {numero}_firmado.pdf  o  {numero}.firmado.pdf  (numero puede tener guiones, ej: 2026-00195)
         const pdfMap = {};
         req.files.pdfs.forEach(f => {
-            // Nombre esperado: {numero}_firmado.pdf
-            const match = f.originalname.match(/^(\d+)_firmado\.pdf$/i);
+            const match = f.originalname.match(/^([\w-]+)[._]firmado\.pdf$/i);
             if (match) pdfMap[match[1]] = f.buffer;
         });
 
