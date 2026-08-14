@@ -6864,7 +6864,7 @@ app.post('/api/public/sign/:token', async (req, res) => {
                     const finalPdfFilename = `final_${recipient.document_id}_${Date.now()}.pdf`;
                     const finalPdfPath = path.join(intermediatePdfDir, finalPdfFilename);
                     fs.writeFileSync(finalPdfPath, signedPdfBuffer);
-                    await linearizePdf(finalPdfPath);
+                    // NO linearizar: qpdf modifica bytes del PDF rompiendo la firma PKCS#7
 
                     const relativeFinalPath = path.join('uploads', 'signed', finalPdfFilename).replace(/\\/g, '/');
                     console.log(`💾 PDF final con PKI guardado: ${relativeFinalPath}`);
@@ -6919,9 +6919,9 @@ app.post('/api/public/sign/:token', async (req, res) => {
                         }
 
                         if (recipientsWithTraza.length > 0) {
-                            // Construir PDF base + TODAS las trazas (una sola vez)
-                            const intermediatePdfForRec = resolveFromRoot(intermediatePdfSource);
-                            const basePdf = await PDFDoc.load(fs.readFileSync(intermediatePdfForRec));
+                            // Base: PDF ya sellado con PKI (sin pre-traza) + trazas VI de todos
+                            // NO usar intermediatePdfSource porque puede contener ya la traza del owner (pre-traza)
+                            const basePdf = await PDFDoc.load(sharedSignedPdfBuffer);
                             for (const rec of recipientsWithTraza) {
                                 const trazaAbsPath = resolveFromRoot(rec.vi_traza_path.replace(/^\/+/, ''));
                                 if (!fs.existsSync(trazaAbsPath)) {
@@ -6952,7 +6952,7 @@ app.post('/api/public/sign/:token', async (req, res) => {
                             const completeViAbsPath = path.join(intermediatePdfDir, completeViFilename);
                             const completeViRelPath = path.join('uploads', 'signed', completeViFilename).replace(/\\/g, '/');
                             fs.writeFileSync(completeViAbsPath, signedViPdfBuffer);
-                            await linearizePdf(completeViAbsPath);
+                            // NO linearizar: qpdf modifica bytes del PDF rompiendo la firma PKCS#7
                             console.log(`✅ [VI-TRAZA] PDF con todas las trazas generado: ${completeViFilename}`);
 
                             // Asignar este PDF (con TODAS las trazas) a TODOS los recipients del documento
