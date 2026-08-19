@@ -4739,13 +4739,13 @@ app.post('/api/public/sign/:token', async (req, res) => {
         // Para el firmante definitivo (is_final_signer), solo validar final_signature
         if (fields && fields.length > 0) {
             const missingSignatures = fields.filter(f => {
-                if (!f.required || !f.signed) return false;
-                if (!f.dataUrl) {
-                    // Firmante definitivo: ignorar campos 'signature' regulares (son PROTEGIDO)
-                    if (recipient.is_final_signer && f.type === 'signature') return false;
-                    if (f.type === 'signature' || f.type === 'final_signature') return true;
-                }
-                return false;
+                if (!f.required) return false;
+                const isSignatureField = f.type === 'signature' || f.type === 'final_signature';
+                if (!isSignatureField) return false;
+                // Firmante definitivo: ignorar campos 'signature' regulares (son PROTEGIDO)
+                if (recipient.is_final_signer && f.type === 'signature') return false;
+                // Rechazar si no tiene imagen, independientemente de signed
+                return !f.dataUrl;
             });
             if (missingSignatures.length > 0) {
                 console.error(`❌ Firma(s) requerida(s) sin dataUrl: field_ids=${missingSignatures.map(f => f.field_id).join(',')}`);
@@ -6864,7 +6864,7 @@ app.post('/api/public/sign/:token', async (req, res) => {
                     const finalPdfFilename = `final_${recipient.document_id}_${Date.now()}.pdf`;
                     const finalPdfPath = path.join(intermediatePdfDir, finalPdfFilename);
                     fs.writeFileSync(finalPdfPath, signedPdfBuffer);
-                    await linearizePdf(finalPdfPath);
+                    // NO linearizar: qpdf modifica bytes del PDF rompiendo la firma PKCS#7
 
                     const relativeFinalPath = path.join('uploads', 'signed', finalPdfFilename).replace(/\\/g, '/');
                     console.log(`💾 PDF final con PKI guardado: ${relativeFinalPath}`);
@@ -6919,9 +6919,9 @@ app.post('/api/public/sign/:token', async (req, res) => {
                         }
 
                         if (recipientsWithTraza.length > 0) {
-                            // Construir PDF base + TODAS las trazas (una sola vez)
-                            const intermediatePdfForRec = resolveFromRoot(intermediatePdfSource);
-                            const basePdf = await PDFDoc.load(fs.readFileSync(intermediatePdfForRec));
+                            // Base: PDF ya sellado con PKI (sin pre-traza) + trazas VI de todos
+                            // NO usar intermediatePdfSource porque puede contener ya la traza del owner (pre-traza)
+                            const basePdf = await PDFDoc.load(sharedSignedPdfBuffer);
                             for (const rec of recipientsWithTraza) {
                                 const trazaAbsPath = resolveFromRoot(rec.vi_traza_path.replace(/^\/+/, ''));
                                 if (!fs.existsSync(trazaAbsPath)) {
@@ -6952,7 +6952,7 @@ app.post('/api/public/sign/:token', async (req, res) => {
                             const completeViAbsPath = path.join(intermediatePdfDir, completeViFilename);
                             const completeViRelPath = path.join('uploads', 'signed', completeViFilename).replace(/\\/g, '/');
                             fs.writeFileSync(completeViAbsPath, signedViPdfBuffer);
-                            await linearizePdf(completeViAbsPath);
+                            // NO linearizar: qpdf modifica bytes del PDF rompiendo la firma PKCS#7
                             console.log(`✅ [VI-TRAZA] PDF con todas las trazas generado: ${completeViFilename}`);
 
                             // Asignar este PDF (con TODAS las trazas) a TODOS los recipients del documento
@@ -9442,10 +9442,10 @@ app.post('/api/etitulo/subir-masivo', requireAuth, etituloUpload.fields([
         const iNomDoc      = col('NOMBRE DOCUMENTO');
 
         // Construir mapa PDF: numeroPagare -> buffer
+        // Acepta: {numero}_firmado.pdf  o  {numero}.firmado.pdf  (numero puede tener guiones, ej: 2026-00195)
         const pdfMap = {};
         req.files.pdfs.forEach(f => {
-            // Nombre esperado: {numero}_firmado.pdf
-            const match = f.originalname.match(/^(\d+)_firmado\.pdf$/i);
+            const match = f.originalname.match(/^([\w-]+)[._]firmado\.pdf$/i);
             if (match) pdfMap[match[1]] = f.buffer;
         });
 

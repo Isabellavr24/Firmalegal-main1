@@ -941,7 +941,21 @@ router.get('/:id/download-complete', requireAuth, async (req, res) => {
         const trazas = uniqueRecipients.filter(r => r.vi_traza_path);
         console.log(`   Firmantes únicos: ${uniqueRecipients.length}, con traza: ${trazas.length}`);
 
-        // 5. Determinar PDF base: preferir doc_only_path (sin trazas), fallback a signed_file_path
+        // 5. Determinar PDF base
+        // signed_file_path es el PDF final sellado PKI que YA incluye las trazas VI fusionadas.
+        // Si existe, servirlo directamente — no agregarle trazas encima (rompería la firma PKCS#7).
+        // doc_only_path es el sellado PKI SIN trazas, usado solo como base cuando signed_file_path no existe.
+        if (doc.signed_file_path) {
+            const signedAbsPath = path.join(__dirname, '..', '..', doc.signed_file_path);
+            if (fs.existsSync(signedAbsPath)) {
+                console.log(`   ✅ Sirviendo signed_file_path directamente (ya incluye trazas): ${doc.signed_file_path}`);
+                const safeName = (doc.file_name || `documento_${documentId}`).replace(/\.pdf$/i, '');
+                res.setHeader('Content-Type', 'application/pdf');
+                res.setHeader('Content-Disposition', `attachment; filename="${safeName}_completo.pdf"`);
+                return res.sendFile(signedAbsPath);
+            }
+        }
+
         const basePdfRelative = doc.doc_only_path || doc.signed_file_path;
         if (!basePdfRelative) {
             return res.status(404).json({ ok: false, error: 'No hay PDF firmado disponible aún' });
