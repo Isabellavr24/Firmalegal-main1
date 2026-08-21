@@ -6918,6 +6918,15 @@ app.post('/api/public/sign/:token', async (req, res) => {
                             }
                         }
 
+                        // Deduplicar por email: un solo entry por persona para evitar trazas duplicadas
+                        const seenEmails = new Set();
+                        recipientsWithTraza = recipientsWithTraza.filter(r => {
+                            const key = (r.email || '').toLowerCase().trim();
+                            if (seenEmails.has(key)) return false;
+                            seenEmails.add(key);
+                            return true;
+                        });
+
                         // Buffer final a enviar por email: se actualiza si el proceso de trazas VI tiene éxito.
                         // Fallback: usar el PDF sellado sin trazas (sharedSignedPdfBuffer).
                         let finalPdfForEmail = sharedSignedPdfBuffer;
