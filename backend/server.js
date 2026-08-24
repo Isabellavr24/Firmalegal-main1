@@ -6997,8 +6997,9 @@ app.post('/api/public/sign/:token', async (req, res) => {
                         });
 
                         // Enviar copia fiel a todos los firmantes (siempre, independiente de si hubo trazas)
+                        // Usar el interim (pdfBuffer): firmas dibujadas, sin sello PKI ni QR visible
                         try {
-                            await sendFielCopiaDocumentoNormal(recipient.document_id, finalPdfForEmail);
+                            await sendFielCopiaDocumentoNormal(recipient.document_id, pdfBuffer);
                         } catch (copiaErr) {
                             console.warn(`   ⚠️ [FIEL-COPIA-NORMAL] Error enviando copia fiel: ${copiaErr.message}`);
                         }
