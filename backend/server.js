@@ -6816,29 +6816,29 @@ app.post('/api/public/sign/:token', async (req, res) => {
                     }
                     let sharedSignedPdfBuffer = null;
 
-                    // Si hay destinatarios con traza VI, el custom_pdf_path puede ser vi_personal (PDF+traza).
-                    // Para el sellado PKI debemos usar el PDF sin traza (solo firmas), ya que la traza
-                    // se agrega después del sellado en el paso VI-TRAZA. Buscamos un recipient sin traza,
-                    // o si todos tienen traza, tomamos el personal_pdf_path / doc_only_path como base limpia.
-                    const hasViRecipients = allDocRecipientsFinal.some(r => r.vi_traza_path);
+                    // Base del sellado PKI: SIEMPRE usar el interim (PDF con firmas dibujadas, SIN trazas VI).
+                    // custom_pdf_path puede ser un pre_traza que ya tiene trazas VI embebidas — NO usar como base,
+                    // porque el paso VI-TRAZA las agrega de nuevo causando duplicados.
+                    // Orden de preferencia: interim_* más reciente > file_path original del documento.
                     let intermediatePdfSource = allDocRecipientsFinal[0].custom_pdf_path;
-                    if (hasViRecipients) {
-                        // Preferir un recipient sin vi_traza_path (su custom_pdf_path no tiene traza)
-                        const recipientNoTraza = allDocRecipientsFinal.find(r => !r.vi_traza_path);
-                        if (recipientNoTraza && recipientNoTraza.custom_pdf_path) {
-                            intermediatePdfSource = recipientNoTraza.custom_pdf_path;
-                            console.log(`📄 [VI-FIX] Usando PDF sin traza de ${recipientNoTraza.email} como base del sellado`);
-                        } else {
-                            // Todos tienen traza: usar doc_only_path del documento que tiene el PDF con firmas sin traza
-                            const [docRow] = await new Promise((resolve, reject) => {
-                                db.query('SELECT doc_only_path FROM documents WHERE document_id = ?',
-                                    [recipient.document_id], (err, rows) => { if (err) reject(err); else resolve(rows); });
-                            });
-                            if (docRow && docRow.doc_only_path) {
-                                intermediatePdfSource = docRow.doc_only_path;
-                                console.log(`📄 [VI-FIX] Usando doc_only_path como base limpia del sellado`);
-                            }
-                        }
+                    const [docRowForBase] = await new Promise((resolve, reject) => {
+                        db.query('SELECT file_path, doc_only_path FROM documents WHERE document_id = ?',
+                            [recipient.document_id], (err, rows) => { if (err) reject(err); else resolve(rows); });
+                    });
+                    // Buscar el interim más reciente en disco
+                    const interimDir = resolveFromRoot('uploads', 'signed');
+                    const interimFiles = fs.readdirSync(interimDir)
+                        .filter(f => f.startsWith(`interim_${recipient.document_id}_`) && f.endsWith('.pdf'))
+                        .sort()
+                        .reverse();
+                    if (interimFiles.length > 0) {
+                        intermediatePdfSource = `uploads/signed/${interimFiles[0]}`;
+                        console.log(`📄 [SELLADO-BASE] Usando interim limpio: ${interimFiles[0]}`);
+                    } else if (docRowForBase && docRowForBase.file_path && !docRowForBase.file_path.includes('pre_traza')) {
+                        intermediatePdfSource = docRowForBase.file_path;
+                        console.log(`📄 [SELLADO-BASE] Usando file_path original: ${docRowForBase.file_path}`);
+                    } else {
+                        console.log(`📄 [SELLADO-BASE] Usando custom_pdf_path (fallback): ${intermediatePdfSource}`);
                     }
 
                     const intermediatePdfPath = resolveFromRoot(intermediatePdfSource);
