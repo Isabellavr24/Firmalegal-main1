@@ -3533,7 +3533,10 @@ async function _processPagareCsvData(results, fileName) {
       }
     });
 
-    pagaresData.push({ rowIndex: index + 2, firmantes, textFields });
+    // Solo agregar filas que tengan al menos un email de firmante válido
+    if (firmantes.length > 0) {
+      pagaresData.push({ rowIndex: index + 2, firmantes, textFields });
+    }
   });
 
   window.pagareCsvData = pagaresData;
