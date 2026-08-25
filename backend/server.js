@@ -1918,10 +1918,10 @@ app.post('/api/documents/:id/pre-insert-trazas', async (req, res) => {
         fs.writeFileSync(mergedAbsPath, mergedBytes);
 
         await db.promise().query(
-            'UPDATE documents SET file_path = ? WHERE document_id = ?',
+            'UPDATE documents SET filled_pdf_path = ? WHERE document_id = ?',
             [mergedRelPath, documentId]
         );
-        console.log(`   [PRE-TRAZA] file_path actualizado -> ${mergedRelPath} (${insertedEmails.length} traza(s))`);
+        console.log(`   [PRE-TRAZA] filled_pdf_path actualizado -> ${mergedRelPath} (${insertedEmails.length} traza(s))`);
 
         res.json({ ok: true, inserted: insertedEmails.length, emails: insertedEmails });
 
@@ -3950,6 +3950,7 @@ app.get('/api/public/document/:token', async (req, res) => {
                 dr.viewer_group_id,
                 d.title as document_title,
                 d.file_path,
+                d.filled_pdf_path,
                 d.signed_file_path,
                 d.document_type,
                 d.owner_id,
@@ -4363,8 +4364,9 @@ app.get('/api/public/document/:token', async (req, res) => {
             sourcePath = recipient.custom_pdf_path;
             pdfType = 'PERSONALIZADO (CSV)';
         } else {
-            // Documento compartido sin completar: usar file_path
-            sourcePath = recipient.file_path;
+            // Documento compartido sin completar: usar filled_pdf_path (pre_traza con VI para visor)
+            // si existe, o file_path (PDF original limpio) como fallback.
+            sourcePath = recipient.filled_pdf_path || recipient.file_path;
             pdfType = 'COMPARTIDO (Manual)';
         }
 
@@ -5271,11 +5273,12 @@ app.post('/api/public/sign/:token', async (req, res) => {
             // ⚠️ EXCEPCIÓN VI: Si hay traza VI en custom_pdf_path, usar base limpia sin traza.
             let sourcePath;
             const customPathIsPreTraza = recipient.custom_pdf_path && recipient.custom_pdf_path.includes('pre_traza');
-            if ((!recipient.personal_pdf_path) && (recipient.vi_traza_path || customPathIsPreTraza) && recipient.custom_pdf_path) {
-                // Documento normal con VI: custom_pdf_path puede ser un pre_traza con traza ya embebida.
-                // Usar base limpia (doc_only_path o file_path) para que el paso VI-TRAZA no duplique la traza.
+            if (!recipient.personal_pdf_path && (recipient.vi_traza_path || customPathIsPreTraza)) {
+                // Documento normal con VI: custom_pdf_path puede ser pre_traza con traza ya embebida.
+                // file_path ahora SIEMPRE apunta al PDF original (pre_traza usa filled_pdf_path).
+                // Usar doc_only_path si existe (acumula firmas anteriores), o file_path limpio.
                 sourcePath = recipient.doc_only_path || recipient.file_path;
-                console.log(`📄 [VI-FIX] Usando base limpia (vi_traza=${!!recipient.vi_traza_path}, pre_traza=${customPathIsPreTraza})`);
+                console.log(`📄 [VI-FIX] Base limpia: vi_traza=${!!recipient.vi_traza_path}, customPreTraza=${customPathIsPreTraza} -> ${sourcePath}`);
             } else if (recipient.doc_only_path && recipient.doc_only_path !== recipient.custom_pdf_path) {
                 // Hay firmas acumuladas en doc_only_path — usarlo para no perder firmas anteriores
                 sourcePath = recipient.doc_only_path;
