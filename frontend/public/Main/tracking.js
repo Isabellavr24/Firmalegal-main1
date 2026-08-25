@@ -1272,10 +1272,14 @@ async function loadPagareFieldsInfo(docId) {
     // Contar viewers únicos (basado en partId)
     const viewerIds = new Set();
     const textFields = [];
+    let sigFieldCount = 0;
 
     fields.forEach(field => {
       if (field.partId !== null && field.partId !== undefined) {
         viewerIds.add(field.partId);
+      }
+      if (field.type === 'signature') {
+        sigFieldCount++;
       }
       if (field.type === 'text' && field.label) {
         textFields.push({
@@ -1286,8 +1290,11 @@ async function loadPagareFieldsInfo(docId) {
       }
     });
 
+    // Si no hay partId asignados, usar el número de campos de firma
+    const numViewers = viewerIds.size > 0 ? viewerIds.size : sigFieldCount;
+
     // Actualizar UI
-    document.getElementById('pagareViewersCount').textContent = viewerIds.size || 0;
+    document.getElementById('pagareViewersCount').textContent = numViewers || 0;
     document.getElementById('pagareTextFieldsCount').textContent = textFields.length || 0;
 
     // Detectar si hay formato definido (tomar el del primer campo de texto que tenga)
@@ -3328,20 +3335,25 @@ async function downloadPagareTemplate(docId) {
     // Contar firmantes únicos (basado en partId)
     const firmantesSet = new Set();
     const textFieldsArray = [];
+    let signatureFieldCount = 0;
 
     fields.forEach(field => {
-      // Contar firmantes
+      // Contar firmantes por partId
       if (field.partId !== null && field.partId !== undefined) {
         firmantesSet.add(field.partId);
       }
-
+      // Contar campos de firma como fallback
+      if (field.type === 'signature') {
+        signatureFieldCount++;
+      }
       // Recopilar campos de texto (usando field.type en lugar de fieldType)
       if (field.type === 'text' && field.label) {
         textFieldsArray.push(field.label);
       }
     });
 
-    const numFirmantes = firmantesSet.size;
+    // Si no hay partId asignados, usar el número de campos de firma como número de firmantes
+    const numFirmantes = firmantesSet.size > 0 ? firmantesSet.size : signatureFieldCount;
 
     // Construir headers del CSV
     const headers = [];
