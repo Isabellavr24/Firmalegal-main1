@@ -5270,10 +5270,12 @@ app.post('/api/public/sign/:token', async (req, res) => {
             // Preferencia: doc_only_path (acumula todas las firmas anteriores) > custom_pdf_path > file_path
             // ⚠️ EXCEPCIÓN VI: Si hay traza VI en custom_pdf_path, usar base limpia sin traza.
             let sourcePath;
-            if (recipient.vi_traza_path && recipient.custom_pdf_path && !recipient.personal_pdf_path) {
-                // Documento normal con VI: custom_pdf_path tiene traza adjunta, usar doc_only_path o file_path
+            const customPathIsPreTraza = recipient.custom_pdf_path && recipient.custom_pdf_path.includes('pre_traza');
+            if ((!recipient.personal_pdf_path) && (recipient.vi_traza_path || customPathIsPreTraza) && recipient.custom_pdf_path) {
+                // Documento normal con VI: custom_pdf_path puede ser un pre_traza con traza ya embebida.
+                // Usar base limpia (doc_only_path o file_path) para que el paso VI-TRAZA no duplique la traza.
                 sourcePath = recipient.doc_only_path || recipient.file_path;
-                console.log(`📄 [VI-FIX] Usando base limpia (sin traza VI) como base de firma intermedia`);
+                console.log(`📄 [VI-FIX] Usando base limpia (vi_traza=${!!recipient.vi_traza_path}, pre_traza=${customPathIsPreTraza})`);
             } else if (recipient.doc_only_path && recipient.doc_only_path !== recipient.custom_pdf_path) {
                 // Hay firmas acumuladas en doc_only_path — usarlo para no perder firmas anteriores
                 sourcePath = recipient.doc_only_path;
@@ -6997,9 +6999,8 @@ app.post('/api/public/sign/:token', async (req, res) => {
                         });
 
                         // Enviar copia fiel a todos los firmantes (siempre, independiente de si hubo trazas)
-                        // Usar el interim (pdfBuffer): firmas dibujadas, sin sello PKI ni QR visible
                         try {
-                            await sendFielCopiaDocumentoNormal(recipient.document_id, pdfBuffer);
+                            await sendFielCopiaDocumentoNormal(recipient.document_id, finalPdfForEmail);
                         } catch (copiaErr) {
                             console.warn(`   ⚠️ [FIEL-COPIA-NORMAL] Error enviando copia fiel: ${copiaErr.message}`);
                         }
