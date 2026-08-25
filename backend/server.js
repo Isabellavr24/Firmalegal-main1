@@ -6896,60 +6896,24 @@ app.post('/api/public/sign/:token', async (req, res) => {
                     const pdfBuffer = fs.readFileSync(intermediatePdfPath);
                     console.log(`📄 PDF intermedio leído: ${(pdfBuffer.length / 1024).toFixed(2)} KB`);
 
-                    const sealsForPython = await computeSeals(pdfBuffer, sealFieldsFinal);
-
-                    const signedPdfBuffer = await pythonSigner.signPdf(pdfBuffer, {
-                        reason: reasonText,
-                        location: 'Colombia',
-                        signerName: 'PKI Services',
-                        contactInfo,
-                        fieldName: `Signature_${recipient.document_id}`,
-                        visible: true,
-                        seals: sealsForPython.length > 0 ? sealsForPython : null,
-                        verificationToken
-                    });
-                    sharedSignedPdfBuffer = signedPdfBuffer;
-
-                    console.log(`✅ PDF firmado con PKI: ${(signedPdfBuffer.length / 1024).toFixed(2)} KB`);
-
-                    const finalPdfFilename = `final_${recipient.document_id}_${Date.now()}.pdf`;
-                    const finalPdfPath = path.join(intermediatePdfDir, finalPdfFilename);
-                    fs.writeFileSync(finalPdfPath, signedPdfBuffer);
-                    // NO linearizar: qpdf modifica bytes del PDF rompiendo la firma PKCS#7
-
-                    const relativeFinalPath = path.join('uploads', 'signed', finalPdfFilename).replace(/\\/g, '/');
-                    console.log(`💾 PDF final con PKI guardado: ${relativeFinalPath}`);
-
-                    // Guardar doc_only_path (PDF con firmas, sin trazas VI) para uso interno.
-                    // NO actualizamos signed_file_path aquí — lo actualizamos después del sellado
-                    // con trazas VI para evitar que quede apuntando al PDF incompleto si falla la segunda firma.
+                    // Guardar doc_only_path apuntando al interim (PDF con firmas dibujadas, sin trazas VI, sin sello PKI).
+                    // Se usa como base de referencia interna y para el VI-FIX que evita duplicar trazas.
+                    const interimRelPathForDocOnly = intermediatePdfSource.replace(/\\/g, '/');
                     await new Promise((resolve, reject) => {
                         db.query(
                             'UPDATE documents SET doc_only_path = ?, verification_token = ? WHERE document_id = ?',
-                            [relativeFinalPath, verificationToken, recipient.document_id],
+                            [interimRelPathForDocOnly, verificationToken, recipient.document_id],
                             (err) => { if (err) reject(err); else resolve(); }
                         );
                     });
 
-                    // Actualizar custom_pdf_path para destinatarios sin traza VI (PDF base sellado)
-                    await new Promise((resolve, reject) => {
-                        db.query(
-                            'UPDATE document_recipients SET custom_pdf_path = ? WHERE document_id = ? AND vi_traza_path IS NULL',
-                            [relativeFinalPath, recipient.document_id],
-                            (err) => { if (err) reject(err); else resolve(); }
-                        );
-                    });
-                    console.log('✅ PDF compartido actualizado (destinatarios sin traza VI)');
-
-                    // Trazabilidad VI: fusionar TODAS las trazas en un único PDF y asignarlo a TODOS los recipients
+                    // Trazabilidad VI: fusionar TODAS las trazas al interim ANTES de sellar (un solo sello PKI).
+                    // Evita el doble sello que ocurría al sellar primero y volver a sellar con trazas encima.
                     try {
                         const { PDFDocument: PDFDoc } = require('pdf-lib');
                         let recipientsWithTraza = allDocRecipientsFinal.filter(r => r.vi_traza_path);
 
                         // Para recipients sin traza en este documento, buscar su traza más reciente en otros documentos.
-                        // Se busca para TODOS sin traza (sin gate de vi_validated_at) porque los propietarios
-                        // que firman como recipients pueden tener vi_validated_at NULL en este documento
-                        // aunque hayan verificado identidad en documentos anteriores.
                         const recipientsWithoutTraza = allDocRecipientsFinal.filter(r => !r.vi_traza_path);
                         for (const recNoTraza of recipientsWithoutTraza) {
                             const [fallbackTraza] = await new Promise((resolve, reject) => {
@@ -6969,7 +6933,7 @@ app.post('/api/public/sign/:token', async (req, res) => {
                             }
                         }
 
-                        // Deduplicar por email: un solo entry por persona para evitar trazas duplicadas
+                        // Deduplicar por email
                         const seenEmails = new Set();
                         recipientsWithTraza = recipientsWithTraza.filter(r => {
                             const key = (r.email || '').toLowerCase().trim();
@@ -6978,76 +6942,70 @@ app.post('/api/public/sign/:token', async (req, res) => {
                             return true;
                         });
 
-                        // Buffer final a enviar por email: se actualiza si el proceso de trazas VI tiene éxito.
-                        // Fallback: usar el PDF sellado sin trazas (sharedSignedPdfBuffer).
-                        let finalPdfForEmail = sharedSignedPdfBuffer;
-                        let finalRelPathForSignedFile = relativeFinalPath;
-
+                        // Base para sellar: interim + trazas VI (si las hay)
+                        let bufferToSeal = pdfBuffer;
                         if (recipientsWithTraza.length > 0) {
-                            try {
-                                // Base: PDF ya sellado con PKI (sin pre-traza) + trazas VI de todos
-                                // NO usar intermediatePdfSource porque puede contener ya la traza del owner (pre-traza)
-                                const basePdf = await PDFDoc.load(sharedSignedPdfBuffer);
-                                for (const rec of recipientsWithTraza) {
-                                    const trazaAbsPath = resolveFromRoot(rec.vi_traza_path.replace(/^\/+/, ''));
-                                    if (!fs.existsSync(trazaAbsPath)) {
-                                        console.warn(`⚠️ [VI-TRAZA] Archivo traza no encontrado para ${rec.email}`);
-                                        continue;
-                                    }
-                                    const trazaPdf = await PDFDoc.load(fs.readFileSync(trazaAbsPath));
-                                    const pages = await basePdf.copyPages(trazaPdf, trazaPdf.getPageIndices());
-                                    pages.forEach(p => basePdf.addPage(p));
-                                    console.log(`   ✅ [VI-TRAZA] Traza de ${rec.email} añadida`);
+                            const basePdf = await PDFDoc.load(pdfBuffer);
+                            for (const rec of recipientsWithTraza) {
+                                const trazaAbsPath = resolveFromRoot(rec.vi_traza_path.replace(/^\/+/, ''));
+                                if (!fs.existsSync(trazaAbsPath)) {
+                                    console.warn(`⚠️ [VI-TRAZA] Archivo traza no encontrado para ${rec.email}`);
+                                    continue;
                                 }
-                                const mergedBytes = await basePdf.save();
-
-                                // Sellar el PDF con TODAS las trazas con PKI (una sola vez)
-                                const sealsForAll = await computeSeals(Buffer.from(mergedBytes), sealFieldsFinal);
-                                const signedViPdfBuffer = await pythonSigner.signPdf(Buffer.from(mergedBytes), {
-                                    reason: reasonText,
-                                    location: 'Colombia',
-                                    signerName: 'PKI Services',
-                                    contactInfo,
-                                    fieldName: `Signature_${recipient.document_id}_vi_completo`,
-                                    visible: true,
-                                    seals: sealsForAll.length > 0 ? sealsForAll : null,
-                                    verificationToken
-                                });
-
-                                const completeViFilename = `final_${recipient.document_id}_completo_${Date.now()}.pdf`;
-                                const completeViAbsPath = path.join(intermediatePdfDir, completeViFilename);
-                                const completeViRelPath = path.join('uploads', 'signed', completeViFilename).replace(/\\/g, '/');
-                                fs.writeFileSync(completeViAbsPath, signedViPdfBuffer);
-                                // NO linearizar: qpdf modifica bytes del PDF rompiendo la firma PKCS#7
-                                console.log(`✅ [VI-TRAZA] PDF con todas las trazas generado: ${completeViFilename}`);
-
-                                // Asignar este PDF (con TODAS las trazas) a TODOS los recipients del documento
-                                await new Promise((resolve, reject) => {
-                                    db.query(
-                                        'UPDATE document_recipients SET custom_pdf_path = ? WHERE document_id = ?',
-                                        [completeViRelPath, recipient.document_id],
-                                        (err) => { if (err) reject(err); else resolve(); }
-                                    );
-                                });
-                                console.log(`✅ [VI-TRAZA] PDF completo asignado a todos los destinatarios del documento ${recipient.document_id}`);
-
-                                finalPdfForEmail = signedViPdfBuffer;
-                                finalRelPathForSignedFile = completeViRelPath;
-                            } catch (trazaErr) {
-                                console.error('⚠️ [VI-TRAZA] Error procesando trazabilidades VI — usando PDF sin trazas como fallback:', trazaErr.message);
+                                const trazaPdf = await PDFDoc.load(fs.readFileSync(trazaAbsPath));
+                                const pages = await basePdf.copyPages(trazaPdf, trazaPdf.getPageIndices());
+                                pages.forEach(p => basePdf.addPage(p));
+                                console.log(`   ✅ [VI-TRAZA] Traza de ${rec.email} añadida al interim`);
                             }
+                            bufferToSeal = Buffer.from(await basePdf.save());
+                            console.log(`📄 [VI-TRAZA] Interim + trazas listo para sellar: ${(bufferToSeal.length / 1024).toFixed(2)} KB`);
+                        } else {
+                            console.log(`📄 [VI-TRAZA] Sin trazas VI — sellando interim directamente`);
                         }
 
-                        // Actualizar signed_file_path con el PDF final (con o sin trazas VI)
+                        // Sellado PKI único (una sola firma en el PDF final)
+                        const sealsForPython = await computeSeals(bufferToSeal, sealFieldsFinal);
+                        const signedPdfBuffer = await pythonSigner.signPdf(bufferToSeal, {
+                            reason: reasonText,
+                            location: 'Colombia',
+                            signerName: 'PKI Services',
+                            contactInfo,
+                            fieldName: `Signature_${recipient.document_id}`,
+                            visible: true,
+                            seals: sealsForPython.length > 0 ? sealsForPython : null,
+                            verificationToken
+                        });
+                        sharedSignedPdfBuffer = signedPdfBuffer;
+                        console.log(`✅ PDF firmado con PKI (único sello): ${(signedPdfBuffer.length / 1024).toFixed(2)} KB`);
+
+                        const finalPdfFilename = `final_${recipient.document_id}_${Date.now()}.pdf`;
+                        const finalPdfPath = path.join(intermediatePdfDir, finalPdfFilename);
+                        fs.writeFileSync(finalPdfPath, signedPdfBuffer);
+                        // NO linearizar: qpdf modifica bytes del PDF rompiendo la firma PKCS#7
+
+                        const relativeFinalPath = path.join('uploads', 'signed', finalPdfFilename).replace(/\\/g, '/');
+                        console.log(`💾 PDF final con PKI guardado: ${relativeFinalPath}`);
+
+                        // Asignar PDF final a TODOS los recipients
+                        await new Promise((resolve, reject) => {
+                            db.query(
+                                'UPDATE document_recipients SET custom_pdf_path = ? WHERE document_id = ?',
+                                [relativeFinalPath, recipient.document_id],
+                                (err) => { if (err) reject(err); else resolve(); }
+                            );
+                        });
+                        console.log(`✅ [VI-TRAZA] PDF final asignado a todos los destinatarios del documento ${recipient.document_id}`);
+
+                        // Actualizar signed_file_path con el PDF final
                         await new Promise((resolve, reject) => {
                             db.query(
                                 'UPDATE documents SET signed_file_path = ? WHERE document_id = ?',
-                                [finalRelPathForSignedFile, recipient.document_id],
+                                [relativeFinalPath, recipient.document_id],
                                 (err) => { if (err) reject(err); else resolve(); }
                             );
                         });
 
-                        // Enviar copia fiel a todos los firmantes (siempre, independiente de si hubo trazas)
+                        // Enviar copia fiel a todos los firmantes
                         // Usar pdfBuffer (interim con firmas dibujadas, SIN sello PKI ni QR ni firma visible)
                         try {
                             await sendFielCopiaDocumentoNormal(recipient.document_id, pdfBuffer);
