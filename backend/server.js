@@ -655,9 +655,55 @@ async function sendFielCopiaDocumentoNormal(documentId, pdfBuffer) {
         );
         const docTitle = docRows[0]?.title || `Documento_${documentId}`;
 
-        // Agregar marca de agua en cada página
+        // Fusionar trazas VI de todos los firmantes antes de agregar marca de agua
         const { PDFDocument, rgb, StandardFonts, degrees } = require('pdf-lib');
-        const pdfDoc = await PDFDocument.load(pdfBuffer);
+        let pdfDoc = await PDFDocument.load(pdfBuffer);
+        try {
+            const [trazasRows] = await db.promise().query(
+                `SELECT DISTINCT dr.email, dr.vi_traza_path
+                 FROM document_recipients dr
+                 WHERE dr.document_id = ? AND dr.vi_traza_path IS NOT NULL`,
+                [documentId]
+            );
+            // Para firmantes sin traza en este doc, buscar la mas reciente en otros docs
+            const [allRecs] = await db.promise().query(
+                `SELECT DISTINCT email FROM document_recipients WHERE document_id = ?`,
+                [documentId]
+            );
+            const emailsConTraza = new Set(trazasRows.map(r => r.email.toLowerCase()));
+            const trazasFinal = [...trazasRows];
+            for (const rec of allRecs) {
+                if (!emailsConTraza.has(rec.email.toLowerCase())) {
+                    const [fallback] = await db.promise().query(
+                        `SELECT vi_traza_path FROM document_recipients
+                         WHERE email = ? AND vi_traza_path IS NOT NULL
+                         ORDER BY completed_at DESC LIMIT 1`,
+                        [rec.email]
+                    );
+                    if (fallback.length && fallback[0].vi_traza_path) {
+                        trazasFinal.push({ email: rec.email, vi_traza_path: fallback[0].vi_traza_path });
+                    }
+                }
+            }
+            // Deduplicar por email
+            const seenEmails = new Set();
+            const trazasDedup = trazasFinal.filter(r => {
+                const k = r.email.toLowerCase();
+                if (seenEmails.has(k)) return false;
+                seenEmails.add(k);
+                return true;
+            });
+            for (const t of trazasDedup) {
+                const trazaAbs = resolveFromRoot(t.vi_traza_path.replace(/^\/+/, ''));
+                if (!fs.existsSync(trazaAbs)) continue;
+                const trazaPdf = await PDFDocument.load(fs.readFileSync(trazaAbs));
+                const pages = await pdfDoc.copyPages(trazaPdf, trazaPdf.getPageIndices());
+                pages.forEach(p => pdfDoc.addPage(p));
+                console.log(`   [FIEL-COPIA-NORMAL] Traza VI de ${t.email} añadida`);
+            }
+        } catch (trazaErr) {
+            console.warn(`   ⚠️ [FIEL-COPIA-NORMAL] Error fusionando trazas: ${trazaErr.message}`);
+        }
         const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
         const pages = pdfDoc.getPages();
         const totalPages = pages.length;
@@ -7002,8 +7048,9 @@ app.post('/api/public/sign/:token', async (req, res) => {
                         });
 
                         // Enviar copia fiel a todos los firmantes (siempre, independiente de si hubo trazas)
+                        // Usar pdfBuffer (interim con firmas dibujadas, SIN sello PKI ni QR ni firma visible)
                         try {
-                            await sendFielCopiaDocumentoNormal(recipient.document_id, finalPdfForEmail);
+                            await sendFielCopiaDocumentoNormal(recipient.document_id, pdfBuffer);
                         } catch (copiaErr) {
                             console.warn(`   ⚠️ [FIEL-COPIA-NORMAL] Error enviando copia fiel: ${copiaErr.message}`);
                         }
