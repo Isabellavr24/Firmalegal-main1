@@ -3516,9 +3516,12 @@ async function _processPagareCsvData(results, fileName) {
         const suffixKey = sortedSuffixes[firmIndex - 1];
         if (suffixKey !== undefined) {
           const cols = nameColsBySuffix[suffixKey] || [];
-          // Combinar todas las columnas del grupo (ej: nombre + apellido)
-          const parts = cols.map(c => (row[c] || '').trim()).filter(Boolean);
-          nombre = parts.join(' ');
+          // Usar solo la primera columna con valor del grupo — las demás son el mismo nombre
+          // repetido en distintas secciones del PDF (consentimiento, carta instrucción, pagaré)
+          for (const c of cols) {
+            const val = (row[c] || '').trim();
+            if (val) { nombre = val; break; }
+          }
         }
         firmantes.push({ email, partId: firmIndex, roleName: `Firmante N${firmIndex}`, name: nombre || email });
       }
