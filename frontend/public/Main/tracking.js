@@ -3549,7 +3549,16 @@ async function _processPagareCsvData(results, fileName) {
   const firmantesPromedio = pagaresData.length > 0 ? pagaresData[0].firmantes.length : 0;
   const totalEmails = pagaresData.reduce((sum, p) => sum + p.firmantes.length, 0);
   const firmantesConsistentes = pagaresData.every(p => p.firmantes.length === firmantesPromedio);
-  const emailsValidos = pagaresData.every(p => p.firmantes.every(f => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email)));
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const emailsInvalidos = [];
+  pagaresData.forEach((p, pi) => {
+    p.firmantes.forEach(f => {
+      if (!emailRegex.test(f.email)) {
+        emailsInvalidos.push({ fila: p.rowIndex, email: f.email, firmante: f.partId });
+      }
+    });
+  });
+  const emailsValidos = emailsInvalidos.length === 0;
   const camposTexto = Object.keys(pagaresData[0]?.textFields || {}).length;
 
   // Consultar estado VI
@@ -3583,7 +3592,10 @@ async function _processPagareCsvData(results, fileName) {
   const validationEl = document.getElementById('pagareCsvValidation');
   const validaciones = [];
   if (emailsValidos) validaciones.push('✓ Todos los emails son válidos');
-  else validaciones.push('⚠ Algunos emails no son válidos');
+  else {
+    const detalle = emailsInvalidos.map(e => `Fila ${e.fila} (Firmante ${e.firmante}): "${e.email}"`).join(' | ');
+    validaciones.push(`⚠ Emails inválidos: ${detalle}`);
+  }
   if (firmantesConsistentes) validaciones.push(`✓ Todos los pagarés tienen ${firmantesPromedio} firmante(s)`);
   else validaciones.push('⚠ Número inconsistente de firmantes entre filas');
   if (camposTexto > 0) validaciones.push(`✓ ${camposTexto} campo(s) de texto detectado(s)`);
