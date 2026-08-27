@@ -1,4 +1,4 @@
-/**
+﻿/**
  * =============================================
  * CONTROLADOR DE ENVÍO MASIVO
  * Manejo de envío masivo de documentos vía CSV/XLSX
@@ -30,6 +30,30 @@ const FONT_FILES = {
     tinos:       { regular: 'Tinos-Regular.ttf', bold: 'Tinos-Bold.ttf' },
     carlito:     { regular: 'Carlito-Regular.ttf', bold: 'Carlito-Bold.ttf' },
 };
+
+// Reemplaza caracteres no codificables en WinAnsi por equivalentes ASCII
+function sanitizeText(text) {
+    if (!text) return text;
+    return String(text)
+        .replace(/\u2013/g, '-')   // en-dash
+        .replace(/\u2014/g, '-')   // em-dash
+        .replace(/\u2018/g, "'")   // left single quote
+        .replace(/\u2019/g, "'")   // right single quote
+        .replace(/\u201C/g, '"')   // left double quote
+        .replace(/\u201D/g, '"')   // right double quote
+        .replace(/\u2022/g, '-')   // bullet
+        .replace(/\u2026/g, '...') // ellipsis
+        .replace(/\u00A0/g, ' ')   // non-breaking space
+        // Windows-1252 codepoints que PapaParse entrega como U+0080-U+009F
+        .replace(/\u0096/g, '-')   // 0x96 en-dash (Windows-1252)
+        .replace(/\u0097/g, '-')   // 0x97 em-dash (Windows-1252)
+        .replace(/\u0091/g, "'")   // 0x91 left single quote (Windows-1252)
+        .replace(/\u0092/g, "'")   // 0x92 right single quote (Windows-1252)
+        .replace(/\u0093/g, '"')   // 0x93 left double quote (Windows-1252)
+        .replace(/\u0094/g, '"')   // 0x94 right double quote (Windows-1252)
+        .replace(/\u0095/g, '-')   // 0x95 bullet (Windows-1252)
+        .replace(/\u0085/g, '...'); // 0x85 ellipsis (Windows-1252)
+}
 
 // Carga todas las fuentes disponibles en el PDF. Si un TTF no existe, cae a StandardFonts.
 async function loadCustomFonts(pdfDoc) {
@@ -1436,11 +1460,12 @@ async function prefilPDFWithTemplateValues(db, documentId, pdfPath) {
 
         // Helper: calcular fontSize que cabe y truncar si excede el ancho
         function fitText(font, text, fieldWidth, fieldHeight, preferredSize) {
+            const safeText = sanitizeText(text);
             let size = preferredSize ? Math.min(parseFloat(preferredSize), fieldHeight * 0.85) : Math.min(fieldHeight * 0.65, 12);
             size = Math.max(size, 6);
             const maxW = fieldWidth - 4;
-            while (size > 6 && font.widthOfTextAtSize(text, size) > maxW) size -= 0.5;
-            let displayText = text;
+            while (size > 6 && font.widthOfTextAtSize(safeText, size) > maxW) size -= 0.5;
+            let displayText = safeText;
             while (font.widthOfTextAtSize(displayText, size) > maxW && displayText.length > 1) {
                 displayText = displayText.slice(0, -1);
             }
@@ -1572,13 +1597,14 @@ async function prefillPDFWithRecipientData(db, documentId, pdfPath, recipientEma
 
         // Helper: calcular fontSize que cabe y truncar texto si es necesario
         function fitTextInField(font, text, fieldWidth, fieldHeight, preferredSize) {
+            const safeText = sanitizeText(text);
             let size = preferredSize ? Math.min(parseFloat(preferredSize), fieldHeight * 0.85) : Math.min(fieldHeight * 0.65, 12);
             size = Math.max(size, 6);
             const maxW = fieldWidth - 4;
-            while (size > 6 && font.widthOfTextAtSize(text, size) > maxW) {
+            while (size > 6 && font.widthOfTextAtSize(safeText, size) > maxW) {
                 size -= 0.5;
             }
-            let displayText = text;
+            let displayText = safeText;
             while (font.widthOfTextAtSize(displayText, size) > maxW && displayText.length > 1) {
                 displayText = displayText.slice(0, -1);
             }
