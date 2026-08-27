@@ -17,6 +17,29 @@ const mailer = require('../lib/email/mailer'); // 📧 NUEVO: Para envío de ema
 const crypto = require('crypto'); // 🔐 Para generar tokens
 const { PDFDocument } = require('pdf-lib'); // Para merge de trazas VI
 
+function sanitizeText(text) {
+    if (!text) return text;
+    let s = String(text);
+    s = s.split(String.fromCharCode(0x2013)).join('-');
+    s = s.split(String.fromCharCode(0x2014)).join('-');
+    s = s.split(String.fromCharCode(0x2018)).join("'");
+    s = s.split(String.fromCharCode(0x2019)).join("'");
+    s = s.split(String.fromCharCode(0x201C)).join('"');
+    s = s.split(String.fromCharCode(0x201D)).join('"');
+    s = s.split(String.fromCharCode(0x2022)).join('-');
+    s = s.split(String.fromCharCode(0x2026)).join('...');
+    s = s.split(String.fromCharCode(0x00A0)).join(' ');
+    s = s.split(String.fromCharCode(0x0096)).join('-');
+    s = s.split(String.fromCharCode(0x0097)).join('-');
+    s = s.split(String.fromCharCode(0x0091)).join("'");
+    s = s.split(String.fromCharCode(0x0092)).join("'");
+    s = s.split(String.fromCharCode(0x0093)).join('"');
+    s = s.split(String.fromCharCode(0x0094)).join('"');
+    s = s.split(String.fromCharCode(0x0095)).join('-');
+    s = s.split(String.fromCharCode(0x0085)).join('...');
+    return s;
+}
+
 // =============================================
 // CONFIGURACIÓN DE MULTER PARA UPLOAD
 // =============================================
@@ -3099,10 +3122,11 @@ async function generatePersonalizedPagare(sourcePdfPath, viewerGroupId, fieldVal
         }
 
         function fitText(font, text, fieldWidth, fieldHeight, preferredSize) {
+            const safeText = sanitizeText(text);
             let size = preferredSize ? Math.min(parseFloat(preferredSize), fieldHeight * 0.85) : Math.min(fieldHeight * 0.65, 12);
             size = Math.max(size, 6);
             const maxW = fieldWidth - 4;
-            let displayText = text;
+            let displayText = safeText;
             while (font.widthOfTextAtSize(displayText, size) > maxW && displayText.length > 1) {
                 displayText = displayText.slice(0, -1);
             }
