@@ -5679,17 +5679,20 @@ app.post('/api/public/sign/:token', async (req, res) => {
             console.log(`💾 PDF intermedio guardado: ${relativeIntermediatePath}`);
 
             // 7. Actualizar file_path del documento para que apunte al PDF con firmas visuales
-            // También guardamos doc_only_path = PDF limpio con firmas (sin traza VI), usado como base del sellado PKI
-            await new Promise((resolve, reject) => {
-                db.query(
-                    'UPDATE documents SET file_path = ?, doc_only_path = ? WHERE document_id = ?',
-                    [relativeIntermediatePath, relativeIntermediatePath, recipient.document_id],
-                    (err) => {
-                        if (err) reject(err);
-                        else resolve();
-                    }
-                );
-            });
+            // Para pagarés NO actualizar: doc_only_path es compartido entre todos los pagarés del mismo
+            // document_id — sobreescribirlo causaría que otros pagarés lean el interim equivocado.
+            if (!isPersonalizedDoc) {
+                await new Promise((resolve, reject) => {
+                    db.query(
+                        'UPDATE documents SET file_path = ?, doc_only_path = ? WHERE document_id = ?',
+                        [relativeIntermediatePath, relativeIntermediatePath, recipient.document_id],
+                        (err) => {
+                            if (err) reject(err);
+                            else resolve();
+                        }
+                    );
+                });
+            }
 
             // ✅ CORREGIDO: Actualizar custom_pdf_path según el tipo de documento
             if (isPersonalizedDoc) {
