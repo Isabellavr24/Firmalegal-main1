@@ -5315,11 +5315,16 @@ app.post('/api/public/sign/:token', async (req, res) => {
             }
 
             // 4. Leer el PDF base para esta firma
-            // Preferencia: doc_only_path (acumula todas las firmas anteriores) > custom_pdf_path > file_path
-            // ⚠️ EXCEPCIÓN VI: Si hay traza VI en custom_pdf_path, usar base limpia sin traza.
+            // Para pagarés (isPersonalizedDoc): SIEMPRE usar custom_pdf_path del recipient.
+            // doc_only_path es del documento compartido y puede apuntar al interim de OTRO pagaré.
+            // Para documentos normales: doc_only_path acumula firmas anteriores correctamente.
             let sourcePath;
             const customPathIsPreTraza = recipient.custom_pdf_path && recipient.custom_pdf_path.includes('pre_traza');
-            if (!recipient.personal_pdf_path && (recipient.vi_traza_path || customPathIsPreTraza)) {
+            if (isPersonalizedDoc) {
+                // PAGARÉ: usar siempre el PDF personalizado del recipient (nunca doc_only_path del documento)
+                sourcePath = recipient.custom_pdf_path || recipient.file_path;
+                console.log(`📄 [PAGARÉ] PDF individual del recipient: ${sourcePath}`);
+            } else if (!recipient.personal_pdf_path && (recipient.vi_traza_path || customPathIsPreTraza)) {
                 // Documento normal con VI: custom_pdf_path puede ser pre_traza con traza ya embebida.
                 // file_path ahora SIEMPRE apunta al PDF original (pre_traza usa filled_pdf_path).
                 // Usar doc_only_path si existe (acumula firmas anteriores), o file_path limpio.
