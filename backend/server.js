@@ -633,9 +633,9 @@ async function sendFielCopiaAlDeudor(documentId, viewerGroupId, pdfBuffer) {
  * Genera y envía por email una copia fiel del documento normal a todos los firmantes.
  * Sin sello PKI ni estampa de tiempo — solo marca de agua y mensaje al pie.
  */
-async function sendFielCopiaDocumentoNormal(documentId, pdfBuffer) {
+async function sendFielCopiaDocumentoNormal(documentId, pdfBuffer, trazasYaIncluidas = false) {
     try {
-        console.log(`\n📄 [FIEL-COPIA-NORMAL] Generando copia fiel para doc=${documentId}...`);
+        console.log(`\n📄 [FIEL-COPIA-NORMAL] Generando copia fiel para doc=${documentId}... (trazasYaIncluidas=${trazasYaIncluidas})`);
 
         // Obtener todos los firmantes del documento
         const [recipients] = await db.promise().query(
@@ -655,9 +655,10 @@ async function sendFielCopiaDocumentoNormal(documentId, pdfBuffer) {
         );
         const docTitle = docRows[0]?.title || `Documento_${documentId}`;
 
-        // Fusionar trazas VI de todos los firmantes antes de agregar marca de agua
+        // Fusionar trazas VI solo si el PDF base no las incluye ya
         const { PDFDocument, rgb, StandardFonts, degrees } = require('pdf-lib');
         let pdfDoc = await PDFDocument.load(pdfBuffer);
+        if (!trazasYaIncluidas) {
         try {
             const [trazasRows] = await db.promise().query(
                 `SELECT DISTINCT dr.email, dr.vi_traza_path
@@ -703,6 +704,9 @@ async function sendFielCopiaDocumentoNormal(documentId, pdfBuffer) {
             }
         } catch (trazaErr) {
             console.warn(`   ⚠️ [FIEL-COPIA-NORMAL] Error fusionando trazas: ${trazaErr.message}`);
+        }
+        } else {
+            console.log(`   [FIEL-COPIA-NORMAL] Trazas VI ya incluidas en PDF — omitiendo fusión`);
         }
         const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
         const pages = pdfDoc.getPages();
@@ -7025,10 +7029,10 @@ app.post('/api/public/sign/:token', async (req, res) => {
                             );
                         });
 
-                        // Enviar copia fiel a todos los firmantes
-                        // Usar pdfBuffer (interim con firmas dibujadas, SIN sello PKI ni QR ni firma visible)
+                        // Enviar copia fiel con el PDF final sellado (ya tiene trazas VI + PKI)
+                        // trazasYaIncluidas=true para que la función no las agregue de nuevo
                         try {
-                            await sendFielCopiaDocumentoNormal(recipient.document_id, pdfBuffer);
+                            await sendFielCopiaDocumentoNormal(recipient.document_id, signedPdfBuffer, true);
                         } catch (copiaErr) {
                             console.warn(`   ⚠️ [FIEL-COPIA-NORMAL] Error enviando copia fiel: ${copiaErr.message}`);
                         }
