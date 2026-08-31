@@ -1963,8 +1963,12 @@ app.post('/api/documents/:id/pre-insert-trazas', async (req, res) => {
         const mergedRelPath = `uploads/signed/${mergedFilename}`;
         fs.writeFileSync(mergedAbsPath, mergedBytes);
 
+        // Preservar el PDF limpio original en doc_only_path antes de que pre_traza sobreescriba file_path.
+        // doc_only_path se usa como base limpia en VI-CALLBACK para no duplicar trazas.
         await db.promise().query(
-            'UPDATE documents SET filled_pdf_path = ? WHERE document_id = ?',
+            `UPDATE documents SET filled_pdf_path = ?,
+             doc_only_path = COALESCE(doc_only_path, IF(file_path NOT LIKE '%pre_traza%', file_path, NULL))
+             WHERE document_id = ?`,
             [mergedRelPath, documentId]
         );
         console.log(`   [PRE-TRAZA] filled_pdf_path actualizado -> ${mergedRelPath} (${insertedEmails.length} traza(s))`);
@@ -3549,7 +3553,7 @@ app.post('/api/public/vi-callback', async (req, res) => {
                         dr.custom_pdf_path, dr.personal_pdf_path, dr.email,
                         dr.viewer_group_id, dr.is_final_signer, dr.status,
                         dr.vi_traza_path,
-                        d.file_path, d.title, d.document_type
+                        d.file_path, d.doc_only_path, d.filled_pdf_path, d.title, d.document_type
                  FROM document_recipients dr
                  INNER JOIN documents d ON dr.document_id = d.document_id
                  WHERE dr.token = ?`,
@@ -3663,9 +3667,17 @@ app.post('/api/public/vi-callback', async (req, res) => {
                     });
                     console.log(`✅ [VI-CALLBACK] Traza VI guardada para pagaré ${recipient.email}: ${trazaFilename} (custom_pdf_path NO modificado)`);
                 } else {
-                    // DOCUMENTO NORMAL: generar vi_personal (PDF base + traza) y actualizar custom_pdf_path
+                    // DOCUMENTO NORMAL: generar vi_personal (PDF base LIMPIO + traza propia) y actualizar custom_pdf_path
+                    // IMPORTANTE: usar siempre PDF limpio sin trazas como base para no duplicar trazas.
+                    // doc_only_path acumula firmas anteriores (sin trazas). Si no existe, file_path
+                    // pero solo si no es un pre_traza (que ya tiene trazas de todos mezcladas).
                     const { PDFDocument: PDFDoc } = require('pdf-lib');
-                    const basePdfRel = (recipient.personal_pdf_path || recipient.custom_pdf_path || recipient.file_path || '').replace(/^\/+/, '');
+                    const rawFilePath = (recipient.file_path || '');
+                    const cleanBase = recipient.doc_only_path ||
+                        (!rawFilePath.includes('pre_traza') ? rawFilePath : null) ||
+                        recipient.custom_pdf_path ||
+                        rawFilePath;
+                    const basePdfRel = (recipient.personal_pdf_path || cleanBase || '').replace(/^\/+/, '');
                     if (!basePdfRel) throw new Error('No hay PDF base para el destinatario');
                     const basePdfAbs = resolveFromRoot(basePdfRel);
                     if (!fs.existsSync(basePdfAbs)) throw new Error(`PDF base no encontrado: ${basePdfAbs}`);
