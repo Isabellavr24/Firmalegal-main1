@@ -2343,11 +2343,18 @@ router.get('/:id/recipients', requireAuth, async (req, res) => {
     const db = req.app.locals.db;
 
     try {
-        // Verificar que el documento pertenece al usuario
+        // Verificar que el documento pertenece al usuario o a un compañero de equipo
         const docResults = await new Promise((resolve, reject) => {
             db.query(
-                'SELECT document_id, tv_guid FROM documents WHERE document_id = ? AND owner_id = ?',
-                [documentId, req.userId],
+                `SELECT document_id, tv_guid FROM documents
+                 WHERE document_id = ?
+                   AND owner_id IN (
+                     SELECT DISTINCT tm2.user_id FROM team_members tm1
+                     JOIN team_members tm2 ON tm2.team_id = tm1.team_id
+                     WHERE tm1.user_id = ?
+                     UNION SELECT ?
+                   )`,
+                [documentId, req.userId, req.userId],
                 (err, results) => {
                     if (err) reject(err);
                     else resolve(results);
