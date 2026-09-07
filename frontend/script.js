@@ -340,7 +340,7 @@ async function fetchFoldersAPI(){
   const qs = new URLSearchParams();
   qs.set('user_id', user.user_id);
   qs.set('level', '0');
-  if (currentFilter !== '*') qs.set('filter', currentFilter);
+  if (currentFilter !== '*' && currentFilter !== 'mine') qs.set('filter', currentFilter);
   if (currentSearch.trim()) qs.set('search', currentSearch.trim());
 
   const url = `/api/folders?${qs.toString()}`;
