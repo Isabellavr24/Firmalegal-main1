@@ -67,6 +67,11 @@ services:
       - TSA_URL=${TSA_URL}
       - SENDGRID_API_KEY=${SENDGRID_API_KEY}
       - JWT_SECRET=${JWT_SECRET}
+      - INFOBIP_BASE_URL=${INFOBIP_BASE_URL}
+      - INFOBIP_API_KEY=${INFOBIP_API_KEY}
+      - INFOBIP_SENDER=${INFOBIP_SENDER}
+      - VI_URL=${VI_URL}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
     volumes:
       - ./uploads:/app/uploads
       - ./backend/certificates:/app/backend/certificates:ro
