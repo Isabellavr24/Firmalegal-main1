@@ -88,8 +88,18 @@ jobs:
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "${{ secrets.PROD_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H ${{ secrets.PROD_HOST }} >> ~/.ssh/known_hosts
-          test -s ~/.ssh/known_hosts
+          # Una clave pegada sin saltos de línea es inservible: se detecta acá
+          # en vez de fallar más adelante con un error opaco de permisos.
+          if ! ssh-keygen -y -f ~/.ssh/id_ed25519 > /dev/null 2>&1; then
+            echo "::error::PROD_SSH_KEY no es una clave válida (¿se perdieron los saltos de línea al copiarla?)"
+            exit 1
+          fi
+          ssh-keyscan "${{ secrets.PROD_HOST }}" 2>/dev/null >> ~/.ssh/known_hosts || true
+          if [ ! -s ~/.ssh/known_hosts ]; then
+            echo "::error::ssh-keyscan no obtuvo la clave del servidor"
+            exit 1
+          fi
+          echo "Clave SSH y known_hosts listos."
 
       - name: Desplegar con rollback automático
         run: |
