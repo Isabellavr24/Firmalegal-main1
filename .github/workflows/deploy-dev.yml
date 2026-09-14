@@ -28,24 +28,32 @@ jobs:
     needs: verificar
     runs-on: ubuntu-latest
     steps:
-      - name: Configurar WireGuard
+      - name: Levantar VPN
         run: |
-          sudo apt-get update && sudo apt-get install -y wireguard-tools
+          sudo apt-get update -qq && sudo apt-get install -y -qq wireguard-tools
           echo "${{ secrets.DEV_WG_CONFIG }}" | sudo tee /etc/wireguard/wg0.conf > /dev/null
           sudo chmod 600 /etc/wireguard/wg0.conf
           sudo wg-quick up wg0
+          # wg-quick retorna antes de que el túnel esté operativo.
+          for i in $(seq 1 15); do
+            ping -c1 -W2 ${{ secrets.DEV_HOST }} >/dev/null 2>&1 && exit 0
+            sleep 2
+          done
+          echo "::error::La VPN no estableció conexión con el servidor"
+          exit 1
 
       - name: Configurar clave SSH
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.DEV_SSH_KEY }}" > ~/.ssh/id_ed25519
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.DEV_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -p ${{ secrets.DEV_SSH_PORT }} -H ${{ secrets.DEV_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keyscan -p ${{ secrets.DEV_SSH_PORT }} -H ${{ secrets.DEV_HOST }} >> ~/.ssh/known_hosts
+          test -s ~/.ssh/known_hosts
 
       - name: Desplegar con rollback automático
         run: |
           ssh -i ~/.ssh/id_ed25519 -p ${{ secrets.DEV_SSH_PORT }} firmalegal@${{ secrets.DEV_HOST }} \
-            'sudo /usr/local/bin/fl-deploy.sh ${{ github.sha }}'
+            "sudo /usr/local/bin/fl-deploy.sh ${{ github.sha }}"
 
       - name: Cerrar VPN
         if: always()
