@@ -86,7 +86,10 @@ jobs:
       - name: Configurar clave SSH
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "${{ secrets.PROD_SSH_KEY }}" > ~/.ssh/id_ed25519
+          # Se acepta la clave con '|' como separador, para poder pegarla en el
+          # secret como un solo renglón sin depender de conservar los saltos.
+          printf '%s\n' "${{ secrets.PROD_SSH_KEY }}" | tr '|' '\n' | sed '/^$/d' > ~/.ssh/id_ed25519
+          printf '\n' >> ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           # Una clave pegada sin saltos de línea es inservible: se detecta acá
           # en vez de fallar más adelante con un error opaco de permisos.
