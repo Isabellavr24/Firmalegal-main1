@@ -11,11 +11,27 @@ HEALTH_URL="http://localhost:3000/health"
 REINTENTOS=12
 ESPERA=5
 
+# La configuración de nginx difiere entre ambientes (DEV enruta proyectos que
+# PROD no tiene). El deploy la preserva en lugar de sobrescribirla.
+PRESERVAR="nginx/nginx.conf"
+
 cd "$APP_DIR"
 
 ANTERIOR=$(git rev-parse HEAD)
 echo "Versión actual: $ANTERIOR"
 echo "Desplegando:    $COMMIT"
+
+RESPALDO=$(mktemp -d)
+for archivo in $PRESERVAR; do
+  [ -f "$archivo" ] && cp --parents "$archivo" "$RESPALDO/"
+done
+
+restaurar_preservados() {
+  for archivo in $PRESERVAR; do
+    [ -f "$RESPALDO/$archivo" ] && cp "$RESPALDO/$archivo" "$archivo"
+  done
+}
+trap 'rm -rf "$RESPALDO"' EXIT
 
 comprobar_salud() {
   for i in $(seq 1 $REINTENTOS); do
@@ -31,7 +47,8 @@ comprobar_salud() {
 revertir() {
   echo "FALLO: revirtiendo a $ANTERIOR"
   git reset --hard "$ANTERIOR"
-  docker compose up -d --build
+  restaurar_preservados
+  docker compose up -d --build app
   if comprobar_salud; then
     echo "Rollback completado. La versión anterior está activa."
   else
@@ -42,8 +59,10 @@ revertir() {
 
 git fetch origin
 git reset --hard "$COMMIT"
+restaurar_preservados
 
-docker compose up -d --build || revertir
+# Solo se reconstruye la app: mysql y redis no cambian entre despliegues.
+docker compose up -d --build app || revertir
 
 comprobar_salud || revertir
 
