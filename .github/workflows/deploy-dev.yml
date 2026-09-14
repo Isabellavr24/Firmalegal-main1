@@ -46,7 +46,10 @@ jobs:
           # Se inserta un salto antes de cada clave conocida y se quitan los
           # espacios junto al '='. Así el resultado es una línea por campo,
           # venga el secret en varias líneas o todo en una sola.
+          # El secret puede venir en varias líneas, en una sola, o con '|' como
+          # separador. Se normaliza a una línea por campo en los tres casos.
           crudo=$(printf '%s' "${{ secrets.DEV_WG_CONFIG }}" \
+            | tr '|' '\n' \
             | sed -E 's/(PrivateKey|Address|PublicKey|PresharedKey|AllowedIPs|Endpoint|PersistentKeepalive|\[Interface\]|\[Peer\])/\n\1/g' \
             | sed -E 's/[[:space:]]*=[[:space:]]*/=/' \
             | sed -E 's/[[:space:]]+$//')
