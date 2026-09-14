@@ -21,7 +21,16 @@ jobs:
           node-version: '18'
 
       - name: Validar sintaxis de backend
-        run: find backend -name '*.js' -not -path '*/node_modules/*' -print0 | xargs -0 -n1 node --check
+        run: |
+          fallos=0
+          while IFS= read -r archivo; do
+            if ! node --check "$archivo" 2>/tmp/err; then
+              echo "::error file=$archivo::$(head -3 /tmp/err | tr '\n' ' ')"
+              fallos=$((fallos + 1))
+            fi
+          done < <(find backend -name '*.js' -not -path '*/node_modules/*')
+          echo "Archivos con error de sintaxis: $fallos"
+          test "$fallos" -eq 0
 
   desplegar:
     name: Desplegar
