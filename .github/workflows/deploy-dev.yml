@@ -71,8 +71,9 @@ jobs:
           sudo sed -E 's/= .+/= <presente>/' /etc/wireguard/wg0.conf
           sudo wg-quick up wg0
           # wg-quick retorna antes de que el túnel esté operativo.
+          host=$(printf '%s' "${{ secrets.DEV_HOST }}" | tr -d '[:space:]')
           for i in $(seq 1 15); do
-            ping -c1 -W2 ${{ secrets.DEV_HOST }} >/dev/null 2>&1 && exit 0
+            ping -c1 -W2 "$host" >/dev/null 2>&1 && exit 0
             sleep 2
           done
           echo "::error::La VPN no estableció conexión con el servidor"
@@ -92,7 +93,9 @@ jobs:
             echo "::error::DEV_SSH_KEY no es una clave válida (¿se perdieron los saltos de línea al copiarla?)"
             exit 1
           fi
-          ssh-keyscan -p ${{ secrets.DEV_SSH_PORT }} "${{ secrets.DEV_HOST }}" 2>/dev/null >> ~/.ssh/known_hosts || true
+          host=$(printf '%s' "${{ secrets.DEV_HOST }}" | tr -d '[:space:]')
+          puerto=$(printf '%s' "${{ secrets.DEV_SSH_PORT }}" | tr -cd '0-9')
+          ssh-keyscan -p "$puerto" "$host" 2>/dev/null >> ~/.ssh/known_hosts || true
           if [ ! -s ~/.ssh/known_hosts ]; then
             echo "::error::ssh-keyscan no obtuvo la clave del servidor"
             exit 1
@@ -104,7 +107,12 @@ jobs:
           SSH_PORT: ${{ secrets.DEV_SSH_PORT }}
           SSH_HOST: ${{ secrets.DEV_HOST }}
           COMMIT: ${{ github.sha }}
-        run: ssh -i ~/.ssh/id_ed25519 -p "$SSH_PORT" -o BatchMode=yes "firmalegal@$SSH_HOST" "sudo /usr/local/bin/fl-deploy.sh $COMMIT"
+        run: |
+          # Los secrets pueden traer espacios o saltos al final según cómo se
+          # hayan pegado; ssh los rechaza como "invalid characters".
+          host=$(printf '%s' "$SSH_HOST" | tr -d '[:space:]')
+          puerto=$(printf '%s' "$SSH_PORT" | tr -cd '0-9')
+          ssh -i ~/.ssh/id_ed25519 -p "$puerto" -o BatchMode=yes "firmalegal@$host" "sudo /usr/local/bin/fl-deploy.sh $COMMIT"
 
       - name: Cerrar VPN
         if: always()

@@ -76,8 +76,9 @@ jobs:
           sudo sed -E 's/= .+/= <presente>/' /etc/wireguard/wg0.conf
           sudo wg-quick up wg0
           # wg-quick retorna antes de que el túnel esté operativo.
+          host=$(printf '%s' "${{ secrets.PROD_HOST }}" | tr -d '[:space:]')
           for i in $(seq 1 15); do
-            ping -c1 -W2 ${{ secrets.PROD_HOST }} >/dev/null 2>&1 && exit 0
+            ping -c1 -W2 "$host" >/dev/null 2>&1 && exit 0
             sleep 2
           done
           echo "::error::La VPN no estableció conexión con el servidor"
@@ -97,7 +98,8 @@ jobs:
             echo "::error::PROD_SSH_KEY no es una clave válida (¿se perdieron los saltos de línea al copiarla?)"
             exit 1
           fi
-          ssh-keyscan "${{ secrets.PROD_HOST }}" 2>/dev/null >> ~/.ssh/known_hosts || true
+          host=$(printf '%s' "${{ secrets.PROD_HOST }}" | tr -d '[:space:]')
+          ssh-keyscan "$host" 2>/dev/null >> ~/.ssh/known_hosts || true
           if [ ! -s ~/.ssh/known_hosts ]; then
             echo "::error::ssh-keyscan no obtuvo la clave del servidor"
             exit 1
@@ -108,7 +110,11 @@ jobs:
         env:
           SSH_HOST: ${{ secrets.PROD_HOST }}
           COMMIT: ${{ github.sha }}
-        run: ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "firmalegal@$SSH_HOST" "sudo /usr/local/bin/fl-deploy.sh $COMMIT"
+        run: |
+          # Los secrets pueden traer espacios o saltos al final según cómo se
+          # hayan pegado; ssh los rechaza como "invalid characters".
+          host=$(printf '%s' "$SSH_HOST" | tr -d '[:space:]')
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "firmalegal@$host" "sudo /usr/local/bin/fl-deploy.sh $COMMIT"
 
       - name: Cerrar VPN
         if: always()
