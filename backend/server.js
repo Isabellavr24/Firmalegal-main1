@@ -5337,9 +5337,10 @@ app.post('/api/public/sign/:token', async (req, res) => {
             let sourcePath;
             const customPathIsPreTraza = recipient.custom_pdf_path && recipient.custom_pdf_path.includes('pre_traza');
             if (isPersonalizedDoc) {
-                // PAGARÉ: usar siempre el PDF personalizado del recipient (nunca doc_only_path del documento)
-                sourcePath = recipient.custom_pdf_path || recipient.file_path;
-                console.log(`📄 [PAGARÉ] PDF individual del recipient: ${sourcePath}`);
+                // PAGARÉ: usar personal_pdf_path (PDF base con datos CSV, nunca corrompido por interims anteriores).
+                // custom_pdf_path puede ser un interim de otro firmante con datos incorrectos.
+                sourcePath = recipient.personal_pdf_path || recipient.custom_pdf_path || recipient.file_path;
+                console.log(`📄 [PAGARÉ] PDF base del recipient: ${sourcePath}`);
             } else if (!recipient.personal_pdf_path && (recipient.vi_traza_path || customPathIsPreTraza)) {
                 // Documento normal con VI: custom_pdf_path puede ser pre_traza con traza ya embebida.
                 // file_path ahora SIEMPRE apunta al PDF original (pre_traza usa filled_pdf_path).
