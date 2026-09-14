@@ -48,7 +48,11 @@ jobs:
       - name: Levantar VPN
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq wireguard-tools
-          echo "${{ secrets.PROD_WG_CONFIG }}" | sudo tee /etc/wireguard/wg0.conf > /dev/null
+          # El paso por el secret puede perder los espacios alrededor de '=',
+          # formato que wg-quick rechaza. Se normaliza antes de escribir.
+          printf '%s\n' "${{ secrets.PROD_WG_CONFIG }}" \
+            | sed -E 's/^([A-Za-z]+)[[:space:]]*=[[:space:]]*/\1 = /' \
+            | sudo tee /etc/wireguard/wg0.conf > /dev/null
           sudo chmod 600 /etc/wireguard/wg0.conf
           sudo wg-quick up wg0
           # wg-quick retorna antes de que el túnel esté operativo.
