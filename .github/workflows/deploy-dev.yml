@@ -40,12 +40,32 @@ jobs:
       - name: Levantar VPN
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq wireguard-tools
-          # El paso por el secret puede perder los espacios alrededor de '=',
-          # formato que wg-quick rechaza. Se normaliza antes de escribir.
-          printf '%s\n' "${{ secrets.DEV_WG_CONFIG }}" \
-            | sed -E 's/^([A-Za-z]+)[[:space:]]*=[[:space:]]*/\1 = /' \
-            | sudo tee /etc/wireguard/wg0.conf > /dev/null
+          # El secret puede llegar sin saltos de línea o sin espacios alrededor
+          # de '='. En vez de confiar en su formato, se extraen los valores y
+          # se reconstruye el archivo con la sintaxis que wg-quick exige.
+          # Se inserta un salto antes de cada clave conocida y se quitan los
+          # espacios junto al '='. Así el resultado es una línea por campo,
+          # venga el secret en varias líneas o todo en una sola.
+          crudo=$(printf '%s' "${{ secrets.DEV_WG_CONFIG }}" \
+            | sed -E 's/(PrivateKey|Address|PublicKey|PresharedKey|AllowedIPs|Endpoint|PersistentKeepalive|\[Interface\]|\[Peer\])/\n\1/g' \
+            | sed -E 's/[[:space:]]*=[[:space:]]*/=/' \
+            | sed -E 's/[[:space:]]+$//')
+          campo() { printf '%s\n' "$crudo" | sed -n "s/^$1=//p" | head -1; }
+          {
+            echo "[Interface]"
+            echo "PrivateKey = $(campo PrivateKey)"
+            echo "Address = $(campo Address)"
+            echo ""
+            echo "[Peer]"
+            echo "PublicKey = $(campo PublicKey)"
+            echo "PresharedKey = $(campo PresharedKey)"
+            echo "AllowedIPs = $(campo AllowedIPs)"
+            echo "Endpoint = $(campo Endpoint)"
+            echo "PersistentKeepalive = 25"
+          } | sudo tee /etc/wireguard/wg0.conf > /dev/null
           sudo chmod 600 /etc/wireguard/wg0.conf
+          # Diagnóstico sin exponer claves: confirma que cada campo tiene valor.
+          sudo sed -E 's/= .+/= <presente>/' /etc/wireguard/wg0.conf
           sudo wg-quick up wg0
           # wg-quick retorna antes de que el túnel esté operativo.
           for i in $(seq 1 15); do
