@@ -100,9 +100,11 @@ jobs:
           echo "Clave SSH y known_hosts listos."
 
       - name: Desplegar con rollback automático
-        run: |
-          ssh -i ~/.ssh/id_ed25519 -p ${{ secrets.DEV_SSH_PORT }} firmalegal@${{ secrets.DEV_HOST }} \
-            "sudo /usr/local/bin/fl-deploy.sh ${{ github.sha }}"
+        env:
+          SSH_PORT: ${{ secrets.DEV_SSH_PORT }}
+          SSH_HOST: ${{ secrets.DEV_HOST }}
+          COMMIT: ${{ github.sha }}
+        run: ssh -i ~/.ssh/id_ed25519 -p "$SSH_PORT" -o BatchMode=yes "firmalegal@$SSH_HOST" "sudo /usr/local/bin/fl-deploy.sh $COMMIT"
 
       - name: Cerrar VPN
         if: always()
