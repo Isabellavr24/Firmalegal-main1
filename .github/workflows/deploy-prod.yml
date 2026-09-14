@@ -1,0 +1,60 @@
+name: Deploy a Producción
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  verificar:
+    name: Verificaciones previas
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Validar sintaxis de backend
+        run: find backend -name '*.js' -not -path '*/node_modules/*' -print0 | xargs -0 -n1 node --check
+
+      - name: Detectar marcadores de trabajo sin terminar
+        run: |
+          if grep -rn 'NO-SUBIR-A-PROD' --include='*.js' --include='*.html' backend frontend; then
+            echo "::error::Hay código marcado como no apto para producción"
+            exit 1
+          fi
+
+  desplegar:
+    name: Desplegar
+    needs: verificar
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Configurar WireGuard
+        run: |
+          sudo apt-get update && sudo apt-get install -y wireguard-tools
+          echo "${{ secrets.PROD_WG_CONFIG }}" | sudo tee /etc/wireguard/wg0.conf > /dev/null
+          sudo chmod 600 /etc/wireguard/wg0.conf
+          sudo wg-quick up wg0
+
+      - name: Configurar clave SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.PROD_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.PROD_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Desplegar con rollback automático
+        run: |
+          ssh -i ~/.ssh/id_ed25519 firmalegal@${{ secrets.PROD_HOST }} \
+            'sudo /usr/local/bin/fl-deploy.sh ${{ github.sha }}'
+
+      - name: Cerrar VPN
+        if: always()
+        run: sudo wg-quick down wg0 || true
