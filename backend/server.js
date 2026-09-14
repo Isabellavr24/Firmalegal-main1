@@ -9183,45 +9183,33 @@ app.post('/api/public/otp/enviar', async (req, res) => {
         await redisClient.setEx(redisKey, 300, code); // 5 minutos
         await redisClient.quit();
 
-        // 5. Enviar por WhatsApp via Twilio usando template Authentication
-        const accountSid = process.env.TWILIO_ACCOUNT_SID;
-        const authToken = process.env.TWILIO_AUTH_TOKEN;
-        const fromNumber = process.env.TWILIO_WHATSAPP_NUMBER;
-        const otpTemplateSid = 'HX77761f3c0b839ae7bb96e8b317f145c0';
+        // 5. Enviar por SMS via Infobip
+        let celularNorm = celular.replace(/\s+/g, '');
+        if (celularNorm.startsWith('0')) celularNorm = celularNorm.slice(1);
+        if (!celularNorm.startsWith('+')) celularNorm = '+57' + celularNorm.replace(/^\+?57/, '');
 
-        const params = new URLSearchParams({
-            To: `whatsapp:${celular}`,
-            From: `whatsapp:${fromNumber}`,
-            ContentSid: otpTemplateSid,
-            ContentVariables: JSON.stringify({ '1': code })
-        });
-        const twilioBody = params.toString();
+        const infobipHost = process.env.INFOBIP_BASE_URL;
+        const infobipApiKey = process.env.INFOBIP_API_KEY;
+        const infobipSender = process.env.INFOBIP_SENDER || 'PKIServ';
+        if (!infobipHost || !infobipApiKey) throw new Error('Configuracion Infobip no disponible');
 
-        await new Promise((resolve, reject) => {
-            const auth = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
-            const https = require('https');
-            const reqTwilio = https.request({
-                hostname: 'api.twilio.com',
-                path: `/2010-04-01/Accounts/${accountSid}/Messages.json`,
-                method: 'POST',
-                headers: {
-                    'Authorization': `Basic ${auth}`,
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'Content-Length': Buffer.byteLength(twilioBody)
-                }
-            }, (resp) => {
-                const chunks = [];
-                resp.on('data', d => chunks.push(d));
-                resp.on('end', () => {
-                    const data = JSON.parse(Buffer.concat(chunks).toString());
-                    if (data.sid) resolve(data);
-                    else reject(new Error(data.message || 'Twilio error'));
-                });
-            });
-            reqTwilio.on('error', reject);
-            reqTwilio.write(twilioBody);
-            reqTwilio.end();
+        const infobipRes = await fetch(`https://${infobipHost}/sms/3/messages`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `App ${infobipApiKey}`,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+            },
+            body: JSON.stringify({
+                messages: [{
+                    destinations: [{ to: celularNorm }],
+                    sender: infobipSender,
+                    content: { text: `Tu codigo de verificacion FirmaLegal es: ${code}. Valido por 5 minutos.` },
+                }],
+            }),
         });
+        const infobipData = await infobipRes.json();
+        if (!infobipRes.ok) throw new Error(infobipData?.requestError?.serviceException?.text || 'Infobip error');
 
         // Enmascarar número para la respuesta
         const maskedPhone = celular.replace(/(\+\d{2,3})\d+(\d{2})$/, '$1****$2');
