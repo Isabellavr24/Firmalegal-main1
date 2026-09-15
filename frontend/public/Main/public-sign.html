@@ -857,7 +857,11 @@ async function loadDocument() {
   try {
     const previewMode = urlParams.get('preview');
     const previewQuery = previewMode ? `?preview=${previewMode}` : '';
-    const response = await fetch(`/api/public/document/${currentToken}${previewQuery}`);
+    // credentials: la cookie de sesión es lo que distingue a un operador
+    // consultando el documento de un firmante abriéndolo para firmar.
+    const response = await fetch(`/api/public/document/${currentToken}${previewQuery}`, {
+      credentials: 'same-origin'
+    });
     
     if (!response.ok) {
       const errData = await response.json().catch(() => ({}));

@@ -4148,8 +4148,29 @@ app.get('/api/public/document/:token', async (req, res) => {
 
         const recipient = recipients[0];
 
+        // Modo consulta para operadores de la plataforma: requiere ?preview=operator
+        // y una sesión válida. Sin JWT el parámetro se ignora, de modo que no
+        // puede usarse desde fuera de la plataforma para saltarse los controles.
+        // Se resuelve antes de las validaciones de firmante porque el operador
+        // consulta el estado del documento, no viene a firmarlo.
+        let isOperatorPreview = false;
+        if (req.query.preview === 'operator') {
+            const authCookiePreview = req.cookies?.auth_token;
+            if (authCookiePreview) {
+                try {
+                    const decoded = jwt.verify(authCookiePreview, process.env.JWT_SECRET);
+                    if (decoded && decoded.userId) {
+                        isOperatorPreview = true;
+                        console.log(`👁️ [VISTA-OPERADOR] Usuario de plataforma (ID: ${decoded.userId}) abrió en modo consulta`);
+                    }
+                } catch (e) {
+                    // Token inválido — se continúa como firmante normal
+                }
+            }
+        }
+
         // 🔒 VALIDACIÓN DE SEGURIDAD CRÍTICA: Control de Acceso para Pagarés
-        if (recipient.document_type === 'pagare') {
+        if (!isOperatorPreview && recipient.document_type === 'pagare') {
             console.log('🔒 [SEGURIDAD] Documento tipo PAGARÉ detectado');
             console.log(`   - is_final_signer: ${recipient.is_final_signer}`);
             console.log(`   - viewer_group_id: ${recipient.viewer_group_id}`);
@@ -4232,25 +4253,6 @@ app.get('/api/public/document/:token', async (req, res) => {
                         message: 'Ya has completado tu firma en este documento. No tienes acceso adicional.',
                         code: 'ALREADY_SIGNED'
                     });
-                }
-            }
-        }
-
-        // 🔒 Detectar modo preview de operador: requiere ?preview=operator EN LA URL + JWT válido
-        // Si no hay JWT, el parámetro se ignora (no se puede falsificar desde fuera de la plataforma)
-        let isOperatorPreview = false;
-        const previewParam = req.query.preview;
-        if (previewParam === 'operator') {
-            const authCookiePreview = req.cookies?.auth_token;
-            if (authCookiePreview) {
-                try {
-                    const decoded = jwt.verify(authCookiePreview, process.env.JWT_SECRET);
-                    if (decoded && decoded.userId) {
-                        isOperatorPreview = true;
-                        console.log(`👁️ [VISTA-OPERADOR] Usuario de plataforma (ID: ${decoded.userId}) abrió en modo preview`);
-                    }
-                } catch (e) {
-                    // Token inválido — continuar como firmante normal
                 }
             }
         }
