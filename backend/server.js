@@ -7846,9 +7846,11 @@ app.get('/api/documents/:docId/recipients/:recipientId/download', async (req, re
         const [documentInfo] = await new Promise((resolve, reject) => {
             db.query(
                 `SELECT d.document_id, d.title, d.file_path, d.signed_file_path, d.owner_id,
-                        dr.email, dr.completed_at, dr.status as recipient_status, dr.vi_traza_path, dr.custom_pdf_path as recipient_custom_pdf_path, dr.student_id
+                        dr.email, dr.completed_at, dr.status as recipient_status, dr.vi_traza_path, dr.custom_pdf_path as recipient_custom_pdf_path, dr.student_id,
+                        vg.complete_pdf_path, vg.status AS viewer_group_status
                  FROM documents d
                  INNER JOIN document_recipients dr ON d.document_id = dr.document_id
+                 LEFT JOIN pagare_viewer_groups vg ON vg.viewer_group_id = dr.viewer_group_id
                  WHERE d.document_id = ? AND dr.recipient_id = ?`,
                 [docId, recipientId],
                 (err, results) => {
@@ -7881,9 +7883,13 @@ app.get('/api/documents/:docId/recipients/:recipientId/download', async (req, re
             // Preferir custom_pdf_path del recipient (ya tiene la firma sellada + traza VI pre-fusionada).
             // Con noTraza=1: usar custom_pdf_path igual (tiene la firma sellada) pero sin fusionar traza encima.
             // Fallback a signed_file_path solo si no hay custom_pdf_path.
-            const sourceRelPath = document.recipient_custom_pdf_path
-                ? document.recipient_custom_pdf_path
-                : document.signed_file_path;
+            // En un pagaré, custom_pdf_path solo tiene los datos del CSV: las
+            // firmas dibujadas están únicamente en el PDF completo del grupo.
+            const sourceRelPath = (document.viewer_group_status === 'completed' && document.complete_pdf_path)
+                ? document.complete_pdf_path
+                : (document.recipient_custom_pdf_path
+                    ? document.recipient_custom_pdf_path
+                    : document.signed_file_path);
 
             console.log(`✅ Documento completado, descargando PDF firmado desde: ${sourceRelPath}`);
 
