@@ -97,10 +97,13 @@ jobs:
           # Diagnóstico sin exponer claves: confirma que cada campo tiene valor.
           sudo sed -E 's/= .+/= <presente>/' /etc/wireguard/wg0.conf
           sudo wg-quick up wg0
-          # wg-quick retorna antes de que el túnel esté operativo.
+          # wg-quick retorna antes de que el túnel esté operativo. Se comprueba
+          # contra el puerto SSH y no con ping: el firewall puede admitir solo
+          # los puertos declarados desde la VPN, y entonces ICMP no responde
+          # aunque el túnel esté levantado.
           host=$(printf '%s' "${{ secrets.PROD_HOST }}" | tr -d '[:space:]')
           for i in $(seq 1 15); do
-            ping -c1 -W2 "$host" >/dev/null 2>&1 && exit 0
+            nc -z -w3 "$host" 22 >/dev/null 2>&1 && exit 0
             sleep 2
           done
           echo "::error::La VPN no estableció conexión con el servidor"
