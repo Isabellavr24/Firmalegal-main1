@@ -633,9 +633,9 @@ async function sendFielCopiaAlDeudor(documentId, viewerGroupId, pdfBuffer) {
  * Genera y envía por email una copia fiel del documento normal a todos los firmantes.
  * Sin sello PKI ni estampa de tiempo — solo marca de agua y mensaje al pie.
  */
-async function sendFielCopiaDocumentoNormal(documentId, pdfBuffer) {
+async function sendFielCopiaDocumentoNormal(documentId, pdfBuffer, trazasYaIncluidas = false) {
     try {
-        console.log(`\n📄 [FIEL-COPIA-NORMAL] Generando copia fiel para doc=${documentId}...`);
+        console.log(`\n📄 [FIEL-COPIA-NORMAL] Generando copia fiel para doc=${documentId}... (trazasYaIncluidas=${trazasYaIncluidas})`);
 
         // Obtener todos los firmantes del documento
         const [recipients] = await db.promise().query(
@@ -655,9 +655,10 @@ async function sendFielCopiaDocumentoNormal(documentId, pdfBuffer) {
         );
         const docTitle = docRows[0]?.title || `Documento_${documentId}`;
 
-        // Fusionar trazas VI de todos los firmantes antes de agregar marca de agua
+        // Fusionar trazas VI solo si el PDF base no las incluye ya
         const { PDFDocument, rgb, StandardFonts, degrees } = require('pdf-lib');
         let pdfDoc = await PDFDocument.load(pdfBuffer);
+        if (!trazasYaIncluidas) {
         try {
             const [trazasRows] = await db.promise().query(
                 `SELECT DISTINCT dr.email, dr.vi_traza_path
@@ -703,6 +704,9 @@ async function sendFielCopiaDocumentoNormal(documentId, pdfBuffer) {
             }
         } catch (trazaErr) {
             console.warn(`   ⚠️ [FIEL-COPIA-NORMAL] Error fusionando trazas: ${trazaErr.message}`);
+        }
+        } else {
+            console.log(`   [FIEL-COPIA-NORMAL] Trazas VI ya incluidas en PDF — omitiendo fusión`);
         }
         const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
         const pages = pdfDoc.getPages();
@@ -1963,8 +1967,12 @@ app.post('/api/documents/:id/pre-insert-trazas', async (req, res) => {
         const mergedRelPath = `uploads/signed/${mergedFilename}`;
         fs.writeFileSync(mergedAbsPath, mergedBytes);
 
+        // Preservar el PDF limpio original en doc_only_path antes de que pre_traza sobreescriba file_path.
+        // doc_only_path se usa como base limpia en VI-CALLBACK para no duplicar trazas.
         await db.promise().query(
-            'UPDATE documents SET filled_pdf_path = ? WHERE document_id = ?',
+            `UPDATE documents SET filled_pdf_path = ?,
+             doc_only_path = COALESCE(doc_only_path, IF(file_path NOT LIKE '%pre_traza%', file_path, NULL))
+             WHERE document_id = ?`,
             [mergedRelPath, documentId]
         );
         console.log(`   [PRE-TRAZA] filled_pdf_path actualizado -> ${mergedRelPath} (${insertedEmails.length} traza(s))`);
@@ -3549,7 +3557,7 @@ app.post('/api/public/vi-callback', async (req, res) => {
                         dr.custom_pdf_path, dr.personal_pdf_path, dr.email,
                         dr.viewer_group_id, dr.is_final_signer, dr.status,
                         dr.vi_traza_path,
-                        d.file_path, d.title, d.document_type
+                        d.file_path, d.doc_only_path, d.filled_pdf_path, d.title, d.document_type
                  FROM document_recipients dr
                  INNER JOIN documents d ON dr.document_id = d.document_id
                  WHERE dr.token = ?`,
@@ -3663,9 +3671,17 @@ app.post('/api/public/vi-callback', async (req, res) => {
                     });
                     console.log(`✅ [VI-CALLBACK] Traza VI guardada para pagaré ${recipient.email}: ${trazaFilename} (custom_pdf_path NO modificado)`);
                 } else {
-                    // DOCUMENTO NORMAL: generar vi_personal (PDF base + traza) y actualizar custom_pdf_path
+                    // DOCUMENTO NORMAL: generar vi_personal (PDF base LIMPIO + traza propia) y actualizar custom_pdf_path
+                    // IMPORTANTE: usar siempre PDF limpio sin trazas como base para no duplicar trazas.
+                    // doc_only_path acumula firmas anteriores (sin trazas). Si no existe, file_path
+                    // pero solo si no es un pre_traza (que ya tiene trazas de todos mezcladas).
                     const { PDFDocument: PDFDoc } = require('pdf-lib');
-                    const basePdfRel = (recipient.personal_pdf_path || recipient.custom_pdf_path || recipient.file_path || '').replace(/^\/+/, '');
+                    const rawFilePath = (recipient.file_path || '');
+                    const cleanBase = recipient.doc_only_path ||
+                        (!rawFilePath.includes('pre_traza') ? rawFilePath : null) ||
+                        recipient.custom_pdf_path ||
+                        rawFilePath;
+                    const basePdfRel = (recipient.personal_pdf_path || cleanBase || '').replace(/^\/+/, '');
                     if (!basePdfRel) throw new Error('No hay PDF base para el destinatario');
                     const basePdfAbs = resolveFromRoot(basePdfRel);
                     if (!fs.existsSync(basePdfAbs)) throw new Error(`PDF base no encontrado: ${basePdfAbs}`);
@@ -5315,11 +5331,17 @@ app.post('/api/public/sign/:token', async (req, res) => {
             }
 
             // 4. Leer el PDF base para esta firma
-            // Preferencia: doc_only_path (acumula todas las firmas anteriores) > custom_pdf_path > file_path
-            // ⚠️ EXCEPCIÓN VI: Si hay traza VI en custom_pdf_path, usar base limpia sin traza.
+            // Para pagarés (isPersonalizedDoc): SIEMPRE usar custom_pdf_path del recipient.
+            // doc_only_path es del documento compartido y puede apuntar al interim de OTRO pagaré.
+            // Para documentos normales: doc_only_path acumula firmas anteriores correctamente.
             let sourcePath;
             const customPathIsPreTraza = recipient.custom_pdf_path && recipient.custom_pdf_path.includes('pre_traza');
-            if (!recipient.personal_pdf_path && (recipient.vi_traza_path || customPathIsPreTraza)) {
+            if (isPersonalizedDoc) {
+                // PAGARÉ: usar personal_pdf_path (PDF base con datos CSV, nunca corrompido por interims anteriores).
+                // custom_pdf_path puede ser un interim de otro firmante con datos incorrectos.
+                sourcePath = recipient.personal_pdf_path || recipient.custom_pdf_path || recipient.file_path;
+                console.log(`📄 [PAGARÉ] PDF base del recipient: ${sourcePath}`);
+            } else if (!recipient.personal_pdf_path && (recipient.vi_traza_path || customPathIsPreTraza)) {
                 // Documento normal con VI: custom_pdf_path puede ser pre_traza con traza ya embebida.
                 // file_path ahora SIEMPRE apunta al PDF original (pre_traza usa filled_pdf_path).
                 // Usar doc_only_path si existe (acumula firmas anteriores), o file_path limpio.
@@ -5674,17 +5696,20 @@ app.post('/api/public/sign/:token', async (req, res) => {
             console.log(`💾 PDF intermedio guardado: ${relativeIntermediatePath}`);
 
             // 7. Actualizar file_path del documento para que apunte al PDF con firmas visuales
-            // También guardamos doc_only_path = PDF limpio con firmas (sin traza VI), usado como base del sellado PKI
-            await new Promise((resolve, reject) => {
-                db.query(
-                    'UPDATE documents SET file_path = ?, doc_only_path = ? WHERE document_id = ?',
-                    [relativeIntermediatePath, relativeIntermediatePath, recipient.document_id],
-                    (err) => {
-                        if (err) reject(err);
-                        else resolve();
-                    }
-                );
-            });
+            // Para pagarés NO actualizar: doc_only_path es compartido entre todos los pagarés del mismo
+            // document_id — sobreescribirlo causaría que otros pagarés lean el interim equivocado.
+            if (!isPersonalizedDoc) {
+                await new Promise((resolve, reject) => {
+                    db.query(
+                        'UPDATE documents SET file_path = ?, doc_only_path = ? WHERE document_id = ?',
+                        [relativeIntermediatePath, relativeIntermediatePath, recipient.document_id],
+                        (err) => {
+                            if (err) reject(err);
+                            else resolve();
+                        }
+                    );
+                });
+            }
 
             // ✅ CORREGIDO: Actualizar custom_pdf_path según el tipo de documento
             if (isPersonalizedDoc) {
@@ -7005,10 +7030,10 @@ app.post('/api/public/sign/:token', async (req, res) => {
                             );
                         });
 
-                        // Enviar copia fiel a todos los firmantes
-                        // Usar pdfBuffer (interim con firmas dibujadas, SIN sello PKI ni QR ni firma visible)
+                        // Enviar copia fiel con el PDF final sellado (ya tiene trazas VI + PKI)
+                        // trazasYaIncluidas=true para que la función no las agregue de nuevo
                         try {
-                            await sendFielCopiaDocumentoNormal(recipient.document_id, pdfBuffer);
+                            await sendFielCopiaDocumentoNormal(recipient.document_id, signedPdfBuffer, true);
                         } catch (copiaErr) {
                             console.warn(`   ⚠️ [FIEL-COPIA-NORMAL] Error enviando copia fiel: ${copiaErr.message}`);
                         }
