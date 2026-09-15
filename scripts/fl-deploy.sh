@@ -58,6 +58,22 @@ revertir() {
 }
 
 git fetch origin
+
+# No se admite desplegar código anterior al que ya está corriendo. Un
+# despliegue así revierte en silencio arreglos que ya estaban en producción,
+# que es como se perdieron correcciones al copiar archivos a mano.
+# Para volver atrás de forma deliberada: FORZAR_RETROCESO=1 fl-deploy.sh <sha>
+if git merge-base --is-ancestor "$COMMIT" "$ANTERIOR" 2>/dev/null && \
+   [ "$(git rev-parse "$COMMIT")" != "$(git rev-parse "$ANTERIOR")" ]; then
+  if [ "${FORZAR_RETROCESO:-0}" != "1" ]; then
+    echo "RECHAZADO: $COMMIT es anterior a lo que está corriendo ($ANTERIOR)."
+    echo "Desplegarlo perdería los cambios que ya están en producción."
+    echo "Si el retroceso es intencional: FORZAR_RETROCESO=1 $0 $COMMIT"
+    exit 1
+  fi
+  echo "AVISO: retroceso forzado a un commit anterior."
+fi
+
 git reset --hard "$COMMIT"
 restaurar_preservados
 
