@@ -1,9 +1,11 @@
 name: Deploy a Producción
 
-# Producción NO se despliega sola al hacer push: el equipo commitea
-# directo a main, y un despliegue automático sacaría a producción cambios
-# que nadie revisó. Se lanza a mano desde la pestaña Actions.
+# main es la rama de producción: lo que llega acá se despliega. El flujo
+# normal es probar en develop y luego mergear, pero se deja el push
+# directo habilitado para poder atender una urgencia sin pasos extra.
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       confirmar:
@@ -20,9 +22,13 @@ jobs:
     name: Verificaciones previas
     runs-on: ubuntu-latest
     steps:
+      # Solo aplica al disparo manual: un push a main despliega sin confirmar.
       - name: Confirmar intención de desplegar
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          CONFIRMACION: ${{ inputs.confirmar }}
         run: |
-          if [ "${{ inputs.confirmar }}" != "DESPLEGAR" ]; then
+          if [ "$CONFIRMACION" != "DESPLEGAR" ]; then
             echo "::error::Para desplegar a producción hay que escribir DESPLEGAR en el campo de confirmación"
             exit 1
           fi
@@ -56,6 +62,9 @@ jobs:
     name: Desplegar
     needs: verificar
     runs-on: ubuntu-latest
+    # Sin reglas configuradas este environment no exige nada. Para que los
+    # despliegues queden en espera de aprobación, agregar "Required
+    # reviewers" en Settings > Environments > production.
     environment: production
     steps:
       - name: Levantar VPN
