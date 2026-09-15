@@ -3933,9 +3933,11 @@ app.get('/api/public/document/:token/download', async (req, res) => {
         const [rows] = await new Promise((resolve, reject) => {
             db.query(
                 `SELECT dr.recipient_id, dr.email, dr.vi_traza_path,
-                        d.title, d.signed_file_path, d.file_path
+                        d.title, d.signed_file_path, d.file_path,
+                        vg.complete_pdf_path, vg.status AS viewer_group_status
                  FROM document_recipients dr
                  INNER JOIN documents d ON dr.document_id = d.document_id
+                 LEFT JOIN pagare_viewer_groups vg ON vg.viewer_group_id = dr.viewer_group_id
                  WHERE dr.token = ?`,
                 [token],
                 (err, results) => { if (err) reject(err); else resolve([results]); }
@@ -3945,7 +3947,10 @@ app.get('/api/public/document/:token/download', async (req, res) => {
         if (!rows || rows.length === 0) return res.status(404).send('Documento no encontrado');
 
         const rec = rows[0];
-        const pdfRelPath = rec.signed_file_path || rec.file_path;
+        // El PDF completo del grupo es el único que lleva las firmas dibujadas.
+        const pdfRelPath = (rec.viewer_group_status === 'completed' && rec.complete_pdf_path)
+            ? rec.complete_pdf_path
+            : (rec.signed_file_path || rec.file_path);
         if (!pdfRelPath) return res.status(404).send('PDF no disponible');
 
         const { PDFDocument: PDFDoc } = require('pdf-lib');
@@ -4018,10 +4023,13 @@ app.get('/api/public/document/:token', async (req, res) => {
                 d.owner_id,
                 u.first_name,
                 u.last_name,
-                u.email as sender_email
+                u.email as sender_email,
+                vg.complete_pdf_path,
+                vg.status as viewer_group_status
             FROM document_recipients dr
             INNER JOIN documents d ON dr.document_id = d.document_id
             INNER JOIN users u ON d.owner_id = u.user_id
+            LEFT JOIN pagare_viewer_groups vg ON vg.viewer_group_id = dr.viewer_group_id
             WHERE dr.token = ?
         `;
 
@@ -4415,6 +4423,12 @@ app.get('/api/public/document/:token', async (req, res) => {
                 pdfType = 'PAGARÉ - PDF ORIGINAL';
                 console.log(`   ℹ️ Firmante definitivo sin custom_pdf_path, usando PDF original: ${sourcePath}`);
             }
+        } else if (recipient.complete_pdf_path && recipient.viewer_group_status === 'completed') {
+            // El PDF completo del grupo es el único que lleva las firmas dibujadas;
+            // custom_pdf_path solo tiene los datos del CSV. Cuando existe, es el que
+            // refleja el estado real del documento.
+            sourcePath = recipient.complete_pdf_path;
+            pdfType = 'COMPLETO CON FIRMAS';
         } else if (recipient.status === 'completed' && hasCustomPdf && recipient.custom_pdf_path) {
             // Documento personalizado completado: usar custom_pdf_path (ya contiene el PDF sellado)
             sourcePath = recipient.custom_pdf_path;
