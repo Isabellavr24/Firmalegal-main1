@@ -3937,3 +3937,6 @@ router.get('/:id/field-values', async (req, res) => {
 });
 
 module.exports = router;
+// Se expone para tareas de mantenimiento que regeneran los PDF personalizados
+// (por ejemplo, al corregir el formato de texto de un documento ya enviado).
+module.exports.generatePersonalizedPagare = generatePersonalizedPagare;
