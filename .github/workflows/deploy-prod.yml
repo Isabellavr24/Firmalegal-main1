@@ -1,9 +1,15 @@
 name: Deploy a Producción
 
+# Producción NO se despliega sola al hacer push: el equipo commitea
+# directo a main, y un despliegue automático sacaría a producción cambios
+# que nadie revisó. Se lanza a mano desde la pestaña Actions.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      confirmar:
+        description: 'Escribir DESPLEGAR para confirmar'
+        required: true
+        default: ''
 
 concurrency:
   group: deploy-prod
@@ -14,6 +20,13 @@ jobs:
     name: Verificaciones previas
     runs-on: ubuntu-latest
     steps:
+      - name: Confirmar intención de desplegar
+        run: |
+          if [ "${{ inputs.confirmar }}" != "DESPLEGAR" ]; then
+            echo "::error::Para desplegar a producción hay que escribir DESPLEGAR en el campo de confirmación"
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
