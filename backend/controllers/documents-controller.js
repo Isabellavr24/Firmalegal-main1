@@ -17,6 +17,24 @@ const mailer = require('../lib/email/mailer'); // 📧 NUEVO: Para envío de ema
 const crypto = require('crypto'); // 🔐 Para generar tokens
 const { PDFDocument } = require('pdf-lib'); // Para merge de trazas VI
 
+// Copia de un VI trace solo las páginas cuyo tamaño difiere del contrato base,
+// descartando las copias del contrato que los VI traces incrustan.
+async function copyViTracePages(targetDoc, trazaDoc, basePageSize) {
+    const { width: bw, height: bh } = basePageSize;
+    const indices = [];
+    for (let i = 0; i < trazaDoc.getPageCount(); i++) {
+        const { width, height } = trazaDoc.getPages()[i].getSize();
+        // Tolerar ±2 pt de diferencia por redondeo de pdf-lib
+        if (Math.abs(width - bw) > 2 || Math.abs(height - bh) > 2) {
+            indices.push(i);
+        }
+    }
+    if (!indices.length) return 0;
+    const pages = await targetDoc.copyPages(trazaDoc, indices);
+    pages.forEach(p => targetDoc.addPage(p));
+    return pages.length;
+}
+
 function sanitizeText(text) {
     if (!text) return text;
     let s = String(text);
@@ -1001,6 +1019,8 @@ router.get('/:id/download-complete', requireAuth, async (req, res) => {
         // 7. Merge: base + trazas (en orden signing_order)
         const basePdfBytes = fs.readFileSync(basePdfPath);
         const mergedDoc = await PDFDocument.load(basePdfBytes);
+        // Tamaño de la primera página del contrato base (para filtrar copias incrustadas en VI traces)
+        const basePageSize = mergedDoc.getPages()[0].getSize();
 
         for (const rec of trazas) {
             const trazaAbsPath = path.join(__dirname, '..', '..', rec.vi_traza_path);
@@ -1011,9 +1031,8 @@ router.get('/:id/download-complete', requireAuth, async (req, res) => {
             try {
                 const trazaBytes = fs.readFileSync(trazaAbsPath);
                 const trazaDoc = await PDFDocument.load(trazaBytes);
-                const trazaPages = await mergedDoc.copyPages(trazaDoc, trazaDoc.getPageIndices());
-                for (const p of trazaPages) mergedDoc.addPage(p);
-                console.log(`   ✅ Traza añadida: ${rec.email} (${trazaDoc.getPageCount()}p)`);
+                const added = await copyViTracePages(mergedDoc, trazaDoc, basePageSize);
+                console.log(`   ✅ Traza añadida: ${rec.email} (${added}p de trazabilidad, ${trazaDoc.getPageCount()}p total en VI)`);
             } catch (e) {
                 console.error(`   ❌ Error cargando traza de ${rec.email}: ${e.message}`);
             }
@@ -1726,6 +1745,7 @@ router.post('/:id/pre-insert-trazas-DISABLED', requireAuth, async (req, res) => 
         }
 
         const basePdf = await PDFDoc.load(fs.readFileSync(basePdfAbs));
+        const basePageSize = basePdf.getPages()[0].getSize();
         const insertedEmails = [];
 
         for (const rec of trazasToInsert) {
@@ -1735,10 +1755,13 @@ router.post('/:id/pre-insert-trazas-DISABLED', requireAuth, async (req, res) => 
                 continue;
             }
             const trazaPdf = await PDFDoc.load(fs.readFileSync(trazaAbs));
-            const pages = await basePdf.copyPages(trazaPdf, trazaPdf.getPageIndices());
-            pages.forEach(p => basePdf.addPage(p));
-            insertedEmails.push(rec.email);
-            console.log(`   ✅ [PRE-TRAZA] Traza de ${rec.email} fusionada`);
+            const added = await copyViTracePages(basePdf, trazaPdf, basePageSize);
+            if (added > 0) {
+                insertedEmails.push(rec.email);
+                console.log(`   ✅ [PRE-TRAZA] Traza de ${rec.email} fusionada (${added}p de trazabilidad)`);
+            } else {
+                console.warn(`   ⚠️ [PRE-TRAZA] Traza de ${rec.email} no tiene páginas de trazabilidad distintas al contrato`);
+            }
         }
 
         if (!insertedEmails.length) {
