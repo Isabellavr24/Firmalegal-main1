@@ -2,7 +2,7 @@
  * TRACKING VIEW - SISTEMA DE SEGUIMIENTO DE DOCUMENTOS
  * v20260317b
  **********************************************************/
-console.log('🔖 tracking.js v20260317b cargado');
+console.log('🔖 tracking.js v20260916a cargado');
 
 // ====== VARIABLES GLOBALES ======
 let currentDocumentType = 'normal'; // ✅ Tipo de documento actual: 'normal' o 'pagare'
@@ -2199,29 +2199,11 @@ async function sendPagaresBulk() {
     const userStr = localStorage.getItem('currentUser');
     const user = JSON.parse(userStr);
 
-    // Pre-insertar trazabilidades VI en el PDF antes de enviar los correos
     // Incluir también el firmante definitivo si está presente
     const allPagareEmails = [...new Set([
       ...(window.pagareCsvData || []).flatMap(p => (p.firmantes || []).map(f => f.email).filter(Boolean)),
       ...(finalSignerEmail ? [finalSignerEmail] : [])
     ])];
-    if (allPagareEmails.length > 0) {
-      if (sendBtn) sendBtn.textContent = 'Verificando trazabilidades...';
-      try {
-        const preResp = await fetch(`/api/documents/${docData.id}/pre-insert-trazas`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ emails: allPagareEmails })
-        });
-        if (preResp.ok) {
-          const preData = await preResp.json();
-          if (preData.inserted > 0) console.log(`[PRE-TRAZA] ${preData.inserted} traza(s) insertada(s):`, preData.emails);
-        }
-      } catch (preErr) {
-        console.warn('[PRE-TRAZA] Error al pre-insertar, continuando:', preErr);
-      }
-      if (sendBtn) sendBtn.textContent = 'PROCESANDO...';
-    }
 
     // Enviar al backend
     const response = await fetch(`/api/documents/${docData.id}/pagare/send-bulk?user_id=${user.user_id}`, {
@@ -2245,6 +2227,24 @@ async function sendPagaresBulk() {
 
     ToastManager.success('Pagarés procesados', result.message);
     console.log('✅ Pagarés enviados:', result);
+
+    // Las trazabilidades se adjuntan DESPUES de enviar: es el envio el que
+    // recupera de VI la validacion de quien ya se habia validado antes.
+    if (allPagareEmails.length > 0) {
+      try {
+        const preResp = await fetch(`/api/documents/${docData.id}/pre-insert-trazas`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ emails: allPagareEmails })
+        });
+        if (preResp.ok) {
+          const preData = await preResp.json();
+          if (preData.inserted > 0) console.log(`[PRE-TRAZA] ${preData.inserted} traza(s) adjuntada(s):`, preData.emails);
+        }
+      } catch (preErr) {
+        console.warn('[PRE-TRAZA] Error al adjuntar trazabilidades:', preErr);
+      }
+    }
 
     // Cerrar modal y recargar
     const modal = document.getElementById('recipientsModal');
@@ -2497,35 +2497,7 @@ recipientsAddBtn?.addEventListener('click', async (event) => {
   
   try {
     // Pre-insertar trazabilidades VI antes de enviar correos.
-    // Recolectar todos los emails que se van a enviar y consultar al backend
-    // cuáles tienen traza VI disponible.
     const allEmailsToSend = recipients.map(r => r.email).filter(Boolean);
-    console.log(`🔐 [PRE-TRAZA] Verificando trazas para ${allEmailsToSend.length} email(s):`, allEmailsToSend);
-
-    if (allEmailsToSend.length > 0) {
-      const sendBtn = document.getElementById('recipientsAdd');
-      if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = 'Verificando trazabilidades...'; }
-      try {
-        const preResp = await fetch(`/api/documents/${docData.id}/pre-insert-trazas`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ emails: allEmailsToSend })
-        });
-        if (preResp.ok) {
-          const preData = await preResp.json();
-          if (preData.inserted > 0) {
-            console.log(`✅ [PRE-TRAZA] ${preData.inserted} traza(s) insertada(s):`, preData.emails);
-          } else {
-            console.log(`ℹ️ [PRE-TRAZA] Sin trazas disponibles para estos emails`);
-          }
-        } else {
-          console.warn(`⚠️ [PRE-TRAZA] Error ${preResp.status}, continuando con envío...`);
-        }
-      } catch (preErr) {
-        console.warn(`⚠️ [PRE-TRAZA] Error, continuando con envío:`, preErr);
-      }
-      if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = 'ENVIAR'; }
-    }
 
     // Enviar al backend
     const response = await fetch(`/api/documents/${docData.id}/send?user_id=${user.user_id}`, {
@@ -2543,6 +2515,33 @@ recipientsAddBtn?.addEventListener('click', async (event) => {
     }
     
     console.log('✅ Documento enviado:', data);
+
+    // Las trazabilidades se adjuntan DESPUES de enviar: es el envio el que
+    // recupera de VI la validacion de quien ya se habia validado antes. Hacerlo
+    // al reves deja el documento sin la trazabilidad de esa persona, que
+    // entonces solo aparece al firmar.
+    if (allEmailsToSend.length > 0) {
+      console.log(`🔐 [PRE-TRAZA] Adjuntando trazabilidades de ${allEmailsToSend.length} firmante(s):`, allEmailsToSend);
+      try {
+        const preResp = await fetch(`/api/documents/${docData.id}/pre-insert-trazas`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ emails: allEmailsToSend })
+        });
+        if (preResp.ok) {
+          const preData = await preResp.json();
+          if (preData.inserted > 0) {
+            console.log(`✅ [PRE-TRAZA] ${preData.inserted} traza(s) adjuntada(s):`, preData.emails);
+          } else {
+            console.log(`ℹ️ [PRE-TRAZA] Ningun firmante tiene validacion todavia`);
+          }
+        } else {
+          console.warn(`⚠️ [PRE-TRAZA] Error ${preResp.status} al adjuntar trazabilidades`);
+        }
+      } catch (preErr) {
+        console.warn(`⚠️ [PRE-TRAZA] Error al adjuntar trazabilidades:`, preErr);
+      }
+    }
     
     ToastManager.success(
       '¡Documento enviado!',

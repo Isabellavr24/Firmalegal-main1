@@ -1890,6 +1890,60 @@ app.use(requestLogger);
 // PRE-INSERTAR TRAZABILIDADES VI (antes del documentsController para no ser interceptado)
 // POST /api/documents/:id/pre-insert-trazas
 // =============================================
+/**
+ * Baja de Validacion de Identidad el PDF de trazabilidad de una validacion.
+ *
+ * La validacion vale un año y no se repite: quien ya valido reutiliza la suya.
+ * Pero el archivo quedo asociado al envio donde la hizo, asi que cuando firma
+ * otro documento hay que volver a pedirlo con el codigo guardado.
+ *
+ * Devuelve la ruta relativa del PDF, o lanza si VI no lo entrega.
+ */
+async function descargarTrazaDeVI(codigoValidacion) {
+    if (!codigoValidacion) return null;
+
+    const fsLocal = require('fs');
+    const pathLocal = require('path');
+    const http = require('http');
+    const https = require('https');
+    const { resolveFromRoot: resolver } = require('./config/paths');
+
+    const VI_URL = process.env.VI_URL || 'http://validacion-identidad-app-1:3000';
+    const VI_API_KEY = process.env.INTERNAL_API_KEY || '';
+    const url = new URL(VI_URL + '/validacion/api/validaciones/' + codigoValidacion + '/traza-pdf');
+    const transporte = url.protocol === 'https:' ? https : http;
+
+    const bytes = await new Promise((resolve, reject) => {
+        const trozos = [];
+        const req = transporte.request({
+            hostname: url.hostname,
+            port: url.port || (url.protocol === 'https:' ? 443 : 80),
+            path: url.pathname,
+            method: 'GET',
+            headers: { 'X-Internal-Api-Key': VI_API_KEY },
+            timeout: 20000
+        }, (resp) => {
+            if (resp.statusCode !== 200) { reject(new Error('VI respondio ' + resp.statusCode)); return; }
+            resp.on('data', d => trozos.push(d));
+            resp.on('end', () => resolve(Buffer.concat(trozos)));
+        });
+        req.on('timeout', () => { req.destroy(); reject(new Error('VI no respondio a tiempo')); });
+        req.on('error', reject);
+        req.end();
+    });
+
+    // Un PDF valido empieza por %PDF; cualquier otra cosa es una pagina de error.
+    if (bytes.slice(0, 4).toString() !== '%PDF') {
+        throw new Error('la respuesta de VI no es un PDF');
+    }
+
+    const dir = resolver('uploads/vi_traza');
+    if (!fsLocal.existsSync(dir)) fsLocal.mkdirSync(dir, { recursive: true });
+    const nombre = 'vi_traza_reuso_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8) + '.pdf';
+    fsLocal.writeFileSync(pathLocal.join(dir, nombre), bytes);
+    return 'uploads/vi_traza/' + nombre;
+}
+
 app.post('/api/documents/:id/pre-insert-trazas', async (req, res) => {
     const documentId = req.params.id;
     const { emails = [] } = req.body;
@@ -1910,27 +1964,75 @@ app.post('/api/documents/:id/pre-insert-trazas', async (req, res) => {
             return res.status(404).json({ ok: false, error: 'Documento no encontrado' });
         }
 
+        // La traza puede estar en dos sitios: document_recipients (el envio donde
+        // se valido) o vi_verified_emails (el registro persistente, que es de
+        // donde se reutiliza). Mirar solo el primero deja fuera a quien valido
+        // en otro documento y su pagare sale sin trazabilidad.
         const placeholders = emails.map(() => '?').join(',');
         const [allTrazas] = await db.promise().query(
-            `SELECT email, vi_traza_path
+            `SELECT email COLLATE utf8mb4_unicode_ci AS email,
+                    vi_traza_path COLLATE utf8mb4_unicode_ci AS vi_traza_path,
+                    CAST(NULL AS CHAR) AS validacion_codigo,
+                    COALESCE(completed_at, sent_at) AS cuando
              FROM document_recipients
              WHERE email IN (${placeholders}) AND vi_traza_path IS NOT NULL
-             ORDER BY COALESCE(completed_at, sent_at) DESC`,
-            emails
+             UNION ALL
+             SELECT email COLLATE utf8mb4_unicode_ci,
+                    vi_traza_path COLLATE utf8mb4_unicode_ci,
+                    validacion_codigo COLLATE utf8mb4_unicode_ci,
+                    vi_validated_at
+             FROM vi_verified_emails
+             WHERE email IN (${placeholders})
+               AND (vi_traza_path IS NOT NULL OR validacion_codigo IS NOT NULL)
+             ORDER BY vi_traza_path IS NULL, cuando DESC`,
+            [...emails, ...emails]
         );
 
+        // Una sola traza por firmante: si la misma persona aparece en varios
+        // envios, la de arriba es la que vale. Repetirla duplicaria su
+        // trazabilidad dentro del documento.
         const seen = new Set();
-        const trazasToInsert = allTrazas.filter(r => {
+        const trazasToInsert = [];
+        let duplicadasEvitadas = 0;
+        for (const r of allTrazas) {
             const key = r.email.toLowerCase();
-            if (seen.has(key)) return false;
+            if (seen.has(key)) { duplicadasEvitadas++; continue; }
             seen.add(key);
-            return true;
-        });
+            trazasToInsert.push(r);
+        }
 
-        if (!trazasToInsert.length) {
-            console.log(`   [PRE-TRAZA] Sin trazas disponibles para estos emails`);
+        // Quien tiene el codigo pero no el archivo: se le pide a VI.
+        for (const r of trazasToInsert) {
+            if (r.vi_traza_path || !r.validacion_codigo) continue;
+            try {
+                r.vi_traza_path = await descargarTrazaDeVI(r.validacion_codigo);
+                console.log(`   [PRE-TRAZA] ${r.email} — traza recuperada de VI (${r.validacion_codigo})`);
+            } catch (e) {
+                console.warn(`   [PRE-TRAZA] ${r.email} — no se pudo recuperar la traza: ${e.message}`);
+            }
+        }
+
+        // Quien no tiene validacion todavia: se informa, no es un error. Validara
+        // mas adelante y su traza se anadira entonces.
+        const conTraza = trazasToInsert.filter(r => r.vi_traza_path);
+        for (const em of emails) {
+            const r = trazasToInsert.find(x => x.email.toLowerCase() === em.toLowerCase());
+            if (!r) {
+                console.log(`   [PRE-TRAZA] ${em} — sin validacion, la hara mas adelante`);
+            } else if (r.vi_traza_path) {
+                console.log(`   [PRE-TRAZA] ${em} — validacion encontrada${r.validacion_codigo ? ' (' + r.validacion_codigo + ')' : ''}`);
+            }
+        }
+        if (duplicadasEvitadas) {
+            console.log(`   [PRE-TRAZA] ${duplicadasEvitadas} traza(s) repetida(s) omitida(s)`);
+        }
+
+        if (!conTraza.length) {
+            console.log(`   [PRE-TRAZA] Ninguno de los ${emails.length} firmante(s) tiene validacion todavia`);
             return res.json({ ok: true, inserted: 0 });
         }
+        trazasToInsert.length = 0;
+        trazasToInsert.push(...conTraza);
 
         const basePdfRel = (docRows[0].doc_only_path || docRows[0].file_path || '').replace(/^\/+/, '');
         const basePdfAbs = resolveFromRoot(basePdfRel);
@@ -1975,7 +2077,7 @@ app.post('/api/documents/:id/pre-insert-trazas', async (req, res) => {
              WHERE document_id = ?`,
             [mergedRelPath, documentId]
         );
-        console.log(`   [PRE-TRAZA] filled_pdf_path actualizado -> ${mergedRelPath} (${insertedEmails.length} traza(s))`);
+        console.log(`   [PRE-TRAZA] ${insertedEmails.length} traza(s) de ${emails.length} firmante(s) -> ${mergedRelPath}`);
 
         res.json({ ok: true, inserted: insertedEmails.length, emails: insertedEmails });
 
