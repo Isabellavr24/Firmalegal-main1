@@ -2092,7 +2092,7 @@ router.post('/:id/send', requireAuth, async (req, res) => {
                          UNION ALL
                          SELECT vi_validated_at,
                                 vi_traza_path COLLATE utf8mb4_unicode_ci AS vi_traza_path,
-                                NULL COLLATE utf8mb4_unicode_ci AS validacion_codigo
+                                CAST(NULL AS CHAR) AS validacion_codigo
                          FROM document_recipients
                          WHERE LOWER(email) COLLATE utf8mb4_unicode_ci = LOWER(?) AND vi_validated_at IS NOT NULL AND vi_validated_at >= ?
                          ORDER BY vi_traza_path IS NULL, vi_validated_at DESC LIMIT 1`,
