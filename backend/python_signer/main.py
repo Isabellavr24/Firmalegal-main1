@@ -66,7 +66,7 @@ class SignResponse(BaseModel):
     """Response de firma exitosa"""
     success: bool
     signed_pdf_base64: str
-    timestamp: dict
+    timestamp: Optional[dict] = None
     size_original: int
     size_signed: int
     processing_time_ms: float
