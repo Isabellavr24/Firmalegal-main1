@@ -3588,6 +3588,11 @@ app.post('/api/public/vi-callback', async (req, res) => {
         // Esto ocurre cuando un intento es exitoso automáticamente (callback 1) Y el operador
         // también aprueba manualmente (callback 2) con el mismo validacion_id.
         // En ese caso saltamos toda la generación para evitar adjuntar la trazabilidad dos veces.
+        // Se recuerdan para persistirlos luego en vi_verified_emails, que es
+        // de donde se reutilizan cuando la persona firma otro documento.
+        let trazaRelPathGuardada = recipient.vi_traza_path || null;
+        let trazaCodigoGuardado = null;
+
         if (recipient.vi_traza_path) {
             console.log(`⚠️ [VI-CALLBACK] Trazabilidad ya existe para ${recipient.email} — callback duplicado, ignorando (vi_traza_path: ${recipient.vi_traza_path})`);
         } else if (validacion_id) {
@@ -3629,6 +3634,7 @@ app.post('/api/public/vi-callback', async (req, res) => {
                     const codigoData = JSON.parse(codigoBytes.toString());
                     if (codigoData.codigo) trazaCodigo = codigoData.codigo;
                 } catch (_) {}
+                trazaCodigoGuardado = trazaCodigo;
 
                 const trazaUrl = new URL(`${VI_URL}/validacion/api/validaciones/${trazaCodigo}/traza-pdf`);
                 const transport = trazaUrl.protocol === 'https:' ? require('https') : require('http');
@@ -3658,6 +3664,7 @@ app.post('/api/public/vi-callback', async (req, res) => {
                 const trazaAbsPath = path.join(trazaDir, trazaFilename);
                 const trazaRelPath = `uploads/vi_traza/${trazaFilename}`;
                 fs.writeFileSync(trazaAbsPath, trazaBytes);
+                trazaRelPathGuardada = trazaRelPath;
 
                 if (isPagare) {
                     // PAGARÉ: solo guardar vi_traza_path. NO tocar custom_pdf_path.
@@ -3748,9 +3755,18 @@ app.post('/api/public/vi-callback', async (req, res) => {
 
                     await new Promise((resolve, reject) => {
                         db.query(
-                            `INSERT INTO vi_verified_emails (email, vi_validated_at, owner_user_id, celular) VALUES (?, NOW(), ?, ?)
-                             ON DUPLICATE KEY UPDATE vi_validated_at = NOW(), celular = COALESCE(VALUES(celular), celular)`,
-                            [recipient.email.toLowerCase(), ownerId, celularFirmante],
+                            // Se guarda tambien la traza y el codigo de la validacion.
+                            // La validacion se reutiliza hasta un año: cuando esta
+                            // persona firme otro documento no vuelve a validarse, y
+                            // sin estos dos datos su pagare saldria sin el soporte
+                            // de identidad. El codigo permite volver a pedirle el
+                            // PDF a VI si el archivo se perdiera.
+                            `INSERT INTO vi_verified_emails (email, vi_validated_at, owner_user_id, celular, vi_traza_path, validacion_codigo) VALUES (?, NOW(), ?, ?, ?, ?)
+                             ON DUPLICATE KEY UPDATE vi_validated_at = NOW(),
+                                 celular = COALESCE(VALUES(celular), celular),
+                                 vi_traza_path = COALESCE(VALUES(vi_traza_path), vi_traza_path),
+                                 validacion_codigo = COALESCE(VALUES(validacion_codigo), validacion_codigo)`,
+                            [recipient.email.toLowerCase(), ownerId, celularFirmante, trazaRelPathGuardada, trazaCodigoGuardado],
                             (err) => { if (err) reject(err); else resolve(); }
                         );
                     });

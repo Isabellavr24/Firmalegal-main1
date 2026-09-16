@@ -87,5 +87,10 @@ backend/fonts/timesi.ttf
 # Avatar temp files
 frontend/avatar-pht/avatar_temp_*
 
-# CSV de envíos masivos: contienen datos personales de los firmantes
+# Datos personales de los firmantes: nunca al repositorio.
+# Los archivos de trabajo viven en ../../datos-padres-familia/
 *.csv
+*.xlsx
+*.xls
+familias.json
+faltantes.json

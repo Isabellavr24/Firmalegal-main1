@@ -2070,15 +2070,33 @@ router.post('/:id/send', requireAuth, async (req, res) => {
 
             // Si el owner está vinculado a VI, verificar antes de insertar
             let viValidatedAt = null;
+            let viTrazaPath = null;
             if (ownerVinculadoVI) {
                 const oneYearAgo = new Date();
                 oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+                // La validacion vive en dos tablas: vi_verified_emails es el
+                // registro persistente —lo que el panel muestra como "identidad
+                // verificada"— y document_recipients guarda el historial por
+                // documento. Mirar solo la segunda deja fuera a quien valido en
+                // otro envio: el correo de firma no sale y el documento se queda
+                // esperando sin que nadie lo note.
                 const viCheck = await new Promise((resolve, reject) => {
                     db.query(
-                        `SELECT vi_validated_at FROM document_recipients
-                         WHERE email = ? AND vi_validated_at IS NOT NULL AND vi_validated_at >= ?
-                         ORDER BY vi_validated_at DESC LIMIT 1`,
-                        [recipient.email, oneYearAgo],
+                        // Las dos tablas usan collations distintas; sin COLLATE
+                        // explicito el UNION falla y el envio devuelve error 500.
+                        `SELECT vi_validated_at,
+                                vi_traza_path COLLATE utf8mb4_unicode_ci AS vi_traza_path,
+                                validacion_codigo COLLATE utf8mb4_unicode_ci AS validacion_codigo
+                         FROM vi_verified_emails
+                         WHERE LOWER(email) COLLATE utf8mb4_unicode_ci = LOWER(?) AND vi_validated_at >= ?
+                         UNION ALL
+                         SELECT vi_validated_at,
+                                vi_traza_path COLLATE utf8mb4_unicode_ci AS vi_traza_path,
+                                NULL COLLATE utf8mb4_unicode_ci AS validacion_codigo
+                         FROM document_recipients
+                         WHERE LOWER(email) COLLATE utf8mb4_unicode_ci = LOWER(?) AND vi_validated_at IS NOT NULL AND vi_validated_at >= ?
+                         ORDER BY vi_traza_path IS NULL, vi_validated_at DESC LIMIT 1`,
+                        [recipient.email, oneYearAgo, recipient.email, oneYearAgo],
                         (err, rows) => { if (err) reject(err); else resolve(rows); }
                     );
                 });
@@ -2113,8 +2131,24 @@ router.post('/:id/send', requireAuth, async (req, res) => {
                     }
                     continue;
                 }
-                // Email validado en VI — guardar vi_validated_at para copiarlo al insertar
+                // Email validado en VI. Se arrastra tambien la traza: el firmante
+                // no vuelve a validarse, asi que su pagare debe llevar la
+                // trazabilidad que ya hizo. Sin esto el documento sale firmado
+                // pero sin su soporte de identidad.
                 viValidatedAt = viCheck[0].vi_validated_at;
+                viTrazaPath = viCheck[0].vi_traza_path || null;
+
+                // Si la validacion se reutiliza pero el archivo no esta a mano,
+                // se le pide a VI con el codigo guardado. Asi el documento nunca
+                // sale sin trazabilidad por un dato que quedo en otro envio.
+                if (!viTrazaPath && viCheck[0].validacion_codigo) {
+                    try {
+                        viTrazaPath = await descargarTrazaVI(viCheck[0].validacion_codigo, recipient.email);
+                        if (viTrazaPath) console.log(`   📋 [VI] Traza recuperada de VI para ${recipient.email}`);
+                    } catch (e) {
+                        console.warn(`   ⚠️ [VI] No se pudo recuperar la traza de ${recipient.email}: ${e.message}`);
+                    }
+                }
                 console.log(`   ✅ [VI] ${recipient.email} validado — enviando email de firma`);
             }
 
@@ -2126,9 +2160,9 @@ router.post('/:id/send', requireAuth, async (req, res) => {
             const result = await new Promise((resolve, reject) => {
                 db.query(
                     `INSERT INTO document_recipients
-                     (document_id, email, name, token, status, part_id, role_id, signing_order, can_sign_at, vi_validated_at)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                    [documentId, recipient.email, recipient.name || recipient.email, token, recipientStatus, partId, roleId, signingOrder, canSignAt, viValidatedAt],
+                     (document_id, email, name, token, status, part_id, role_id, signing_order, can_sign_at, vi_validated_at, vi_traza_path)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [documentId, recipient.email, recipient.name || recipient.email, token, recipientStatus, partId, roleId, signingOrder, canSignAt, viValidatedAt, viTrazaPath],
                     (err, result) => {
                         if (err) reject(err);
                         else resolve(result);
@@ -2938,6 +2972,61 @@ const mailerDynamic = require('../lib/email/mailer-dynamic');
 /**
  * Generar PDF personalizado para un viewer group
  */
+/**
+ * Baja de Validacion de Identidad el PDF de trazabilidad de una validacion y lo
+ * deja en disco.
+ *
+ * Hace falta cuando alguien reutiliza una validacion hecha en otro documento: la
+ * validacion vale un año y no se repite, pero el archivo quedo asociado al envio
+ * anterior. Sin esto el documento se firma sin su soporte de identidad.
+ *
+ * Devuelve la ruta relativa, o lanza si VI no la entrega.
+ */
+async function descargarTrazaVI(codigoValidacion, email) {
+    if (!codigoValidacion) return null;
+
+    const fs = require('fs');
+    const path = require('path');
+    const http = require('http');
+    const https = require('https');
+    const { resolveFromRoot } = require('../config/paths');
+
+    const VI_URL = process.env.VI_URL || 'http://validacion-identidad-app-1:3000';
+    const VI_API_KEY = process.env.INTERNAL_API_KEY || '';
+    const url = new URL(VI_URL + '/validacion/api/validaciones/' + codigoValidacion + '/traza-pdf');
+    const transporte = url.protocol === 'https:' ? https : http;
+
+    const bytes = await new Promise((resolve, reject) => {
+        const trozos = [];
+        const req = transporte.request({
+            hostname: url.hostname,
+            port: url.port || (url.protocol === 'https:' ? 443 : 80),
+            path: url.pathname,
+            method: 'GET',
+            headers: { 'X-Internal-Api-Key': VI_API_KEY },
+            timeout: 20000
+        }, (resp) => {
+            if (resp.statusCode !== 200) { reject(new Error('VI respondio ' + resp.statusCode)); return; }
+            resp.on('data', d => trozos.push(d));
+            resp.on('end', () => resolve(Buffer.concat(trozos)));
+        });
+        req.on('timeout', () => { req.destroy(); reject(new Error('VI no respondio a tiempo')); });
+        req.on('error', reject);
+        req.end();
+    });
+
+    // Un PDF valido empieza por %PDF; cualquier otra cosa es una pagina de error.
+    if (bytes.slice(0, 4).toString() !== '%PDF') {
+        throw new Error('la respuesta de VI no es un PDF');
+    }
+
+    const dir = resolveFromRoot('uploads/vi_traza');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const nombre = 'vi_traza_reuso_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8) + '.pdf';
+    fs.writeFileSync(path.join(dir, nombre), bytes);
+    return 'uploads/vi_traza/' + nombre;
+}
+
 async function generatePersonalizedPagare(originalPdfPath, viewerGroupId, textFieldsData, allFields) {
     try {
         console.log(`📄 Generando PDF personalizado para viewer_group ${viewerGroupId}`);
@@ -3761,6 +3850,7 @@ router.post('/:docId/pagare/send-bulk', requireAuth, async (req, res) => {
 
                 // Si ya verificado, copiar vi_validated_at previo
                 let viValidatedAt = null;
+            let viTrazaPath = null;
                 if (ownerVinculadoVI && firmanteVerificado) {
                     // El valor ya está en viVerifiedEmails si es un Date, sino buscarlo
                     const cached = viVerifiedEmails[firmante.email.toLowerCase()];

@@ -87,11 +87,14 @@ emailQueue.process(async (job) => {
 
         console.log(`   URL de firma: ${signatureUrl}`);
 
-        // 3. Obtener configuración de email del usuario
+        // 3. Configuración de envío. Todo sale por la cuenta de FirmaLegal
+        // (user_id = 1): la configuración propia del usuario es opcional y, si
+        // no la tiene, el correo igual debe salir. Sin este respaldo el envío
+        // falla para cualquier cuenta que no haya configurado la suya.
         const [emailConfigResults] = await new Promise((resolve, reject) => {
             db.query(
-                'SELECT * FROM email_config WHERE user_id = ? AND is_active = TRUE LIMIT 1',
-                [userId],
+                'SELECT * FROM email_config WHERE user_id IN (?, 1) AND is_active = TRUE ORDER BY user_id = ? DESC LIMIT 1',
+                [userId, userId],
                 (err, results) => {
                     if (err) reject(err);
                     else resolve([results]);
@@ -100,7 +103,7 @@ emailQueue.process(async (job) => {
         });
 
         if (emailConfigResults.length === 0) {
-            throw new Error('Usuario no tiene configuración de email');
+            throw new Error('No hay configuración de email del sistema (user_id=1)');
         }
 
         const emailConfig = emailConfigResults[0];
