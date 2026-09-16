@@ -86,3 +86,6 @@ backend/fonts/timesi.ttf
 
 # Avatar temp files
 frontend/avatar-pht/avatar_temp_*
+
+# CSV de envíos masivos: contienen datos personales de los firmantes
+*.csv
