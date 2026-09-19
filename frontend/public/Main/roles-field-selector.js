@@ -360,6 +360,35 @@ class RolesFieldSelector {
     }
 
     /**
+     * Asegura que existan al menos `n` partes en el panel.
+     *
+     * Al importar una plantilla, el backend crea en la base las partes que la
+     * plantilla necesita, pero el panel lateral no se entera. Como GUARDAR
+     * borra las partes y reinserta SOLO las del panel, la parte creada por la
+     * importacion se perdia y el guardado fallaba con "Campo con roleId=2 no
+     * tiene parte valida".
+     */
+    asegurarPartes(n) {
+        let anadidas = 0;
+        while (this.roles.length < n && this.roles.length < this.roleNames.length) {
+            const idx = this.roles.length;
+            this.roles.push({
+                roleId: `temp_${Date.now()}_${idx}`,
+                name: this.roleNames[idx],
+                order: idx + 1,
+                color: this.roleColors[idx % this.roleColors.length],
+                isTemp: true
+            });
+            anadidas++;
+        }
+        if (anadidas) {
+            this.renderRoleSelector();
+            console.log(`✅ ${anadidas} parte(s) añadidas al panel por la importación`);
+        }
+        return this.roles.length;
+    }
+
+    /**
      * Interceptar creación de campos para asignar rol
      */
     interceptFieldCreation() {

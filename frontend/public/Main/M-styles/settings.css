@@ -4,7 +4,16 @@
   --page-gutter: 24px;
 }
 
-/* Header centrado */
+/* Styles.css pone `html,body{height:100%}`. Con una altura fija el scroll deja
+   de ser el de la ventana y `position:sticky` no tiene contra que fijarse: por
+   eso el header se iba con el contenido. Se libera solo aqui, en Configuracion,
+   para no cambiar el resto de pantallas. */
+html, body{ height: auto; min-height: 100%; }
+
+/* Header centrado.
+   Fijo arriba: en secciones largas el logo y el acceso al perfil se perdian
+   al bajar. Se define aqui y no en Styles.css para no tocar el resto de
+   pantallas, que comparten esa hoja. */
 .main-header{
   max-width: var(--content-max);
   margin-inline: auto;
@@ -12,6 +21,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: var(--bg-crema, #f9f5f2);
 }
 .brand-logo-full{ height: 42px; width:auto; display:block; object-fit: contain; }
 
@@ -25,7 +38,21 @@
   gap: 28px;
 }
 
-/* Sidebar */
+/* Sidebar
+   Se queda a la vista al bajar: secciones como Mis Plantillas o Equipos son
+   largas, y sin esto hay que subir hasta arriba del todo para cambiar de
+   opcion. Se limita a pantallas altas para no tapar el menu en moviles. */
+.settings-aside{
+  position: sticky;
+  /* Justo debajo del header, que tambien es sticky. */
+  top: 78px;
+  align-self: start;
+  max-height: calc(100vh - 94px);
+  overflow-y: auto;
+}
+@media (max-height: 600px){
+  .settings-aside{ position: static; max-height: none; overflow-y: visible; }
+}
 .settings-aside .back-link{ margin: .25rem 0 .5rem; display:inline-block; }
 .settings-title{ margin: .25rem 0 10px; color:#6d6270; font-size: 1rem; }
 .settings-nav{ display:grid; gap:10px; }

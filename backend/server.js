@@ -36,6 +36,7 @@ const templatesController = require('./controllers/templates-controller');
 const bulkSendEnhanced = require('./controllers/bulk-send-controller-enhanced');
 const teamsController = require('./controllers/teams-controller');
 const tenantsController = require('./controllers/tenants-controller');
+const fieldTemplatesController = require('./controllers/field-templates-controller');
 
 const app = express();
 const port = 3000;
@@ -2096,6 +2097,9 @@ app.use('/api/documents', documentsController);
 app.use('/api/templates', documentsController); // Alias para compatibilidad
 app.use('/api/teams', teamsController);
 app.use('/api/tenants', tenantsController);
+// Plantillas de campos: exportar los campos de un pagare y reutilizarlos.
+// Ruta propia para no chocar con /api/templates, que es un alias de documentos.
+app.use('/api/field-templates', fieldTemplatesController);
 console.log('✅ Rutas registradas exitosamente');
 
 // =============================================

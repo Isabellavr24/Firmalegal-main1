@@ -12,7 +12,7 @@
 
   <!-- Estilos base + overrides de settings -->
   <link rel="stylesheet" href="/public/Main/M-styles/Styles.css">
-  <link rel="stylesheet" href="/public/Main/M-styles/settings.css?v=10">
+  <link rel="stylesheet" href="/public/Main/M-styles/settings.css?v=13">
   <style>
     /* Iconos SVG inline */
     .icon-svg { display:inline-block; width:18px; height:18px; vertical-align:middle; flex-shrink:0; }
@@ -70,6 +70,7 @@
         <button class="sn-item" data-section="notificaciones">Notificaciones</button>
         <button class="sn-item" data-section="usuarios">Usuarios</button>
         <button class="sn-item" data-section="equipos">Equipos e Inquilinos</button>
+        <button class="sn-item" data-section="plantillas">Mis Plantillas</button>
         <button class="sn-item" data-section="firmas" id="navFirmas" style="display:none;">Gestionar Firmas</button>
         <button class="sn-item" data-section="etitulo" id="navEtitulo" style="display:none;">Subir a e-Titulo</button>
       </nav>
@@ -1121,6 +1122,19 @@
       <!-- PLACEHOLDERS (para que el menú funcione sin errores) -->
     
       <section class="set-section" id="sec-sms"><h1 class="page-h1">SMS</h1></section>
+
+      <!-- SEC: Mis Plantillas — plantillas de campos de pagares -->
+      <section class="set-section" id="sec-plantillas" aria-labelledby="sec-plantillas-h">
+        <h1 class="page-h1" id="sec-plantillas-h">Mis Plantillas</h1>
+        <p style="color:#666;font-size:14px;line-height:1.6;margin:0 0 22px;max-width:760px;">
+          Los campos que se exportan desde un pagaré quedan guardados aquí y se
+          pueden reutilizar en otro documento del mismo tipo, con sus posiciones,
+          su formato y el firmante al que pertenece cada uno.
+        </p>
+        <div id="tplListado" style="min-width:0;">
+          <p style="color:#888;font-size:14px;">Cargando plantillas...</p>
+        </div>
+      </section>
 
 
 
@@ -2174,5 +2188,662 @@
 
     </main>
   </div>
+
+  <!-- ===================== SECCIÓN MIS PLANTILLAS ===================== -->
+  <!-- pdf.js para dibujar la pagina real bajo los campos, igual que en el
+       editor. Si no carga, la previsualizacion sigue saliendo sin fondo. -->
+  <script type="module">
+    import * as pdfjsLib from 'https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.min.mjs';
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs';
+    window.pdfjsLib = pdfjsLib;
+    window.dispatchEvent(new Event('pdfjs-listo'));
+  </script>
+  <script>
+  (function () {
+    'use strict';
+
+    const API = '/api/field-templates';
+    const cont = document.getElementById('tplListado');
+    if (!cont) return;
+
+    function vaciar(el) { while (el.firstChild) el.removeChild(el.firstChild); }
+
+    function fecha(v) {
+      if (!v) return '';
+      try { return new Date(v).toLocaleDateString('es-CO',
+        { day: '2-digit', month: 'short', year: 'numeric' }); }
+      catch (e) { return ''; }
+    }
+
+    function resumen(t) {
+      const p = [];
+      if (t.text_fields) p.push(t.text_fields + ' de texto');
+      if (t.signature_fields) p.push(t.signature_fields + ' de firma');
+      if (t.date_fields) p.push(t.date_fields + ' de fecha');
+      if (t.seal_fields) p.push(t.seal_fields + ' de sello');
+      if (t.final_signature_fields) p.push(t.final_signature_fields + ' de firma definitiva');
+      return p.join(' · ') || 'sin campos';
+    }
+
+    function dato(etiqueta, valor) {
+      const d = document.createElement('div');
+      d.style.cssText = 'min-width:0;';
+      const e = document.createElement('div');
+      e.textContent = etiqueta;
+      e.style.cssText = 'font-size:11px;color:#9a8aa3;text-transform:uppercase;' +
+                        'letter-spacing:.4px;margin-bottom:2px;';
+      const v = document.createElement('div');
+      v.textContent = valor;
+      v.style.cssText = 'font-size:13.5px;color:#2a0d31;overflow-wrap:anywhere;';
+      d.appendChild(e); d.appendChild(v);
+      return d;
+    }
+
+    /**
+     * Portada: la primera pagina del PDF de origen.
+     *
+     * Es lo que permite reconocer el documento cuando le cambiaron el nombre a
+     * la plantilla. Se dibuja en cuanto pdf.js esta listo; si no hay archivo o
+     * falla, queda un recuadro con un aviso en vez de un hueco mudo.
+     */
+    function portada(t) {
+      const W = 170, H = 220;
+      const marco = document.createElement('div');
+      marco.style.cssText =
+        `width:${W}px;height:${H}px;border:1px solid #e0d6e6;border-radius:8px;` +
+        'overflow:hidden;background:#f7f4f8;flex-shrink:0;position:relative;' +
+        'display:flex;align-items:center;justify-content:center;';
+
+      if (!t.source_pdf_url) {
+        const s = document.createElement('div');
+        s.textContent = 'Documento no disponible';
+        s.style.cssText =
+          'font-size:10px;color:#a596ad;text-align:center;padding:8px;line-height:1.35;';
+        marco.appendChild(s);
+        return marco;
+      }
+
+      const cv = document.createElement('canvas');
+      // contain, no cover: a este tamaño interesa ver la hoja entera —el
+      // membrete, el titulo— que es lo que permite reconocer el documento.
+      cv.style.cssText = 'width:100%;height:100%;object-fit:contain;background:#fff;';
+      marco.appendChild(cv);
+
+      (async () => {
+        if (!window.pdfjsLib) {
+          await new Promise(res => {
+            const to = setTimeout(res, 5000);
+            window.addEventListener('pdfjs-listo',
+              () => { clearTimeout(to); res(); }, { once: true });
+          });
+        }
+        if (!window.pdfjsLib) return;
+        try {
+          const doc = await window.pdfjsLib.getDocument(t.source_pdf_url).promise;
+          const page = await doc.getPage(1);
+          const vp0 = page.getViewport({ scale: 1 });
+          // x2 para que no se vea borrosa en pantallas de alta densidad.
+          const vp = page.getViewport({ scale: (W * 2) / vp0.width });
+          cv.width = vp.width; cv.height = vp.height;
+          await page.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+        } catch (e) {
+          marco.removeChild(cv);
+          const s = document.createElement('div');
+          s.textContent = 'Sin vista previa';
+          s.style.cssText = 'font-size:10px;color:#a596ad;text-align:center;padding:8px;';
+          marco.appendChild(s);
+        }
+      })();
+
+      return marco;
+    }
+
+    function tarjeta(t) {
+      const c = document.createElement('div');
+      c.style.cssText =
+        'border:1px solid #e6dfea;border-radius:12px;padding:18px 20px;' +
+        'background:#fdfcfd;margin-bottom:14px;min-width:0;' +
+        'display:flex;gap:18px;align-items:flex-start;';
+
+      c.appendChild(portada(t));
+
+      // Columna de datos. min-width:0 para que un nombre largo no desborde.
+      const cuerpoTarjeta = document.createElement('div');
+      cuerpoTarjeta.style.cssText = 'min-width:0;flex:1;';
+
+      const cab = document.createElement('div');
+      cab.style.cssText =
+        'display:flex;justify-content:space-between;align-items:flex-start;' +
+        'gap:16px;margin-bottom:14px;min-width:0;';
+
+      const izq = document.createElement('div');
+      izq.style.cssText = 'min-width:0;';
+      const h = document.createElement('div');
+      // textContent, nunca innerHTML: el nombre lo escribe el operador.
+      h.textContent = t.name || 'Sin nombre';
+      h.style.cssText =
+        'font-size:16px;font-weight:600;color:#2a0d31;overflow-wrap:anywhere;';
+      const sub = document.createElement('div');
+      sub.textContent = resumen(t);
+      sub.style.cssText = 'font-size:13px;color:#666;margin-top:4px;overflow-wrap:anywhere;';
+      izq.appendChild(h); izq.appendChild(sub);
+
+      // El alcance importa: dice si la plantilla la ve todo el equipo.
+      const chip = document.createElement('span');
+      const enEquipo = !!t.team_id;
+      chip.textContent = enEquipo ? (t.team_name || 'Equipo') : 'Privada';
+      chip.style.cssText =
+        'flex-shrink:0;font-size:11.5px;padding:4px 10px;border-radius:999px;' +
+        (enEquipo
+          ? 'background:#eaf4ee;color:#2f7d5d;border:1px solid #cfe6d9;'
+          : 'background:#f3eef5;color:#6d6270;border:1px solid #e3d8e8;');
+
+      cab.appendChild(izq); cab.appendChild(chip);
+      cuerpoTarjeta.appendChild(cab);
+
+      const rej = document.createElement('div');
+      rej.style.cssText =
+        'display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));' +
+        'gap:14px;min-width:0;';
+      rej.appendChild(dato('Campos', String(t.total_fields || 0)));
+      rej.appendChild(dato('Páginas', String(t.page_count || 0)));
+      rej.appendChild(dato('Firmantes', String(t.parts_count || 0)));
+      rej.appendChild(dato('Tamaño', t.page_size_name || '—'));
+      rej.appendChild(dato('Creada', fecha(t.created_at)));
+      if (t.owner_name) rej.appendChild(dato('Creada por', t.owner_name));
+      cuerpoTarjeta.appendChild(rej);
+
+      if (t.source_document_name) {
+        const o = document.createElement('div');
+        o.textContent = 'Exportada de: ' + t.source_document_name;
+        o.style.cssText =
+          'margin-top:14px;padding-top:12px;border-top:1px solid #f0eaf3;' +
+          'font-size:12.5px;color:#888;overflow-wrap:anywhere;';
+        cuerpoTarjeta.appendChild(o);
+      }
+
+      // La tarjeta entera abre el detalle con las paginas y los campos.
+      c.style.cursor = 'pointer';
+      c.addEventListener('click', () => verDetalle(t.template_id));
+      c.addEventListener('mouseenter', () => {
+        c.style.borderColor = '#cbb8d4';
+        c.style.background = '#fbf8fc';
+      });
+      c.addEventListener('mouseleave', () => {
+        c.style.borderColor = '#e6dfea';
+        c.style.background = '#fdfcfd';
+      });
+
+      // Sin boton: la tarjeta entera abre el detalle. Un boton aparte sobra
+      // cuando todo el bloque ya es pulsable.
+      c.appendChild(cuerpoTarjeta);
+
+      return c;
+    }
+
+    // -----------------------------------------------------------------
+    // DETALLE: previsualizacion de cada pagina + desglose de los campos
+    // -----------------------------------------------------------------
+
+    const PALETA = ['#4a6fa5', '#b0693f', '#2f7d5d', '#6b4a8f', '#a3523f'];
+
+    function colorCampo(c) {
+      if (c.field_type === 'signature') {
+        return c.part_order ? PALETA[(c.part_order - 1) % PALETA.length] : '#c2185b';
+      }
+      if (c.field_type === 'date') return '#2f7d5d';
+      if (c.field_type === 'seal' || c.field_type === 'stamp') return '#9a6a1f';
+      if (c.field_type === 'final_signature') return '#6b4a8f';
+      return '#8a8a99';
+    }
+
+    /** Formato del texto, legible. Es lo que mas importa conservar. */
+    function formatoLegible(config) {
+      if (!config) return null;
+      let f = config;
+      if (typeof f === 'string') {
+        try { f = JSON.parse(f); } catch (e) { return null; }
+      }
+      if (!f || typeof f !== 'object') return null;
+      const p = [
+        f.fontFamily || f.font || null,
+        (f.fontSize || f.size) ? ((f.fontSize || f.size) + 'pt') : null,
+        f.color || null,
+        f.align ? ('alin. ' + f.align) : null,
+        f.bold ? 'negrita' : null,
+        f.italic ? 'cursiva' : null
+      ].filter(Boolean);
+      return p.length ? p.join(' · ') : null;
+    }
+
+    /**
+     * Una pagina dibujada. Si hay PDF de origen se pinta debajo con pdf.js;
+     * si no, quedan los recuadros sobre fondo liso, que ya dicen donde va cada
+     * campo.
+     */
+    function paginaPrevia(pag, tpl, pdfDoc) {
+      // Ancho de referencia para renderizar el PDF, no para maquetar: el
+      // marco se adapta a su columna.
+      const W = 320;
+      // Tamaño real de ESTA pagina, leido del PDF por el backend.
+      const ancho0 = pag.coord_width || tpl.page_width || 612;
+      const alto0 = pag.coord_height || tpl.page_height || 792;
+
+      const bloque = document.createElement('div');
+      bloque.style.cssText = 'min-width:0;';
+
+      // Ancho 100% de su columna y alto por proporcion de la hoja: con las
+      // columnas en 1fr, un ancho fijo dejaria huecos a los lados.
+      // El marco lleva la proporcion REAL de esta pagina. Un PDF puede mezclar
+      // tamaños —aqui las paginas 10 y 11 son Oficio y el resto Carta— y por
+      // eso no se puede usar un unico tamaño para todas.
+      const marco = document.createElement('div');
+      marco.style.cssText =
+        `position:relative;width:100%;aspect-ratio:${ancho0} / ${alto0};` +
+        'border:1px solid #e0d6e6;border-radius:8px;overflow:hidden;background:#fff;';
+
+      if (pdfDoc) {
+        const cv = document.createElement('canvas');
+        // coord_* ES el tamaño real de esta pagina, asi que el fondo llena el
+        // marco entero sin deformarse.
+        cv.style.cssText =
+          'position:absolute;inset:0;width:100%;height:100%;opacity:.6;';
+        marco.appendChild(cv);
+        pdfDoc.getPage(pag.page_number).then(function (page) {
+          const vp0 = page.getViewport({ scale: 1 });
+          const vp = page.getViewport({ scale: (W * 2) / vp0.width });
+          cv.width = vp.width; cv.height = vp.height;
+          page.render({ canvasContext: cv.getContext('2d'), viewport: vp });
+        }).catch(function () { /* sin fondo, los recuadros bastan */ });
+      } else {
+        marco.style.background = '#f7f4f8';
+      }
+
+      (pag.campos || []).forEach(c => {
+        const m = document.createElement('div');
+        const col = colorCampo(c);
+        m.style.cssText =
+          `position:absolute;left:${(c.x_position / ancho0) * 100}%;` +
+          `top:${(c.y_position / alto0) * 100}%;` +
+          `width:${Math.max((c.width / ancho0) * 100, 1.2)}%;` +
+          `height:${Math.max((c.height / alto0) * 100, 1)}%;` +
+          `background:${col}30;border:1px solid ${col};border-radius:2px;box-sizing:border-box;`;
+        m.title = (c.field_label || c.field_type) +
+          (c.field_type === 'signature' && c.part_order
+            ? ' — Firmante N' + c.part_order : '');
+        marco.appendChild(m);
+      });
+
+      const tit = document.createElement('div');
+      tit.textContent = 'Página ' + pag.page_number;
+      tit.style.cssText =
+        'font-size:13px;font-weight:600;color:#2a0d31;margin:6px 0 1px;';
+      // El tamaño tambien en la propia pagina: asi se reconoce aunque se
+      // mire una miniatura suelta, sin el encabezado del grupo a la vista.
+      if (pag.size_name) {
+        const et = document.createElement('span');
+        et.textContent = pag.size_name;
+        et.style.cssText =
+          'margin-left:8px;font-size:11px;font-weight:600;color:#6d6270;' +
+          'background:#f3eef5;border:1px solid #e3d8e8;border-radius:999px;' +
+          'padding:1px 8px;vertical-align:middle;';
+        tit.appendChild(et);
+      }
+      const det = document.createElement('div');
+      const r = [];
+      if (pag.text) r.push(pag.text + ' de texto');
+      if (pag.signature) r.push(pag.signature + ' de firma');
+      if (pag.date) r.push(pag.date + ' de fecha');
+      if (pag.seal || pag.stamp) r.push(((pag.seal || 0) + (pag.stamp || 0)) + ' de sello');
+      if (pag.final_signature) r.push(pag.final_signature + ' de firma definitiva');
+      det.textContent = r.join(' · ');
+      det.style.cssText =
+        'font-size:12px;color:#777;line-height:1.5;overflow-wrap:anywhere;';
+
+      bloque.appendChild(marco);
+      bloque.appendChild(tit);
+      bloque.appendChild(det);
+      return bloque;
+    }
+
+    async function verDetalle(id) {
+      vaciar(cont);
+      const cargando = document.createElement('p');
+      cargando.textContent = 'Cargando plantilla...';
+      cargando.style.cssText = 'color:#888;font-size:14px;';
+      cont.appendChild(cargando);
+
+      let tpl;
+      try {
+        const r = await fetch(API + '/' + id, { credentials: 'same-origin' });
+        const data = await r.json();
+        if (!r.ok || !data.ok) throw new Error(data.error || 'No se pudo cargar');
+        tpl = data.data;
+      } catch (e) {
+        vaciar(cont);
+        const err = document.createElement('p');
+        err.textContent = 'No se pudo cargar la plantilla: ' + e.message;
+        err.style.cssText =
+          'color:#c2185b;background:#fdf2f0;border:1px solid #f0d4cf;' +
+          'border-radius:10px;padding:14px 16px;font-size:13.5px;max-width:760px;';
+        cont.appendChild(err);
+        return;
+      }
+
+      vaciar(cont);
+
+      const volver = document.createElement('button');
+      volver.className = 'btn-outline';
+      volver.type = 'button';
+      volver.textContent = '← Volver a mis plantillas';
+      volver.style.marginBottom = '14px';
+      volver.onclick = cargar;
+      cont.appendChild(volver);
+
+      const h = document.createElement('h2');
+      h.textContent = tpl.name || 'Sin nombre';
+      h.style.cssText =
+        'font-size:19px;color:#2a0d31;margin:0 0 4px;overflow-wrap:anywhere;';
+      cont.appendChild(h);
+
+      // En el detalle se oculta la introduccion de la seccion: ya se sabe
+      // que son plantillas y ese parrafo solo empuja el contenido hacia abajo.
+      const intro = document.querySelector('#sec-plantillas > p');
+      if (intro) intro.style.display = 'none';
+
+      // El tamaño de la ficha sale de las paginas reales, no de page_size_name,
+      // que solo guarda el de la primera y en un PDF mixto miente.
+      const nombresTam = [];
+      (tpl.paginas || []).forEach(p => {
+        const n = p.size_name;
+        if (n && nombresTam.indexOf(n) === -1) nombresTam.push(n);
+      });
+      const tam = nombresTam.length ? nombresTam.join(' y ') : (tpl.page_size_name || '');
+
+      const meta = document.createElement('div');
+      meta.textContent =
+        `${tpl.total_fields || 0} campos · ${tpl.page_count || 0} páginas · ` +
+        `${tpl.parts_count || 0} firmantes · ${tam}`;
+      meta.style.cssText = 'font-size:13px;color:#777;margin-bottom:22px;';
+      cont.appendChild(meta);
+
+      // Intentar el PDF de fondo. Sin pdf.js o sin archivo, se sigue adelante.
+      // El modulo de pdf.js carga aparte, asi que puede no estar listo todavia.
+      if (tpl.source_pdf_url && !window.pdfjsLib) {
+        await new Promise(res => {
+          const t = setTimeout(res, 4000);
+          window.addEventListener('pdfjs-listo', () => { clearTimeout(t); res(); },
+            { once: true });
+        });
+      }
+      let pdfDoc = null;
+      if (tpl.source_pdf_url && window.pdfjsLib) {
+        try {
+          pdfDoc = await window.pdfjsLib.getDocument(tpl.source_pdf_url).promise;
+        } catch (e) { pdfDoc = null; }
+      }
+      if (tpl.source_pdf_url && !pdfDoc) {
+        const n = document.createElement('div');
+        n.textContent =
+          'No se pudo cargar el PDF de origen: se muestran las posiciones de los ' +
+          'campos sobre una página en blanco.';
+        n.style.cssText =
+          'font-size:12.5px;color:#7a5a12;background:#fff8e6;border:1px solid #f0d9a0;' +
+          'border-radius:8px;padding:10px 12px;margin-bottom:18px;max-width:760px;';
+        cont.appendChild(n);
+      }
+
+      // Las paginas se agrupan POR TAMAÑO: un mismo PDF puede mezclar Carta y
+      // Oficio —este pagare lo hace— y mostrarlas revueltas hace pensar que
+      // unas estan estiradas. Cada grupo lleva su titulo con el tamaño real.
+      const grupos = new Map();
+      (tpl.paginas || []).forEach(p => {
+        const clave = `${p.coord_width}x${p.coord_height}`;
+        if (!grupos.has(clave)) {
+          grupos.set(clave, {
+            nombre: p.size_name || `${Math.round(p.coord_width)} x ${Math.round(p.coord_height)}`,
+            ancho: p.coord_width, alto: p.coord_height, paginas: []
+          });
+        }
+        grupos.get(clave).paginas.push(p);
+      });
+
+      // De la hoja mas pequeña a la mas grande, para que se lea en orden.
+      const orden = Array.from(grupos.values()).sort((a, b) => a.alto - b.alto);
+      const variosTamanos = orden.length > 1;
+
+      orden.forEach(g => {
+        // Con un solo tamaño el encabezado sobra: no hay nada que distinguir.
+        if (variosTamanos) {
+          const cab = document.createElement('div');
+          cab.style.cssText =
+            'display:flex;align-items:baseline;gap:10px;margin:0 0 12px;' +
+            'padding-bottom:8px;border-bottom:1px solid #f0eaf3;flex-wrap:wrap;';
+
+          const nom = document.createElement('span');
+          nom.textContent = 'Tamaño ' + g.nombre;
+          nom.style.cssText = 'font-size:14px;font-weight:600;color:#2a0d31;';
+
+          const med = document.createElement('span');
+          med.textContent =
+            `${Math.round(g.ancho)} × ${Math.round(g.alto)} pt · ` +
+            (g.paginas.length === 1
+              ? 'página ' + g.paginas[0].page_number
+              : g.paginas.length + ' páginas');
+          med.style.cssText = 'font-size:12.5px;color:#888;';
+
+          cab.appendChild(nom);
+          cab.appendChild(med);
+          cont.appendChild(cab);
+        }
+
+        const rejPag = document.createElement('div');
+        rejPag.style.cssText =
+          'display:grid;grid-template-columns:repeat(3,1fr);' +
+          'gap:18px;margin-bottom:28px;min-width:0;align-items:start;';
+        g.paginas.forEach(p => rejPag.appendChild(paginaPrevia(p, tpl, pdfDoc)));
+        cont.appendChild(rejPag);
+      });
+
+      // ---- Desglose por tipo ----
+      const todos = [];
+      (tpl.paginas || []).forEach(p => (p.campos || []).forEach(c => todos.push(c)));
+
+      const h2 = document.createElement('h3');
+      h2.textContent = 'Campos guardados';
+      h2.style.cssText = 'font-size:15px;color:#2a0d31;margin:0 0 12px;';
+      cont.appendChild(h2);
+
+      const tipos = [
+        ['text', 'De texto'], ['signature', 'De firma'], ['date', 'De fecha'],
+        ['seal', 'De sello'], ['final_signature', 'De firma definitiva']
+      ];
+      const rejTipos = document.createElement('div');
+      rejTipos.style.cssText =
+        'display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));' +
+        'gap:12px;margin-bottom:24px;min-width:0;';
+      tipos.forEach(([clave, etiqueta]) => {
+        const n = todos.filter(c =>
+          c.field_type === clave || (clave === 'seal' && c.field_type === 'stamp')).length;
+        if (!n) return;
+        const b = document.createElement('div');
+        b.style.cssText =
+          'border:1px solid #e6dfea;border-radius:10px;padding:12px 14px;background:#fdfcfd;';
+        const nn = document.createElement('div');
+        nn.textContent = String(n);
+        nn.style.cssText = 'font-size:22px;font-weight:600;color:#2a0d31;';
+        const ee = document.createElement('div');
+        ee.textContent = etiqueta;
+        ee.style.cssText = 'font-size:12.5px;color:#777;margin-top:2px;';
+        b.appendChild(nn); b.appendChild(ee);
+        rejTipos.appendChild(b);
+      });
+      cont.appendChild(rejTipos);
+
+      // ---- Firmas por firmante ----
+      const firmas = todos.filter(c => c.field_type === 'signature');
+      if (firmas.length) {
+        const cuenta = new Map();
+        firmas.forEach(c => {
+          const k = c.part_order || '__sin__';
+          cuenta.set(k, (cuenta.get(k) || 0) + 1);
+        });
+        const caja = document.createElement('div');
+        caja.style.cssText =
+          'border:1px solid #e6dfea;border-radius:10px;padding:14px 16px;' +
+          'background:#faf8fb;margin-bottom:24px;max-width:760px;';
+        const ct = document.createElement('div');
+        ct.textContent = 'Campos de firma, por firmante';
+        ct.style.cssText = 'font-size:13px;font-weight:600;color:#2a0d31;margin-bottom:6px;';
+        caja.appendChild(ct);
+        Array.from(cuenta.entries()).forEach(([k, n]) => {
+          const fila = document.createElement('div');
+          fila.style.cssText =
+            'display:flex;align-items:center;gap:8px;font-size:13px;color:#555;margin-top:4px;';
+          const pt = document.createElement('span');
+          const col = k === '__sin__' ? '#c2185b' : PALETA[(k - 1) % PALETA.length];
+          pt.style.cssText =
+            `width:10px;height:10px;border-radius:50%;background:${col};flex-shrink:0;`;
+          const tx = document.createElement('span');
+          tx.textContent = `${n} ${n === 1 ? 'campo' : 'campos'} — ` +
+            (k === '__sin__' ? 'Sin firmante asignado' : 'Firmante N' + k);
+          fila.appendChild(pt); fila.appendChild(tx);
+          caja.appendChild(fila);
+        });
+        cont.appendChild(caja);
+      }
+
+      // ---- Campos de texto: etiqueta mapeada + fuente ----
+      const textos = todos.filter(c => c.field_type === 'text');
+      if (textos.length) {
+        const h3 = document.createElement('h3');
+        h3.textContent = 'Campos de texto y su formato';
+        h3.style.cssText = 'font-size:15px;color:#2a0d31;margin:0 0 4px;';
+        cont.appendChild(h3);
+
+        const nota = document.createElement('p');
+        nota.textContent =
+          'La etiqueta es la que empareja cada hueco con su columna del CSV. ' +
+          'La fuente se guarda con el campo y se reaplica al importar.';
+        nota.style.cssText =
+          'font-size:12.5px;color:#888;margin:0 0 12px;max-width:760px;line-height:1.5;';
+        cont.appendChild(nota);
+
+        const tabla = document.createElement('div');
+        tabla.style.cssText =
+          'display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));' +
+          'gap:10px;min-width:0;';
+
+        textos.forEach(c => {
+          const f = document.createElement('div');
+          f.style.cssText =
+            'border:1px solid #ece5f0;border-radius:8px;padding:10px 12px;' +
+            'background:#fdfcfd;min-width:0;';
+
+          const arriba = document.createElement('div');
+          arriba.style.cssText =
+            'display:flex;gap:8px;align-items:baseline;min-width:0;';
+          const pag = document.createElement('span');
+          pag.textContent = 'p' + c.page_number;
+          pag.style.cssText =
+            'font-size:11px;color:#9a8aa3;font-weight:600;flex-shrink:0;';
+          const et = document.createElement('span');
+          et.textContent = c.field_label || '(sin mapear)';
+          et.style.cssText =
+            'font-size:13px;color:#2a0d31;min-width:0;overflow-wrap:anywhere;' +
+            (c.field_label ? '' : 'color:#c2185b;font-style:italic;');
+          arriba.appendChild(pag); arriba.appendChild(et);
+          f.appendChild(arriba);
+
+          const fmt = formatoLegible(c.field_config);
+          const ff = document.createElement('div');
+          ff.textContent = fmt || 'sin formato guardado';
+          ff.style.cssText =
+            'font-size:11.5px;margin-top:4px;overflow-wrap:anywhere;' +
+            (fmt ? 'color:#6d6270;' : 'color:#b08;font-style:italic;');
+          f.appendChild(ff);
+
+          tabla.appendChild(f);
+        });
+        cont.appendChild(tabla);
+      }
+    }
+
+    async function cargar() {
+      // Restaurar la introduccion, que el detalle oculta.
+      const intro = document.querySelector('#sec-plantillas > p');
+      if (intro) intro.style.display = '';
+      vaciar(cont);
+      const cargando = document.createElement('p');
+      cargando.textContent = 'Cargando plantillas...';
+      cargando.style.cssText = 'color:#888;font-size:14px;';
+      cont.appendChild(cargando);
+
+      try {
+        const r = await fetch(API, { credentials: 'same-origin' });
+        const data = await r.json();
+        if (!r.ok || !data.ok) throw new Error(data.error || 'No se pudieron cargar');
+
+        vaciar(cont);
+        const lista = data.data || [];
+
+        if (!lista.length) {
+          const v = document.createElement('p');
+          v.textContent =
+            'Todavía no hay plantillas guardadas. Abra un pagaré, pinte los campos ' +
+            'y use "Exportar plantilla" para reutilizarlos en otro documento.';
+          v.style.cssText =
+            'color:#777;font-size:14px;line-height:1.6;background:#faf8fb;' +
+            'border:1px solid #efe8f2;border-radius:10px;padding:18px 20px;max-width:760px;';
+          cont.appendChild(v);
+          return;
+        }
+
+        lista.forEach(t => cont.appendChild(tarjeta(t)));
+
+        const tot = document.createElement('p');
+        tot.textContent = lista.length === 1
+          ? '1 plantilla guardada'
+          : lista.length + ' plantillas guardadas';
+        tot.style.cssText = 'font-size:13px;color:#888;margin:4px 0 0;';
+        cont.appendChild(tot);
+
+      } catch (e) {
+        vaciar(cont);
+        const err = document.createElement('p');
+        err.textContent = 'No se pudieron cargar las plantillas: ' + e.message;
+        err.style.cssText =
+          'color:#c2185b;background:#fdf2f0;border:1px solid #f0d4cf;' +
+          'border-radius:10px;padding:14px 16px;font-size:13.5px;max-width:760px;';
+        cont.appendChild(err);
+      }
+    }
+
+    // Mismo patron que "Gestionar Firmas": cargar solo al hacerse visible, para
+    // no pedir datos que quiza nadie mire al entrar a Configuracion.
+    let cargado = false;
+    function comprobar() {
+      const sec = document.getElementById('sec-plantillas');
+      if (sec && sec.classList.contains('is-visible') && !cargado) {
+        cargado = true;
+        cargar();
+      }
+    }
+
+    const sec = document.getElementById('sec-plantillas');
+    if (sec) {
+      new MutationObserver(comprobar).observe(sec, {
+        attributes: true, attributeFilter: ['class']
+      });
+    }
+    comprobar();
+
+    // Al volver a pulsar en el menu, recargar por si se exporto algo entretanto.
+    document.querySelector('.sn-item[data-section="plantillas"]')
+      ?.addEventListener('click', () => { cargado = false; comprobar(); });
+  })();
+  </script>
+
 </body>
 </html>

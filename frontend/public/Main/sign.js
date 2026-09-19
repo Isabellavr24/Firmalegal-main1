@@ -286,7 +286,149 @@ function updateFormatButtons() {
       fmtDateBtn.classList.remove('fmt-btn-visible'); fmtDateBtn.classList.add('fmt-btn-hidden');
     }
   }
+
+  updateTemplateButtons();
 }
+
+// Botones de plantilla: EXCLUYENTES entre si.
+//
+//   sin campos  -> solo "Importar plantilla"
+//   con campos  -> solo "Exportar plantilla"
+//
+// Que nunca aparezcan los dos a la vez es lo que impide duplicar campos: no
+// existe forma de importar sobre un documento que ya los tiene.
+//
+// Solo en pagares y en modo preparacion: en documentos normales no se mapea
+// texto, y firmando no se editan campos.
+function updateTemplateButtons() {
+  const impBtn = document.getElementById('importTemplateBtn');
+  const expBtn = document.getElementById('exportTemplateBtn');
+  if (!impBtn && !expBtn) return;
+
+  const aplica = isPagareMode && currentMode === 'prepare';
+  const hayCampos = fields.length > 0;
+
+  const mostrar = (btn, visible) => {
+    if (!btn) return;
+    if (visible) { btn.classList.remove('fmt-btn-hidden'); btn.classList.add('fmt-btn-visible'); }
+    else { btn.classList.remove('fmt-btn-visible'); btn.classList.add('fmt-btn-hidden'); }
+  };
+
+  mostrar(impBtn, aplica && !hayCampos);
+  mostrar(expBtn, aplica && hayCampos);
+}
+
+// Lectura del estado del editor para el modulo de plantillas.
+//
+// `fields`, `allPages` y `currentDocId` se declaran con `let` en el ambito del
+// modulo, asi que NO existen en `window` y otro archivo no puede leerlas. En
+// vez de cambiar esas declaraciones —que usa medio editor— se expone una
+// funcion que devuelve una copia del estado. Solo lee: nadie de fuera puede
+// modificar los campos.
+window.getEditorState = function () {
+  return {
+    fields: fields.map(f => ({
+      id: f.id, type: f.type, page: f.page,
+      x: f.x, y: f.y, w: f.w, h: f.h, label: f.label,
+      // A que firmante pertenece. Sin esto, el resumen dice "2 de firma" sin
+      // decir de quien, que es justo lo que hay que poder comprobar de un
+      // vistazo antes de exportar. El campo ya guarda el rol al colocarse:
+      // roleId/roleName/roleColor. El sello y la firma definitiva no llevan
+      // rol a proposito, y ahi roleId viene en null.
+      roleId: f.roleId || null,
+      roleName: f.roleName || null,
+      roleColor: f.roleColor || null,
+      // Fuente, tamaño, color y alineacion del texto. La plantilla tiene que
+      // llevarlos: rehacer el formato a mano en cada grado es parte de lo que
+      // se esta evitando.
+      format: f.format ? Object.assign({}, f.format) : null
+    })),
+    // Partes del documento, para saber el ORDEN de cada rol (1 = Firmante N1).
+    // Es lo unico que la plantilla puede conservar: el part_id es de ESTE
+    // documento y copiarlo pondria la firma de uno en el pagare de otro.
+    parts: (window.rolesSystem && Array.isArray(window.rolesSystem.roles))
+      ? window.rolesSystem.roles.map((r, idx) => ({
+          roleId: r.id || r.roleId || null,
+          partId: r.partId || null,
+          name: r.name || ('Firmante ' + (idx + 1)),
+          order: idx + 1,
+          color: r.color || null
+        }))
+      : [],
+    totalPages: allPages.length,
+    // Tamaño natural del PDF: el viewport trae la escala de pantalla aplicada
+    // y las coordenadas de los campos viven en el espacio natural.
+    pageSize: (() => {
+      if (!allPages.length || !allPages[0].viewport) return null;
+      const vp = allPages[0].viewport;
+      const esc = vp.scale || 1;
+      return {
+        width: Math.round((vp.width / esc) * 100) / 100,
+        height: Math.round((vp.height / esc) * 100) / 100
+      };
+    })(),
+    docId: currentDocId,
+    mode: currentMode,
+    isPagare: isPagareMode,
+    // Escala del viewport (baseScale). Las coordenadas de `fields` la llevan
+    // aplicada; para guardarlas en el espacio del PDF hay que dividir por
+    // ella, igual que hace saveFieldsToBackend.
+    viewportScale: (allPages.length && allPages[0].viewport &&
+                    allPages[0].viewport.scale) ? allPages[0].viewport.scale : 1.4
+  };
+};
+
+// Miniatura de una pagina ya renderizada, para la previsualizacion.
+// Se genera bajo demanda y no de golpe al abrir el editor: un pagare son once
+// paginas y convertirlas todas a imagen congelaria la interfaz sin que nadie
+// lo haya pedido. `ancho` es el ancho final en pixeles.
+/**
+ * Tamaño natural de una pagina concreta del PDF abierto.
+ *
+ * Un PDF puede mezclar tamaños —los pagares de la universidad traen Carta y
+ * Oficio en el mismo archivo—, asi que no vale usar el de la primera pagina
+ * para todas: las que son mas altas salen deformadas.
+ */
+window.getPageSize = function (pageNum) {
+  const pagina = allPages.find(p => p.pageNum === pageNum);
+  if (!pagina || !pagina.viewport) return null;
+  const vp = pagina.viewport;
+  const esc = vp.scale || 1;
+  return {
+    width: Math.round((vp.width / esc) * 100) / 100,
+    height: Math.round((vp.height / esc) * 100) / 100
+  };
+};
+
+window.getPageThumbnail = function (pageNum, ancho) {
+  const pagina = allPages.find(p => p.pageNum === pageNum);
+  if (!pagina || !pagina.canvas) return null;
+  try {
+    const destino = document.createElement('canvas');
+    const w = ancho || 150;
+    const proporcion = pagina.canvas.height / pagina.canvas.width;
+    destino.width = w;
+    destino.height = Math.round(w * proporcion);
+    destino.getContext('2d').drawImage(pagina.canvas, 0, 0, destino.width, destino.height);
+    return destino.toDataURL('image/jpeg', 0.7);
+  } catch (e) {
+    // Un PDF servido desde otro origen ensucia el canvas y toDataURL lanza.
+    // La previsualizacion es una ayuda, no un requisito: sin ella se sigue
+    // pudiendo exportar.
+    console.warn('No se pudo generar la miniatura de la pagina', pageNum, e);
+    return null;
+  }
+};
+
+// Guardar los campos SIN salir del editor.
+//
+// El boton GUARDAR hace dos cosas: guarda y redirige al tracker. La
+// exportacion de plantillas necesita lo primero pero no lo segundo, porque el
+// operador sigue trabajando. `skipRedirect` ya existia en el editor; esto solo
+// lo deja al alcance del modulo de plantillas.
+window.guardarCamposSinSalir = function () {
+  return saveFieldsToBackend(true);
+};
 
 // ===== Toast de confirmación de mapeo =====
 let _mapeoToastTimer = null;
@@ -843,6 +985,8 @@ async function loadExistingFields(docId) {
     // Actualizar indicadores visuales y botones según el formato cargado
     refreshTextFieldFormatIndicators();
     updateFormatButtons();
+    // Estado inicial: el punto al que se vuelve deshaciendo todo.
+    registrarHistorial();
     console.log(`✅ ${fields.length} campo(s) renderizado(s) en el PDF`);
 
   } catch (error) {
@@ -850,6 +994,96 @@ async function loadExistingFields(docId) {
     // No lanzar error, solo loguearlo - el documento puede no tener campos aún
   }
 }
+
+/**
+ * Pinta en el editor los campos que devuelve una plantilla importada.
+ *
+ * NO los guarda: quedan igual que si se acabaran de dibujar a mano, y es
+ * GUARDAR quien los escribe. Asi importar no deja el documento listo para
+ * envio sin que nadie lo revise, y no choca con el borrado que hace GUARDAR
+ * antes de reinsertar —que arrastra `field_values` en cascada—.
+ */
+window.aplicarCamposImportados = function (importados) {
+  if (!Array.isArray(importados) || !importados.length) return 0;
+
+  // El panel de partes tiene que conocer TODOS los firmantes de la plantilla
+  // antes de pintar nada. GUARDAR borra las partes y reinserta solo las del
+  // panel: si el panel no las tiene, la parte que creo la importacion se
+  // pierde y el guardado falla con "roleId=2 no tiene parte valida".
+  const maxOrden = importados.reduce(
+    (m, c) => Math.max(m, parseInt(c.partOrder, 10) || 0), 0);
+  if (maxOrden > 0) {
+    const rs = window.rolesSystem || window.rolesFieldSelector;
+    if (rs && typeof rs.asegurarPartes === 'function') {
+      rs.asegurarPartes(maxOrden);
+    }
+  }
+
+  // Las coordenadas llegan en el espacio del PDF; el editor trabaja con la
+  // escala del viewport aplicada, igual que en loadExistingFields.
+  const VIEWPORT_SCALE = 1.4;
+
+  importados.forEach((c, i) => {
+    let formato = c.format || null;
+    if (typeof formato === 'string') {
+      try { formato = JSON.parse(formato); } catch (e) { formato = null; }
+    }
+
+    const fieldData = {
+      id: `field-${Date.now()}-imp-${i}`,
+      type: c.type,
+      page: c.page || 1,
+      x: parseFloat(c.x) * VIEWPORT_SCALE,
+      y: parseFloat(c.y) * VIEWPORT_SCALE,
+      w: parseFloat(c.width) * VIEWPORT_SCALE,
+      h: parseFloat(c.height) * VIEWPORT_SCALE,
+      label: c.label || null,
+      required: c.required !== false,
+      signed: false,
+      dataUrl: null,
+      // CLAVE: el backend entiende por roleId el ORDER_POSITION de la parte
+      // (1, 2, 3...), no su part_id. Mandar el part_id hace que al guardar
+      // responda "Campo con roleId=6567 no tiene parte valida" y bloquee todo.
+      roleId: c.partOrder || null,
+      roleName: c.partOrder ? ('Firmante N' + c.partOrder) : null,
+      roleColor: null,
+      format: formato
+    };
+
+    // Color del firmante. Los mismos que usa el backend al crear las partes,
+    // por ORDEN: al importar, esas partes acaban de crearse y rolesSystem
+    // todavia no las conoce, asi que sin esto el campo se queda sin color y el
+    // editor no pinta a quien pertenece la firma.
+    const COLORES_PARTE = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'];
+    if (c.partOrder) {
+      fieldData.roleColor = COLORES_PARTE[(c.partOrder - 1) % COLORES_PARTE.length];
+    }
+
+    // Si el sistema de roles ya tiene la parte, se toma de ahi su nombre y su
+    // color. El roleId se deja como esta: debe seguir siendo el orden.
+    if (c.partId && window.rolesSystem && Array.isArray(window.rolesSystem.roles)) {
+      const rol = window.rolesSystem.roles.find(
+        r => String(r.partId) === String(c.partId));
+      if (rol) {
+        fieldData.roleName = rol.name || fieldData.roleName;
+        fieldData.roleColor = rol.color || fieldData.roleColor;
+      }
+    }
+
+    if (c.type === 'text' && formato && !documentTextFormat) {
+      documentTextFormat = Object.assign({}, formato);
+    }
+
+    fields.push(fieldData);
+    renderFieldOnPage(fieldData);
+  });
+
+  refreshTextFieldFormatIndicators();
+  updateFormatButtons();
+  registrarHistorial();
+  console.log(`✅ ${importados.length} campo(s) importado(s) — sin guardar todavia`);
+  return importados.length;
+};
 
 // ===== Renderizar un campo en el PDF =====
 function renderFieldOnPage(fieldData) {
@@ -897,6 +1131,24 @@ function renderFieldOnPage(fieldData) {
       labelColor = fieldData.roleColor;
     }
 
+    // Etiqueta mapeada del campo de texto: es la que empareja el hueco con su
+    // columna del CSV. Sin esto un campo importado se ve como "Texto" y no hay
+    // forma de comprobar a simple vista que el mapeo llego —que es justo lo que
+    // hay que poder revisar antes de enviar—.
+    // El mapeo del CSV se muestra con el mismo distintivo morado que aparece al
+    // colocar el campo a mano (.mapped-label-badge). Antes solo se creaba al
+    // colocarlo, asi que los campos importados o recargados no lo tenian y no
+    // habia forma de comprobar a simple vista que el mapeo llego.
+    let mappedBadgeHtml = '';
+    if (fieldData.type === 'text') {
+      const esc = t => String(t)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+      mappedBadgeHtml = (fieldData.label && String(fieldData.label).trim())
+        ? `<span class="mapped-label-badge" title="Mapeado a: ${esc(fieldData.label)}">${esc(fieldData.label)}</span>`
+        : `<span class="mapped-label-badge no-map" title="Sin mapeo — coloca el campo junto a un texto del PDF">Sin mapeo</span>`;
+    }
+
     // Renderizado especial para sellos
     if (fieldData.type === 'seal') {
       el.innerHTML = `
@@ -925,6 +1177,7 @@ function renderFieldOnPage(fieldData) {
       el.innerHTML = `
         <span class="label" style="color: ${labelColor}; font-weight: ${fieldData.roleName ? '600' : '500'};">${fieldLabel}</span>
         <button class="delete-btn" title="Eliminar">×</button>
+        ${mappedBadgeHtml}
       `;
       if (fieldData.roleColor) {
         el.style.borderColor = fieldData.roleColor;
@@ -1925,9 +2178,16 @@ function initPageOverlays() {
       // Actualizar botones de formato
       if (placingFieldType === 'text' || placingFieldType === 'date') {
         updateFormatButtons();
+      } else {
+        // Los de formato solo aplican a texto y fecha, pero los de plantilla
+        // dependen de que HAYA campos, sea del tipo que sea: si el operador
+        // empieza por una firma o un sello, "Importar" debe desaparecer igual.
+        updateTemplateButtons();
       }
-      
+
       // Log con información de parte
+      registrarHistorial();
+
       const partInfo = roleName ? ` - Asignado a: ${roleName}` : '';
       console.log(`✅ Campo colocado en página ${pageData.pageNum} con ID: ${id}${partInfo}`);
       
@@ -1974,6 +2234,13 @@ async function deleteField(fieldId, pageNum){
 
   if (!confirmed) return;
 
+  // Sacarlo de la seleccion multiple: si no, queda un id que ya no existe y
+  // el siguiente arrastre en bloque intentaria mover un campo borrado.
+  if (typeof seleccionMultiple !== 'undefined' && seleccionMultiple.has(fieldId)) {
+    seleccionMultiple.delete(fieldId);
+    pintarSeleccion();
+  }
+
   // Buscar la página correcta
   const pageData = allPages.find(p => p.pageNum === pageNum);
   if (!pageData) return;
@@ -1985,6 +2252,7 @@ async function deleteField(fieldId, pageNum){
   // Eliminar del array
   const index = fields.findIndex(f => f.id === fieldId);
   if(index > -1) fields.splice(index, 1);
+  registrarHistorial();
 
   console.log('🗑️ Campo eliminado:', fieldId);
   updateFormatButtons();
@@ -2139,6 +2407,7 @@ function stopResize() {
       x: field.x,
       y: field.y
     });
+    registrarHistorial();
   }
 
   // Limpiar
@@ -2160,6 +2429,174 @@ let fieldStartX = 0;
 let fieldStartY = 0;
 let hasMoved = false;
 
+// ===== Deshacer y rehacer (Ctrl+Z / Ctrl+Shift+Z) =====
+//
+// Guarda instantaneas de los campos. Recolocar 52 campos importados es trabajo
+// delicado y sin deshacer un arrastre mal dado obliga a rehacerlo a mano.
+//
+// Solo afecta a lo que hay en pantalla: NO toca la base. Lo guardado sigue
+// siendo lo que se escribio con GUARDAR.
+const HIST_MAX = 50;
+let historial = [];
+let historialPos = -1;
+let restaurando = false;
+
+/** Copia del estado actual de los campos. */
+function instantanea() {
+  return JSON.stringify(fields.map(f => ({
+    id: f.id, field_id: f.field_id, type: f.type, page: f.page,
+    x: f.x, y: f.y, w: f.w, h: f.h,
+    label: f.label, required: f.required, value: f.value, signed: f.signed,
+    dataUrl: f.dataUrl, roleId: f.roleId, roleName: f.roleName,
+    roleColor: f.roleColor, format: f.format
+  })));
+}
+
+/**
+ * Registra el estado ACTUAL como punto al que se puede volver.
+ * Se llama despues de cada cambio.
+ */
+function registrarHistorial() {
+  if (restaurando) return;
+  const foto = instantanea();
+  if (historial[historialPos] === foto) return;   // nada cambio
+
+  // Al hacer un cambio nuevo, lo que estaba "adelante" se descarta.
+  historial = historial.slice(0, historialPos + 1);
+  historial.push(foto);
+  if (historial.length > HIST_MAX) historial.shift();
+  historialPos = historial.length - 1;
+}
+
+/** Vuelve a pintar el editor a partir de una instantanea. */
+function aplicarInstantanea(foto) {
+  const datos = JSON.parse(foto);
+  restaurando = true;
+  try {
+    // Quitar lo que hay dibujado y reconstruir desde la instantanea.
+    document.querySelectorAll('.field').forEach(el => el.remove());
+    fields.length = 0;
+    datos.forEach(d => {
+      fields.push(d);
+      renderFieldOnPage(d);
+    });
+    // Ids que ya no existen no pueden seguir seleccionados.
+    const vivos = new Set(datos.map(d => d.id));
+    seleccionMultiple.forEach(id => { if (!vivos.has(id)) seleccionMultiple.delete(id); });
+    pintarSeleccion();
+    if (typeof refreshTextFieldFormatIndicators === 'function') refreshTextFieldFormatIndicators();
+    if (typeof updateFormatButtons === 'function') updateFormatButtons();
+  } finally {
+    restaurando = false;
+  }
+}
+
+function deshacer() {
+  if (historialPos <= 0) {
+    if (typeof toast !== 'undefined' && toast.info) toast.info('No hay nada que deshacer');
+    return;
+  }
+  historialPos--;
+  aplicarInstantanea(historial[historialPos]);
+  if (typeof toast !== 'undefined' && toast.info) toast.info('Cambio deshecho');
+}
+
+function rehacer() {
+  if (historialPos >= historial.length - 1) {
+    if (typeof toast !== 'undefined' && toast.info) toast.info('No hay nada que rehacer');
+    return;
+  }
+  historialPos++;
+  aplicarInstantanea(historial[historialPos]);
+  if (typeof toast !== 'undefined' && toast.info) toast.info('Cambio rehecho');
+}
+
+document.addEventListener('keydown', e => {
+  if (!(e.ctrlKey || e.metaKey)) return;
+  const k = (e.key || '').toLowerCase();
+
+  // Si el foco esta en un campo de escritura, mandan los atajos del navegador.
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+
+  if (k === 'z' && !e.shiftKey) { e.preventDefault(); deshacer(); }
+  else if ((k === 'z' && e.shiftKey) || k === 'y') { e.preventDefault(); rehacer(); }
+});
+
+// ===== Seleccion multiple con Shift =====
+//
+// Al importar una plantilla de un pagare Carta a uno Oficio los campos quedan
+// desplazados. Sin esto hay que recolocar 52 campos de uno en uno; con Shift
+// se marcan varios y se mueven juntos, conservando su posicion relativa.
+//
+// Solo mueve: no cambia tamaños ni asignaciones de firmante.
+let seleccionMultiple = new Set();   // ids de campos marcados
+let posicionesInicio = new Map();    // id -> {x, y} al empezar a arrastrar
+
+function estaSeleccionado(id) { return seleccionMultiple.has(id); }
+
+/** Marca o desmarca un campo, con su realce visual. */
+function alternarSeleccion(id) {
+  if (seleccionMultiple.has(id)) seleccionMultiple.delete(id);
+  else seleccionMultiple.add(id);
+  pintarSeleccion();
+}
+
+function limpiarSeleccion() {
+  if (!seleccionMultiple.size) return;
+  seleccionMultiple.clear();
+  pintarSeleccion();
+}
+
+/** Realce de los campos marcados. Se usa outline para no tocar el borde, que
+ *  ya indica a que firmante pertenece el campo. */
+function pintarSeleccion() {
+  document.querySelectorAll('.field').forEach(el => {
+    if (seleccionMultiple.has(el.dataset.id)) {
+      el.style.outline = '2px solid #c2185b';
+      el.style.outlineOffset = '1px';
+    } else {
+      el.style.outline = '';
+      el.style.outlineOffset = '';
+    }
+  });
+  actualizarAvisoSeleccion();
+}
+
+/** Aviso flotante con lo que hay marcado y como moverlo. */
+function actualizarAvisoSeleccion() {
+  let aviso = document.getElementById('avisoSeleccion');
+  if (!seleccionMultiple.size) {
+    if (aviso) aviso.remove();
+    return;
+  }
+  if (!aviso) {
+    aviso = document.createElement('div');
+    aviso.id = 'avisoSeleccion';
+    aviso.style.cssText =
+      'position:fixed;left:50%;transform:translateX(-50%);bottom:24px;' +
+      'background:#2b0e31;color:#fff;padding:10px 18px;border-radius:999px;' +
+      'font-size:13px;font-weight:600;z-index:9998;display:flex;' +
+      'align-items:center;gap:14px;box-shadow:0 6px 20px rgba(20,8,24,.3);';
+    document.body.appendChild(aviso);
+  }
+  const n = seleccionMultiple.size;
+  aviso.textContent = `${n} campo(s) seleccionado(s) — arrastre uno para mover todos`;
+
+  const soltar = document.createElement('button');
+  soltar.textContent = 'Quitar selección';
+  soltar.style.cssText =
+    'background:rgba(255,255,255,.16);border:none;color:#fff;cursor:pointer;' +
+    'font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;';
+  soltar.onclick = limpiarSeleccion;
+  aviso.appendChild(soltar);
+}
+
+// Escape quita la seleccion; es lo que se espera de una seleccion activa.
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') limpiarSeleccion();
+});
+
 function startDragField(e){
   // Solo arrastrar con botón izquierdo del mouse o touch
   if(e.button && e.button !== 0) return;
@@ -2172,14 +2609,46 @@ function startDragField(e){
 
   const pt = getEventPoint(e);
   draggingField = e.currentTarget;
+  const idPulsado = draggingField.dataset.id;
+
+  // Shift+clic: marcar o desmarcar, sin arrastrar.
+  if (e.shiftKey) {
+    e.preventDefault();
+    e.stopPropagation();
+    alternarSeleccion(idPulsado);
+    draggingField = null;
+    return;
+  }
+
+  // Clic normal sobre un campo que NO esta marcado: se entiende que se
+  // abandona la seleccion anterior.
+  if (seleccionMultiple.size && !estaSeleccionado(idPulsado)) {
+    limpiarSeleccion();
+  }
+
   dragStartX = pt.clientX;
   dragStartY = pt.clientY;
   fieldStartX = parseInt(draggingField.style.left) || 0;
   fieldStartY = parseInt(draggingField.style.top) || 0;
   hasMoved = false;
 
+  // Posicion de partida de TODO lo marcado, para moverlo en bloque
+  // conservando las distancias entre campos.
+  posicionesInicio.clear();
+  if (estaSeleccionado(idPulsado)) {
+    seleccionMultiple.forEach(id => {
+      const el = document.querySelector(`.field[data-id="${id}"]`);
+      if (el) {
+        posicionesInicio.set(id, {
+          x: parseInt(el.style.left) || 0,
+          y: parseInt(el.style.top) || 0
+        });
+      }
+    });
+  }
+
   // Actualizar campo activo
-  activeFieldId = draggingField.dataset.id;
+  activeFieldId = idPulsado;
 
   // Prevenir selección de texto mientras se arrastra
   e.preventDefault();
@@ -2212,8 +2681,20 @@ function dragField(e){
     const newX = fieldStartX + deltaX;
     const newY = fieldStartY + deltaY;
 
-    draggingField.style.left = newX + 'px';
-    draggingField.style.top = newY + 'px';
+    if (posicionesInicio.size) {
+      // Mismo desplazamiento a todos: asi no se pierde la alineacion entre
+      // ellos, que es justo lo que se quiere conservar.
+      posicionesInicio.forEach((pos, id) => {
+        const el = document.querySelector(`.field[data-id="${id}"]`);
+        if (el) {
+          el.style.left = (pos.x + deltaX) + 'px';
+          el.style.top = (pos.y + deltaY) + 'px';
+        }
+      });
+    } else {
+      draggingField.style.left = newX + 'px';
+      draggingField.style.top = newY + 'px';
+    }
   }
 }
 
@@ -2235,11 +2716,26 @@ function stopDragField(e){
 
     const fieldId = draggingField.dataset.id;
     const field = fields.find(f => f.id === fieldId);
-    if(field){
+
+    if (posicionesInicio.size) {
+      // Volcar la posicion de TODOS los que se movieron en bloque.
+      let movidos = 0;
+      posicionesInicio.forEach((pos, id) => {
+        const el = document.querySelector(`.field[data-id="${id}"]`);
+        const f = fields.find(x => x.id === id);
+        if (el && f) {
+          f.x = parseInt(el.style.left) || 0;
+          f.y = parseInt(el.style.top) || 0;
+          movidos++;
+        }
+      });
+      console.log(`✅ ${movidos} campo(s) movidos en bloque`);
+    } else if(field){
       field.x = parseInt(draggingField.style.left) || 0;
       field.y = parseInt(draggingField.style.top) || 0;
+      console.log('✅ Campo movido a nueva posición:', field?.x, field?.y);
     }
-    console.log('✅ Campo movido a nueva posición:', field?.x, field?.y);
+    registrarHistorial();
 
     // Mantener hasMoved en true por un momento para evitar abrir modal
     setTimeout(() => {
@@ -2791,6 +3287,12 @@ async function saveFieldsToBackend(skipRedirect = false) {
         console.log('✅ Campos guardados - NO redirigiendo (skipRedirect=true)');
       }
 
+      // Devolver el resultado permite que quien llame sepa si de verdad se
+      // guardo. Lo usa la exportacion de plantillas, que necesita los campos
+      // ya en la base antes de pedirlos al backend. Quien no mire el valor
+      // devuelto sigue funcionando igual que antes.
+      return { ok: true, guardados: fieldsData.length };
+
     } else {
       throw new Error(data.error || 'Error al guardar campos');
     }
@@ -2798,6 +3300,7 @@ async function saveFieldsToBackend(skipRedirect = false) {
   } catch (error) {
     console.error('❌ Error al guardar campos:', error);
     toast.error(`Error al guardar campos: ${error.message}`);
+    return { ok: false, error: error.message };
   }
 }
 
