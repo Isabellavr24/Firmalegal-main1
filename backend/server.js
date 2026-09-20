@@ -1034,8 +1034,24 @@ async function sealPagaresWithoutFinalSigner(documentId) {
 
                 if (!vgAllRecipients.length) continue;
 
+                // Base del interim: el PDF que YA lleva las trazabilidades.
+                //
+                // `personal_pdf_path` es el PDF con los datos del CSV pero SIN
+                // trazas; partir de el borraba todo lo que habia fusionado el
+                // pre-traza, y el codeudor firmaba un documento sin la
+                // trazabilidad del deudor.
+                //
+                // `vi_personal_*` es el que el pre-traza (o el VI-callback)
+                // dejo con las trazas dentro. Si existe, manda ese.
                 const baseRec = vgAllRecipients.find(r => r.personal_pdf_path) || vgAllRecipients[0];
-                const basePdfRel = (baseRec.personal_pdf_path || baseRec.custom_pdf_path || '').replace(/^\/+/, '');
+                const conTrazas = vgAllRecipients.find(
+                    r => r.custom_pdf_path && String(r.custom_pdf_path).includes('vi_personal_')
+                );
+                const basePdfRel = (
+                    (conTrazas && conTrazas.custom_pdf_path) ||
+                    baseRec.personal_pdf_path ||
+                    baseRec.custom_pdf_path || ''
+                ).replace(/^\/+/, '');
                 const basePdfAbs = resolveFromRoot(basePdfRel);
                 if (!basePdfAbs || !fs.existsSync(basePdfAbs)) {
                     console.warn(`   ⚠️ PDF base no encontrado para vg ${viewerGroup.viewer_group_id}`);
@@ -1977,6 +1993,11 @@ app.post('/api/documents/:id/pre-insert-trazas', async (req, res) => {
                     COALESCE(completed_at, sent_at) AS cuando
              FROM document_recipients
              WHERE email IN (${placeholders}) AND vi_traza_path IS NOT NULL
+               -- La validacion tiene que seguir vigente: si se anulo
+               -- (vi_validated_at a NULL) el archivo de traza sigue en disco,
+               -- y sin esta condicion se adjuntaba la trazabilidad de una
+               -- validacion revocada.
+               AND vi_validated_at IS NOT NULL
              UNION ALL
              SELECT email COLLATE utf8mb4_unicode_ci,
                     vi_traza_path COLLATE utf8mb4_unicode_ci,
@@ -2079,6 +2100,92 @@ app.post('/api/documents/:id/pre-insert-trazas', async (req, res) => {
             [mergedRelPath, documentId]
         );
         console.log(`   [PRE-TRAZA] ${insertedEmails.length} traza(s) de ${emails.length} firmante(s) -> ${mergedRelPath}`);
+
+        // PAGARES: cada firmante tiene su propio `custom_pdf_path`, y el visor
+        // sirve ESE, no `filled_pdf_path`. Sin este paso la fusion de arriba se
+        // quedaba en un archivo que nadie abre: el firmante veia su pagare sin
+        // trazabilidad aunque el log dijera "traza fusionada".
+        //
+        // CADA PAGARE LLEVA SOLO LAS TRAZAS DE SUS PROPIOS FIRMANTES. Un envio
+        // masivo agrupa varios pagares en un documento, y meter las trazas de
+        // todos en cada PDF pondria en el pagare de una familia la cedula y la
+        // foto de otra.
+        //
+        // El firmante definitivo queda fuera a proposito: su traza se adjunta
+        // al final, cuando firma, no antes.
+        try {
+            // Ordenado por signing_order: las trazas se adjuntan en el orden en
+            // que firman —primero el deudor, luego el codeudor—, no por fecha
+            // de validacion. Es como se lee el documento.
+            const [recsPagare] = await db.promise().query(
+                `SELECT recipient_id, email, custom_pdf_path, signing_order
+                 FROM document_recipients
+                 WHERE document_id = ? AND custom_pdf_path IS NOT NULL
+                   AND (is_final_signer IS NULL OR is_final_signer = 0)
+                 ORDER BY signing_order, recipient_id`,
+                [documentId]
+            );
+
+            // Un mismo custom_pdf_path lo comparten los firmantes de un grupo:
+            // se procesa una vez por archivo, no una por destinatario.
+            const porArchivo = new Map();
+            for (const r of recsPagare) {
+                const rel = String(r.custom_pdf_path).replace(/^\/+/, '');
+                if (!porArchivo.has(rel)) porArchivo.set(rel, []);
+                porArchivo.get(rel).push(r);
+            }
+
+            for (const [rel, destinatarios] of porArchivo) {
+                const abs = resolveFromRoot(rel);
+                if (!fs.existsSync(abs)) {
+                    console.warn(`   [PRE-TRAZA] custom_pdf_path no existe: ${rel}`);
+                    continue;
+                }
+                // Solo las trazas de LOS FIRMANTES DE ESTE PDF. Sin este filtro,
+                // el pagare de una familia acabaria con la cedula y la foto de
+                // otra: en un envio masivo `trazasToInsert` trae las de todos.
+                // `destinatarios` viene ordenado por signing_order, y las trazas
+                // se toman en ESE orden: deudor primero, codeudor despues.
+                // Ordenarlas por fecha de validacion ponia al codeudor delante
+                // si se habia validado mas tarde.
+                const suyas = [];
+                for (const d of destinatarios) {
+                    const t = trazasToInsert.find(
+                        x => String(x.email || '').toLowerCase() === String(d.email || '').toLowerCase()
+                    );
+                    if (t && !suyas.includes(t)) suyas.push(t);
+                }
+
+                const propio = await PDFDoc.load(fs.readFileSync(abs));
+                let anadidas = 0;
+                for (const rec of suyas) {
+                    const trazaAbs = resolveFromRoot(rec.vi_traza_path.replace(/^\/+/, ''));
+                    if (!fs.existsSync(trazaAbs)) continue;
+                    const trazaPdf = await PDFDoc.load(fs.readFileSync(trazaAbs));
+                    const pgs = await propio.copyPages(trazaPdf, trazaPdf.getPageIndices());
+                    pgs.forEach(p => propio.addPage(p));
+                    anadidas++;
+                }
+                if (!anadidas) continue;
+
+                // Se escribe un archivo NUEVO: sobreescribir el anterior dejaria
+                // sin PDF a quien lo estuviera abriendo en ese momento.
+                const nuevoNombre = `vi_personal_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.pdf`;
+                const nuevoRel = `uploads/pagares/${nuevoNombre}`;
+                const dirPagares = resolveFromRoot('uploads', 'pagares');
+                if (!fs.existsSync(dirPagares)) fs.mkdirSync(dirPagares, { recursive: true });
+                fs.writeFileSync(resolveFromRoot(nuevoRel), Buffer.from(await propio.save()));
+
+                const ids = destinatarios.map(d => d.recipient_id);
+                await db.promise().query(
+                    'UPDATE document_recipients SET custom_pdf_path = ? WHERE recipient_id IN (?)',
+                    [nuevoRel, ids]
+                );
+                console.log(`   [PRE-TRAZA] ${anadidas} traza(s) en el PDF de ${ids.length} firmante(s) -> ${nuevoRel}`);
+            }
+        } catch (e) {
+            console.error(`   [PRE-TRAZA] No se pudo actualizar el PDF de los firmantes: ${e.message}`);
+        }
 
         res.json({ ok: true, inserted: insertedEmails.length, emails: insertedEmails });
 
@@ -3773,8 +3880,6 @@ app.post('/api/public/vi-callback', async (req, res) => {
                 trazaRelPathGuardada = trazaRelPath;
 
                 if (isPagare) {
-                    // PAGARÉ: solo guardar vi_traza_path. NO tocar custom_pdf_path.
-                    // El interim construirá el PDF individual con esta traza cuando el firmante firme.
                     await new Promise((resolve, reject) => {
                         db.query(
                             'UPDATE document_recipients SET vi_traza_path = ? WHERE recipient_id = ?',
@@ -3782,7 +3887,73 @@ app.post('/api/public/vi-callback', async (req, res) => {
                             (err) => { if (err) reject(err); else resolve(); }
                         );
                     });
-                    console.log(`✅ [VI-CALLBACK] Traza VI guardada para pagaré ${recipient.email}: ${trazaFilename} (custom_pdf_path NO modificado)`);
+                    console.log(`✅ [VI-CALLBACK] Traza VI guardada para pagaré ${recipient.email}: ${trazaFilename}`);
+
+                    // La traza recien hecha se incorpora AHORA al PDF que veran
+                    // los firmantes del grupo. Antes solo se guardaba la ruta y se
+                    // esperaba al interim: quien validaba en mitad del flujo abria
+                    // su pagare y no veia su propia trazabilidad, o veia la de una
+                    // validacion anterior que el pre-traza habia dejado ahi.
+                    // Se RECONSTRUYE desde personal_pdf_path (base limpia, sin
+                    // trazas) y se anexan las de todos los validados del grupo en
+                    // orden de firma: anexar sobre el acumulado duplicaria trazas
+                    // cada vez que alguien valida o re-valida.
+                    try {
+                        const { PDFDocument: PDFDocTraza } = require('pdf-lib');
+                        const [grupo] = await db.promise().query(
+                            `SELECT recipient_id, email, status, personal_pdf_path, custom_pdf_path,
+                                    vi_traza_path, vi_validated_at
+                             FROM document_recipients
+                             WHERE viewer_group_id = ? AND is_final_signer = 0
+                             ORDER BY signing_order, recipient_id`,
+                            [recipient.viewer_group_id]
+                        );
+                        const base = grupo.find(g => g.personal_pdf_path);
+                        const baseRel = base ? String(base.personal_pdf_path).replace(/^\/+/, '') : '';
+                        const baseAbs = baseRel ? resolveFromRoot(baseRel) : '';
+
+                        // Si alguien del grupo YA firmo, su firma vive en custom_pdf_path
+                        // y no en personal_pdf_path: reconstruir desde la base limpia
+                        // borraria esa firma. En ese caso el interim de la siguiente
+                        // firma ya anexa la traza propia, asi que no se toca nada.
+                        const yaFirmo = grupo.some(g => g.status === 'completed');
+                        if (yaFirmo) {
+                            console.log(`   [VI-CALLBACK] vg ${recipient.viewer_group_id} ya tiene firmas: no se reconstruye (la traza se anexa en el interim)`);
+                        } else if (baseAbs && fs.existsSync(baseAbs)) {
+                            const pdfNuevo = await PDFDocTraza.load(fs.readFileSync(baseAbs));
+                            let anexadas = 0;
+                            for (const g of grupo) {
+                                if (!g.vi_validated_at && g.recipient_id !== recipient.recipient_id) continue;
+                                const tRel = (g.recipient_id === recipient.recipient_id)
+                                    ? trazaRelPath
+                                    : String(g.vi_traza_path || '').replace(/^\/+/, '');
+                                if (!tRel) continue;
+                                const tAbs = resolveFromRoot(tRel);
+                                if (!fs.existsSync(tAbs)) continue;
+                                const tDoc = await PDFDocTraza.load(fs.readFileSync(tAbs));
+                                const pgs = await pdfNuevo.copyPages(tDoc, tDoc.getPageIndices());
+                                pgs.forEach(p => pdfNuevo.addPage(p));
+                                anexadas++;
+                            }
+
+                            const relNuevo = `uploads/pagares/vi_personal_vg${recipient.viewer_group_id}_${Date.now()}.pdf`;
+                            const dirPag = resolveFromRoot('uploads', 'pagares');
+                            if (!fs.existsSync(dirPag)) fs.mkdirSync(dirPag, { recursive: true });
+                            fs.writeFileSync(resolveFromRoot(relNuevo), Buffer.from(await pdfNuevo.save()));
+
+                            // Solo a los NO definitivos: el firmante definitivo no ve trazas.
+                            const idsGrupo = grupo.map(g => g.recipient_id);
+                            await db.promise().query(
+                                'UPDATE document_recipients SET custom_pdf_path = ? WHERE recipient_id IN (?)',
+                                [relNuevo, idsGrupo]
+                            );
+                            console.log(`   [VI-CALLBACK] PDF reconstruido con ${anexadas} traza(s) para ${idsGrupo.length} firmante(s) -> ${relNuevo}`);
+                        } else {
+                            console.warn(`   [VI-CALLBACK] Sin personal_pdf_path en vg ${recipient.viewer_group_id}: no se reconstruye`);
+                        }
+                    } catch (e) {
+                        console.error(`   [VI-CALLBACK] No se pudo incorporar la traza al PDF: ${e.message}`);
+                    }
                 } else {
                     // DOCUMENTO NORMAL: generar vi_personal (PDF base LIMPIO + traza propia) y actualizar custom_pdf_path
                     // IMPORTANTE: usar siempre PDF limpio sin trazas como base para no duplicar trazas.
@@ -5143,13 +5314,29 @@ app.post('/api/public/sign/:token', async (req, res) => {
                     });
                     const owner = ownerRows.length ? ownerRows[0] : {};
                     const senderName = owner.sender_name || `${owner.first_name || ''} ${owner.last_name || ''}`.trim() || 'FirmaLegal';
-                    const fromEmail = owner.custom_sender_email || owner.owner_email || 'firmalegalonline@pkiservices.co';
+
+                    // Config del sistema (user_id=1) como respaldo, igual que
+                    // hace email-worker.js. El correo personal del dueño NO
+                    // sirve como remitente: no esta verificado en SendGrid y el
+                    // envio se rechaza con "does not match a verified Sender
+                    // Identity", dejando al codeudor sin su enlace.
+                    const [sysRowsP] = await new Promise((resolve, reject) => {
+                        db.query(
+                            'SELECT email_from, sendgrid_api_key FROM email_config WHERE user_id = 1 AND is_active = TRUE LIMIT 1',
+                            (err, r) => { if (err) reject(err); else resolve([r]); }
+                        );
+                    });
+                    const sysP = sysRowsP.length ? sysRowsP[0] : {};
+                    const fromEmail = owner.custom_sender_email
+                                   || sysP.email_from
+                                   || 'firmalegalonline@pkiservices.co';
                     const docTitle = recipient.title || 'Pagaré';
                     const appUrl = process.env.APP_URL || 'https://firmalegalonline.com';
 
                     const signatureRequestTemplate = require('./lib/email/templates/signature-request-bulk');
                     const sendgridLib = require('./lib/email/sendgrid');
-                    if (owner.sendgrid_api_key) sendgridLib.configureSendGrid(owner.sendgrid_api_key);
+                    const apiKeyP = owner.sendgrid_api_key || sysP.sendgrid_api_key;
+                    if (apiKeyP) sendgridLib.configureSendGrid(apiKeyP);
 
                     const emailsSeqP = nextInGroup.map(next => {
                         const signatureUrl = `${appUrl}/public-sign.html?token=${next.token}`;
@@ -5165,8 +5352,29 @@ app.post('/api/public/sign/:token', async (req, res) => {
                             customArgs: { document_id: String(recipient.document_id), recipient_id: String(next.recipient_id) }
                         };
                     });
-                    await sendgridLib.sendBatchEmails(emailsSeqP);
-                    console.log(`   [SECUENCIAL-PAGARE] Notificado firmante orden ${nextOrder} en viewer_group ${recipient.viewer_group_id}`);
+                    const envioP = await sendgridLib.sendBatchEmails(emailsSeqP);
+
+                    // sendBatchEmails no lanza si SendGrid rechaza: registra y
+                    // sigue. Sin comprobarlo, el codeudor quedaba en `sent` y
+                    // nadie se enteraba de que su enlace nunca salio.
+                    const fallidosP = (envioP && envioP.failures) ? envioP.failures : [];
+                    if (fallidosP.length) {
+                        console.error(`❌ [SECUENCIAL-PAGARE] ${fallidosP.length} correo(s) NO salieron:`);
+                        fallidosP.forEach(f => console.error(`     - ${f.to}: ${f.error}`));
+                        for (const f of fallidosP) {
+                            const dest = nextInGroup.find(n => n.email === f.to);
+                            if (!dest) continue;
+                            await new Promise((resolve) => {
+                                db.query(
+                                    'UPDATE document_recipients SET status = ?, sent_at = NULL WHERE recipient_id = ?',
+                                    ['waiting', dest.recipient_id], () => resolve()
+                                );
+                            });
+                            console.error(`     ${f.to} vuelve a 'waiting': hay que reenviarle el enlace.`);
+                        }
+                    }
+                    const salieronP = emailsSeqP.length - fallidosP.length;
+                    console.log(`   [SECUENCIAL-PAGARE] ${salieronP}/${emailsSeqP.length} notificado(s) orden ${nextOrder} en viewer_group ${recipient.viewer_group_id}`);
                 }
             } catch (seqPErr) {
                 console.error('[SECUENCIAL-PAGARE] Error:', seqPErr.message);
@@ -5310,7 +5518,28 @@ app.post('/api/public/sign/:token', async (req, res) => {
                         });
                         const owner = ownerRows.length ? ownerRows[0] : {};
                         const senderName = owner.sender_name || `${owner.first_name || ''} ${owner.last_name || ''}`.trim() || 'FirmaLegal';
-                        const fromEmail = owner.custom_sender_email || owner.owner_email || 'firmalegalonline@pkiservices.co';
+
+                        // Config del sistema (user_id=1) como respaldo, igual que hace
+                        // email-worker.js con `WHERE user_id IN (?, 1)`.
+                        //
+                        // Sin esto, un dueño sin fila en `email_config` caia a su propio
+                        // correo personal como remitente —maira.zipa@unilibre.edu.co—,
+                        // que no esta verificado en SendGrid: el envio se rechazaba con
+                        // "The from address does not match a verified Sender Identity"
+                        // y el segundo firmante nunca recibia su enlace.
+                        const [sysRows] = await new Promise((resolve, reject) => {
+                            db.query(
+                                'SELECT email_from, email_from_name, sendgrid_api_key FROM email_config WHERE user_id = 1 AND is_active = TRUE LIMIT 1',
+                                (err, r) => { if (err) reject(err); else resolve([r]); }
+                            );
+                        });
+                        const sys = sysRows.length ? sysRows[0] : {};
+
+                        // Solo se usa el remitente propio del dueño si tiene una config
+                        // de correo suya; su email de usuario NO sirve como remitente.
+                        const fromEmail = owner.custom_sender_email
+                                       || sys.email_from
+                                       || 'firmalegalonline@pkiservices.co';
                         const docTitle = recipient.title || 'Documento';
                         const appUrl = `${process.env.APP_URL || 'https://firmalegalonline.com'}`;
 
@@ -5341,22 +5570,51 @@ app.post('/api/public/sign/:token', async (req, res) => {
                             console.log(`   [SECUENCIAL] Notificando a siguiente firmante (orden ${nextOrder}): ${next.email}`);
                         }
 
-                        // Obtener API key del owner para enviar con su cuenta SendGrid
-                        const [ownerApiKey] = await new Promise((resolve, reject) => {
-                            db.query(
-                                'SELECT sendgrid_api_key FROM email_config WHERE user_id = ? LIMIT 1',
-                                [recipient.owner_id], (err, r) => { if (err) reject(err); else resolve([r]); }
-                            );
-                        });
-                        if (ownerApiKey.length && ownerApiKey[0].sendgrid_api_key) {
-                            sendgridLib.configureSendGrid(ownerApiKey[0].sendgrid_api_key);
+                        // API key: la del dueño si tiene config propia, si no la del
+                        // sistema. Sin respaldo, un dueño sin `email_config` dejaba
+                        // SendGrid sin configurar y el envio fallaba.
+                        const apiKey = owner.sendgrid_api_key || sys.sendgrid_api_key;
+                        if (apiKey) {
+                            sendgridLib.configureSendGrid(apiKey);
+                        } else {
+                            console.error('[SECUENCIAL] Sin API key de SendGrid: el correo al ' +
+                                          'siguiente firmante no saldra.');
                         }
                         // Delay para evitar throttling de Gmail en envíos secuenciales
                         if (nextOrder > 2) {
                             await new Promise(r => setTimeout(r, 10000));
                         }
-                        await sendgridLib.sendBatchEmails(emailsSeq);
-                        console.log(`   [SECUENCIAL] ${emailsSeq.length} email(s) enviado(s) al orden ${nextOrder}`);
+                        const envio = await sendgridLib.sendBatchEmails(emailsSeq);
+
+                        // sendBatchEmails NO lanza si SendGrid rechaza: registra el
+                        // fallo y sigue. Sin comprobar el resultado, el log decia
+                        // "enviado", el destinatario quedaba en `sent` y nadie se
+                        // enteraba de que su enlace nunca salio —un padre esperando
+                        // un correo que no existe—.
+                        const fallidos = (envio && envio.failures) ? envio.failures : [];
+                        if (fallidos.length) {
+                            console.error(
+                                `❌ [SECUENCIAL] ${fallidos.length} de ${emailsSeq.length} ` +
+                                `correo(s) NO salieron al orden ${nextOrder}:`);
+                            fallidos.forEach(f => console.error(`     - ${f.to}: ${f.error}`));
+
+                            // Se devuelve a `waiting` a quien no recibio nada: dejarlo
+                            // en `sent` haria creer que ya tiene su enlace.
+                            for (const f of fallidos) {
+                                const dest = nextRecipients.find(n => n.email === f.to);
+                                if (!dest) continue;
+                                await new Promise((resolve) => {
+                                    db.query(
+                                        'UPDATE document_recipients SET status = ?, sent_at = NULL WHERE recipient_id = ?',
+                                        ['waiting', dest.recipient_id],
+                                        () => resolve()
+                                    );
+                                });
+                                console.error(`     ${f.to} vuelve a 'waiting': hay que reenviarle el enlace.`);
+                            }
+                        }
+                        const salieron = emailsSeq.length - fallidos.length;
+                        console.log(`   [SECUENCIAL] ${salieron}/${emailsSeq.length} email(s) enviado(s) al orden ${nextOrder}`);
                     }
                 } catch (seqErr) {
                     console.error('[SECUENCIAL] Error activando siguiente firmante:', seqErr.message);
@@ -6226,9 +6484,21 @@ app.post('/api/public/sign/:token', async (req, res) => {
                         // - Sello PKI: individual por recipient
                         const { PDFDocument } = require('pdf-lib');
 
-                        // 1. Tomar el PDF base con datos del CSV (personal_pdf_path del primer recipient con uno)
+                        // 1. PDF base: el que YA lleva las trazabilidades si existe.
+                        //
+                        // `personal_pdf_path` tiene los datos del CSV pero SIN
+                        // trazas: partir de el borraba lo que fusiono el
+                        // pre-traza y el codeudor firmaba sin la trazabilidad
+                        // del deudor.
                         const baseRec = vgAllRecipients.find(r => r.personal_pdf_path) || vgAllRecipients[0];
-                        const basePdfRelPath = (baseRec.personal_pdf_path || baseRec.custom_pdf_path || '');
+                        const conTrazasVg = vgAllRecipients.find(
+                            r => r.custom_pdf_path && String(r.custom_pdf_path).includes('vi_personal_')
+                        );
+                        const basePdfRelPath = (
+                            (conTrazasVg && conTrazasVg.custom_pdf_path) ||
+                            baseRec.personal_pdf_path ||
+                            baseRec.custom_pdf_path || ''
+                        );
                         const basePdfClean = basePdfRelPath.startsWith('/') ? basePdfRelPath.substring(1) : basePdfRelPath;
                         const basePdfAbs = resolveFromRoot(basePdfClean);
 
@@ -8301,7 +8571,77 @@ async function generateAndCacheCompletePagare(docId, viewerGroupId, docTitle) {
     }).filter(Boolean);
 
     // Agregar trazabilidades VI
+    //
+    // TODO firmante que valido su identidad lleva su trazabilidad en el
+    // documento, incluido el firmante definitivo. La unica diferencia del
+    // definitivo es lo que VE al firmar (un interim con los datos censurados);
+    // su traza se adjunta al final igual que la de los demas.
+    //
+    // La traza puede estar en TRES sitios, y hay que mirarlos en orden:
+    //   1. `document_recipients.vi_traza_path` — el envio donde se valido
+    //   2. `vi_verified_emails.vi_traza_path`  — el registro persistente
+    //   3. VI, pidiendosela por su codigo de validacion
+    //
+    // Mirar solo el primero dejaba sin trazabilidad a quien ya se habia
+    // validado en otro documento: el pagare salia con 11 paginas en vez de 14
+    // y nadie se enteraba. Es el mismo fallo que se corrigio en el pre-traza
+    // el 16-09-2026, pero en la generacion del PDF completo.
     const allWithTraza = [...vgRecipients, finalSigner];
+    const sinTraza = allWithTraza.filter(p => !p.vi_traza_path && p.email).map(p => p.email);
+    if (sinTraza.length) {
+        try {
+            const [reg] = await db.promise().query(
+                `SELECT email, vi_traza_path, validacion_codigo FROM vi_verified_emails
+                 WHERE email IN (?)`,
+                [sinTraza]
+            );
+            const porEmail = {};
+            for (const r of reg) porEmail[String(r.email).toLowerCase()] = r;
+
+            for (const p of allWithTraza) {
+                if (p.vi_traza_path || !p.email) continue;
+                const fila = porEmail[String(p.email).toLowerCase()];
+                if (!fila) continue;
+
+                // 2. El archivo ya guardado.
+                if (fila.vi_traza_path) {
+                    p.vi_traza_path = fila.vi_traza_path;
+                    console.log(`   [GEN-PAGARE] Traza de ${p.email} recuperada del registro persistente`);
+                    continue;
+                }
+
+                // 3. Solo el codigo: se le pide el PDF a VI y se guarda, para
+                //    que la proxima vez ya este y no haya que volver a pedirlo.
+                if (fila.validacion_codigo) {
+                    try {
+                        const rutaNueva = await descargarTrazaDeVI(fila.validacion_codigo);
+                        if (rutaNueva) {
+                            p.vi_traza_path = rutaNueva;
+                            await db.promise().query(
+                                'UPDATE vi_verified_emails SET vi_traza_path = ? WHERE email = ?',
+                                [rutaNueva, p.email]
+                            );
+                            console.log(`   [GEN-PAGARE] Traza de ${p.email} descargada de VI (${fila.validacion_codigo})`);
+                        }
+                    } catch (e) {
+                        console.warn(`   ⚠️ [GEN-PAGARE] No se pudo bajar la traza de ${p.email} ` +
+                                     `(${fila.validacion_codigo}): ${e.message}`);
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn(`   ⚠️ [GEN-PAGARE] No se pudo consultar vi_verified_emails: ${e.message}`);
+        }
+    }
+
+    // Aviso explicito: un pagare sin la trazabilidad de un firmante es un
+    // documento incompleto, y hasta ahora se generaba en silencio.
+    const aunSinTraza = allWithTraza.filter(p => !p.vi_traza_path && p.email).map(p => p.email);
+    if (aunSinTraza.length) {
+        console.warn(`   ⚠️ [GEN-PAGARE] doc ${docId} vg${viewerGroupId}: ` +
+                     `${aunSinTraza.length} firmante(s) SIN trazabilidad: ${aunSinTraza.join(', ')}`);
+    }
+
     const mergedDoc = await PDFDocument.load(await pdfDoc.save());
     for (const participant of allWithTraza) {
         if (!participant.vi_traza_path) continue;
