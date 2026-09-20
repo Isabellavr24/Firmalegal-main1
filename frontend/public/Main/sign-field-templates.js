@@ -747,6 +747,13 @@
       // Sin esta division los campos se guardan 1.4 veces mas grandes, se
       // salen de la pagina en la previsualizacion y al importarlos caen
       // desplazados.
+      // La escala la manda el editor (VIEWPORT_SCALE). El respaldo solo actua
+      // si getEditorState no la devolvio, y entonces avisa: exportar con una
+      // escala equivocada deja la plantilla inservible sin dar ningun error.
+      if (!st.viewportScale) {
+        console.warn('[PLANTILLAS] El editor no informo viewportScale; se usa 1.4. ' +
+                     'Si el editor cambio de escala, esta exportacion saldra mal.');
+      }
       const ESCALA = st.viewportScale || 1.4;
       const campos = (st.fields || []).map(f => ({
         field_type: f.type,

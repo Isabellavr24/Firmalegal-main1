@@ -351,6 +351,43 @@ router.post('/export/:documentId', requireAuth, async (req, res) => {
         // en el pagare) y el orden decide a que responsable pertenece cada una.
         campos.forEach((c, i) => { c.order_index = i; });
 
+        // Red de seguridad: los campos tienen que caber en la pagina.
+        //
+        // Si vienen con la escala del viewport aplicada (el error del
+        // 20-09-2026: la exportacion no dividia por ella), las coordenadas
+        // salen ~1.4 veces mas grandes y se salen del papel. Guardar eso deja
+        // una plantilla inservible que solo se descubre al importarla.
+        //
+        // OJO con el ANCHO, que es lo unico comparable: un PDF puede mezclar
+        // tamaños —el pagare de la universidad trae Carta y Oficio— y el alto
+        // de una pagina Oficio (1008) supera el limite que saldria del alto de
+        // la primera pagina (792). Comparar el alto rechazaria plantillas
+        // validas. El ancho, en cambio, es 612 en Carta y en Oficio.
+        //
+        // El margen del 15% absorbe un campo que asome por el borde, que es
+        // legitimo; un factor de escala (x1.4) se pasa de largo.
+        if (pageWidth) {
+            const limiteX = pageWidth * 1.15;
+            let maxX = 0, maxY = 0;
+            for (const c of campos) {
+                maxX = Math.max(maxX, (parseFloat(c.x_position) || 0) + (parseFloat(c.width) || 0));
+                maxY = Math.max(maxY, (parseFloat(c.y_position) || 0) + (parseFloat(c.height) || 0));
+            }
+            if (maxX > limiteX) {
+                console.error(
+                    `[PLANTILLAS] Coordenadas fuera de pagina en doc ${documentId}: ` +
+                    `max ${Math.round(maxX)}x${Math.round(maxY)} para una pagina de ` +
+                    `${Math.round(pageWidth)}x${Math.round(pageHeight)}`);
+                return res.status(400).json({
+                    ok: false,
+                    code: 'COORDENADAS_FUERA_DE_PAGINA',
+                    error: 'Los campos no caben en la página. Vuelva a abrir el ' +
+                           'documento en el editor y exporte de nuevo; si el problema ' +
+                           'persiste, avise a soporte.'
+                });
+            }
+        }
+
         const huella = calcularHuella(campos);
 
         // Aviso de duplicado: se compara por la ESTRUCTURA, no por el nombre.

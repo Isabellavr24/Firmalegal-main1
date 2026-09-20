@@ -1,9 +1,16 @@
 :root{ --plum:#2a0d31; --stroke:#eadfd8; --bg:#f6f1ee; }
-html,body{height:100%}
+/* height:auto y no 100%: con una altura fija el scroll deja de ser el de la
+   ventana y `position:sticky` no tiene contra que fijarse. min-height mantiene
+   el comportamiento anterior cuando la pagina es corta. */
+html,body{height:auto;min-height:100%}
 body{margin:0;background:#fbf7f5;font:16px/1.4 Inter,system-ui,Segoe UI,Arial}
 
+/* La barra se queda arriba al hacer scroll: lleva GUARDAR, Exportar plantilla
+   y Formatear texto, y en un pagare de once paginas se perdia de vista en
+   cuanto se bajaba un poco. */
 .bar{display:flex;justify-content:space-between;align-items:center;
-     padding:10px 16px;border-bottom:1px solid var(--stroke);background:#fff}
+     padding:10px 16px;border-bottom:1px solid var(--stroke);background:#fff;
+     position:sticky;top:0;z-index:60}
 .bar .actions{display:flex;gap:8px}
 
 .chip{border:1px solid var(--stroke);background:#fff;border-radius:999px;

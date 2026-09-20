@@ -1,3 +1,23 @@
+/**
+ * ESCALA DEL VIEWPORT — fuente unica de verdad.
+ *
+ * El PDF se renderiza en pantalla a esta escala, asi que las coordenadas de
+ * los campos del editor la llevan aplicada. `document_fields` y las plantillas
+ * las guardan SIN ella, en espacio PDF (612x792 en Carta).
+ *
+ * La regla, sin excepciones:
+ *   - al CARGAR de la base o de una plantilla:  multiplicar por esta escala
+ *   - al GUARDAR en la base o en una plantilla: dividir por esta escala
+ *
+ * Estaba repetida como `1.4` en seis sitios distintos, cada uno con un
+ * comentario pidiendo que coincidieran. Bastaba con cambiar uno y olvidar
+ * otro para que los campos se deformaran —paso el 20-09-2026: la exportacion
+ * no dividia y las plantillas quedaban 1.4 veces mas grandes—.
+ *
+ * Si algun dia hay que cambiar el zoom del editor, se cambia AQUI y solo aqui.
+ */
+const VIEWPORT_SCALE = 1.4;
+
 // ===== Barra flotante de formato de texto =====
 let _activeFormatBar = null;
 
@@ -947,7 +967,7 @@ async function loadExistingFields(docId) {
 
     // Convertir campos del servidor al formato interno y renderizar
     // ✅ IMPORTANTE: Los campos vienen en coordenadas PDF reales, necesitamos convertirlas a viewport escalado
-    const VIEWPORT_SCALE = 1.4; // Debe coincidir con baseScale en loadPDF()
+    // (usa la constante global VIEWPORT_SCALE, definida al inicio del archivo)
     
     existingFields.forEach((field, index) => {
       const fieldData = {
@@ -1021,7 +1041,7 @@ window.aplicarCamposImportados = function (importados) {
 
   // Las coordenadas llegan en el espacio del PDF; el editor trabaja con la
   // escala del viewport aplicada, igual que en loadExistingFields.
-  const VIEWPORT_SCALE = 1.4;
+  // (usa la constante global VIEWPORT_SCALE)
 
   importados.forEach((c, i) => {
     let formato = c.format || null;
@@ -1344,7 +1364,10 @@ async function loadPDF(file) {
     fields.length = 0;
     
     // ✅ Configuración de renderizado
-    const baseScale = 1.4;
+    // La escala con la que se renderiza el PDF en pantalla. De ella dependen
+    // TODAS las conversiones de coordenadas del editor, asi que se lee de la
+    // constante unica en vez de repetir el numero.
+    const baseScale = VIEWPORT_SCALE;
     const dpr = window.devicePixelRatio || 1;
     
     // ✅ Renderizar TODAS las páginas
@@ -3209,7 +3232,7 @@ async function saveFieldsToBackend(skipRedirect = false) {
     // Preparar datos de los campos
     // ✅ IMPORTANTE: Convertir coordenadas de viewport escalado a coordenadas PDF reales
     // El viewport usa scale=1.4, pero el PDF usa coordenadas reales (612x792 puntos)
-    const VIEWPORT_SCALE = 1.4; // Debe coincidir con baseScale en loadPDF()
+    // (usa la constante global VIEWPORT_SCALE, definida al inicio del archivo)
     
     const fieldsData = fields.map(f => ({
       type: f.type,
@@ -3566,7 +3589,7 @@ async function sendDocumentToRecipients(recipients, closeModalCallback) {
     if (fields && fields.length > 0) {
       // 🔥 IMPORTANTE: Convertir coordenadas de viewport escalado a coordenadas PDF reales
       // El viewport usa scale=1.4, pero el PDF usa coordenadas reales (612x792 puntos)
-      const VIEWPORT_SCALE = 1.4; // Debe coincidir con baseScale en loadPDF()
+      // (usa la constante global VIEWPORT_SCALE, definida al inicio del archivo)
       
       // Transformar campos del formato interno (w,h,x,y) al formato que espera el backend (width,height,x_position,y_position)
       const fieldsForBackend = fields.map(f => ({
