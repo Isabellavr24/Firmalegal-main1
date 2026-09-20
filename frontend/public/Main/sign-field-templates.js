@@ -738,15 +738,21 @@
       const st = estado();
       const orden = new Map((st.parts || []).map(p => [String(p.roleId), p.order]));
 
-      // Las coordenadas se guardan TAL CUAL las tiene el editor, que es como
-      // estan en `document_fields`. Se comprobo comparando las dos tablas: son
-      // identicas, y asi la importacion las coloca bien. No dividir por la
-      // escala aqui —hacerlo desplaza los campos al importar—.
+      // Las coordenadas del editor llevan la escala del viewport aplicada
+      // (~1.4); `document_fields` las guarda SIN ella, en espacio PDF, porque
+      // saveFieldsToBackend divide antes de escribir.
+      //
+      // La plantilla tiene que guardarlas igual que `document_fields`: al
+      // importar, aplicarCamposImportados vuelve a multiplicar por la escala.
+      // Sin esta division los campos se guardan 1.4 veces mas grandes, se
+      // salen de la pagina en la previsualizacion y al importarlos caen
+      // desplazados.
+      const ESCALA = st.viewportScale || 1.4;
       const campos = (st.fields || []).map(f => ({
         field_type: f.type,
         page_number: f.page,
-        x_position: f.x, y_position: f.y,
-        width: f.w, height: f.h,
+        x_position: f.x / ESCALA, y_position: f.y / ESCALA,
+        width: f.w / ESCALA, height: f.h / ESCALA,
         field_label: f.label,
         // Fuente, tamaño, color y alineacion viajan con el campo.
         field_config: f.format || null,
