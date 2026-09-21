@@ -17,7 +17,12 @@ services:
       - mysql_data:/var/lib/mysql
       - ./database-dump.sql:/docker-entrypoint-initdb.d/init.sql:ro
     ports:
-      - "3306:3306"
+      # Solo local. Docker publica en 0.0.0.0 y sus reglas van POR DEBAJO de
+      # UFW, asi que el firewall no protege lo que se publique aqui: el 3306
+      # quedaba abierto a Internet. Las apps se conectan por el nombre de red
+      # (DB_HOST=mysql), no por este puerto, que solo sirve para administrar
+      # desde el propio servidor.
+      - "127.0.0.1:3306:3306"
     networks:
       - firmalegal-network
     healthcheck:
@@ -36,7 +41,8 @@ services:
     volumes:
       - redis_data:/data
     ports:
-      - "6379:6379"
+      # Solo local: la app lo alcanza por REDIS_HOST=redis dentro de la red.
+      - "127.0.0.1:6379:6379"
     networks:
       - firmalegal-network
     healthcheck:
@@ -83,7 +89,9 @@ services:
       - ./backend/certificates:/app/backend/certificates:ro
       - app_logs:/app/logs
     ports:
-      - "3000:3000"
+      # Solo local: Nginx llega por firmalegal-app:3000 dentro de la red, y es
+      # quien expone la aplicacion al exterior por 80/443.
+      - "127.0.0.1:3000:3000"
     depends_on:
       mysql:
         condition: service_healthy
