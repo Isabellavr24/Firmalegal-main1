@@ -1027,7 +1027,8 @@ async function sealPagaresWithoutFinalSigner(documentId) {
             console.log(`\n   📝 Sellando pagaré ${i + 1}/${allViewerGroups.length} (vg: ${viewerGroup.viewer_group_id})...`);
             try {
                 const vgAllRecipients = await db.promise().query(
-                    `SELECT recipient_id, email, custom_pdf_path, personal_pdf_path, vi_traza_path, completed_at
+                    `SELECT recipient_id, email, custom_pdf_path, personal_pdf_path,
+                            vi_traza_path, vi_validated_at, completed_at
                      FROM document_recipients WHERE viewer_group_id = ? ORDER BY completed_at ASC`,
                     [viewerGroup.viewer_group_id]
                 ).then(([r]) => r);
@@ -1147,6 +1148,14 @@ async function sealPagaresWithoutFinalSigner(documentId) {
 
                         // Añadir traza VI propia (con fallback a otros documentos del mismo email)
                         let trazaPathToUse = recToSeal.vi_traza_path;
+                        // La traza puede estar en TRES sitios y hay que mirarlos
+                        // en orden. Este sellado solo consultaba el primero, y el
+                        // 22-09-2026 sello cuatro pagares SIN trazabilidad aunque
+                        // los cuatro firmantes habian validado: su fila tenia
+                        // vi_traza_path en NULL y la traza vivia en
+                        // vi_verified_emails, que no se consultaba.
+                        //
+                        // 1. Otro envio del mismo correo.
                         if (!trazaPathToUse) {
                             const [fallbackRow] = await db.promise().query(
                                 `SELECT vi_traza_path FROM document_recipients
@@ -1156,8 +1165,47 @@ async function sealPagaresWithoutFinalSigner(documentId) {
                             );
                             if (fallbackRow && fallbackRow.vi_traza_path) {
                                 trazaPathToUse = fallbackRow.vi_traza_path;
-                                console.log(`   ✅ [VI-TRAZA-PAGARE] Traza fallback para ${recToSeal.email}`);
+                                console.log(`   ✅ [VI-TRAZA-PAGARE] Traza recuperada de otro envio: ${recToSeal.email}`);
                             }
+                        }
+                        // 2. El registro persistente, que sobrevive al envio.
+                        let codigoParaVI = null;
+                        if (!trazaPathToUse) {
+                            const [reg] = await db.promise().query(
+                                `SELECT vi_traza_path, validacion_codigo FROM vi_verified_emails
+                                 WHERE LOWER(email) = LOWER(?) LIMIT 1`,
+                                [recToSeal.email]
+                            );
+                            if (reg) {
+                                if (reg.vi_traza_path) {
+                                    trazaPathToUse = reg.vi_traza_path;
+                                    console.log(`   ✅ [VI-TRAZA-PAGARE] Traza recuperada del registro persistente: ${recToSeal.email}`);
+                                } else if (reg.validacion_codigo) {
+                                    codigoParaVI = reg.validacion_codigo;
+                                }
+                            }
+                        }
+                        // 3. Pedirsela a VI por su codigo, y guardarla para la
+                        //    proxima vez.
+                        if (!trazaPathToUse && codigoParaVI) {
+                            try {
+                                const rutaNueva = await descargarTrazaDeVI(codigoParaVI);
+                                if (rutaNueva) {
+                                    trazaPathToUse = rutaNueva;
+                                    await db.promise().query(
+                                        'UPDATE vi_verified_emails SET vi_traza_path = ? WHERE LOWER(email) = LOWER(?)',
+                                        [rutaNueva, recToSeal.email]
+                                    );
+                                    console.log(`   ✅ [VI-TRAZA-PAGARE] Traza descargada de VI (${codigoParaVI}): ${recToSeal.email}`);
+                                }
+                            } catch (e) {
+                                console.warn(`   ⚠️ [VI-TRAZA-PAGARE] No se pudo bajar la traza de ${recToSeal.email}: ${e.message}`);
+                            }
+                        }
+                        // Un pagare sin la trazabilidad de un firmante validado es
+                        // un documento incompleto: que no pase en silencio.
+                        if (!trazaPathToUse && recToSeal.vi_validated_at) {
+                            console.warn(`   ⚠️ [VI-TRAZA-PAGARE] ${recToSeal.email} valido su identidad pero se sella SIN trazabilidad`);
                         }
                         if (trazaPathToUse) {
                             const trazaAbs = resolveFromRoot(trazaPathToUse.replace(/^\/+/, ''));
