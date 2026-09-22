@@ -3908,26 +3908,25 @@ app.post('/api/public/vi-callback', async (req, res) => {
                              ORDER BY signing_order, recipient_id`,
                             [recipient.viewer_group_id]
                         );
-                        // Base de reconstruccion: si alguien del grupo ya firmo,
-                        // esa firma vive en el interim compartido (firmado, sin
-                        // trazas) que quedo registrado en pagare_viewer_groups.
-                        // Reconstruir desde personal_pdf_path ahi borraria la firma.
+                        // Si alguien del grupo YA FIRMO no se reconstruye nada.
+                        //
+                        // Se intento antes partir de pagare_viewer_groups.custom_pdf_path
+                        // dando por hecho que apuntaba al interim con firmas. No es
+                        // fiable: en los grupos que firmaron antes de que existiera ese
+                        // registro apunta a la base LIMPIA, y el 22-09-2026 eso borro
+                        // las firmas de 8 pagares ya firmados. Se recuperaron porque
+                        // seguian en field_values, pero el documento estuvo mal.
+                        //
+                        // El interim ya anexa la traza propia de cada firmante cuando
+                        // le toca firmar, asi que esperar no pierde nada: lo unico es
+                        // que quien valide ahora vera su traza al firmar y no antes.
                         const yaFirmo = grupo.some(g => g.status === 'completed');
-                        let baseRel = '';
                         if (yaFirmo) {
-                            const [vg] = await db.promise().query(
-                                'SELECT custom_pdf_path FROM pagare_viewer_groups WHERE viewer_group_id = ?',
-                                [recipient.viewer_group_id]
-                            );
-                            baseRel = vg.length && vg[0].custom_pdf_path
-                                ? String(vg[0].custom_pdf_path).replace(/^\/+/, '') : '';
-                            if (!baseRel) {
-                                console.warn(`   [VI-CALLBACK] vg ${recipient.viewer_group_id} ya firmado y sin base registrada: la traza se anexara al firmar`);
-                            }
-                        } else {
-                            const base = grupo.find(g => g.personal_pdf_path);
-                            baseRel = base ? String(base.personal_pdf_path).replace(/^\/+/, '') : '';
+                            console.log(`   [VI-CALLBACK] vg ${recipient.viewer_group_id} ya tiene firmas: no se reconstruye (la traza se anexa al firmar)`);
+                            throw { saltar: true };
                         }
+                        const base = grupo.find(g => g.personal_pdf_path);
+                        const baseRel = base ? String(base.personal_pdf_path).replace(/^\/+/, '') : '';
                         const baseAbs = baseRel ? resolveFromRoot(baseRel) : '';
 
                         if (baseAbs && fs.existsSync(baseAbs)) {
@@ -3963,7 +3962,11 @@ app.post('/api/public/vi-callback', async (req, res) => {
                             console.warn(`   [VI-CALLBACK] Sin PDF base para vg ${recipient.viewer_group_id}: la traza se anexara al firmar`);
                         }
                     } catch (e) {
-                        console.error(`   [VI-CALLBACK] No se pudo incorporar la traza al PDF: ${e.message}`);
+                        // `saltar` no es un fallo: es la salida limpia cuando el
+                        // grupo ya tiene firmas y no se debe reconstruir.
+                        if (!e || !e.saltar) {
+                            console.error(`   [VI-CALLBACK] No se pudo incorporar la traza al PDF: ${e && e.message}`);
+                        }
                     }
                 } else {
                     // DOCUMENTO NORMAL: generar vi_personal (PDF base LIMPIO + traza propia) y actualizar custom_pdf_path
