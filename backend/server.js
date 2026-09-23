@@ -1155,27 +1155,36 @@ async function sealPagaresWithoutFinalSigner(documentId) {
                         // vi_traza_path en NULL y la traza vivia en
                         // vi_verified_emails, que no se consultaba.
                         //
+                        // OJO con la desestructuracion: `db.promise().query()`
+                        // devuelve `[filas, campos]`. `const [x] = await query()`
+                        // deja en `x` el ARRAY de filas, no la primera fila, y
+                        // `x.vi_traza_path` es siempre undefined. Por eso el
+                        // 23-09-2026 los tres niveles seguian sin encontrar nada
+                        // aunque la traza estuviera guardada: hay que leer
+                        // `filas[0]`, como hace el resto del archivo.
+                        //
                         // 1. Otro envio del mismo correo.
                         if (!trazaPathToUse) {
-                            const [fallbackRow] = await db.promise().query(
+                            const [fallbackRows] = await db.promise().query(
                                 `SELECT vi_traza_path FROM document_recipients
                                  WHERE email = ? AND vi_traza_path IS NOT NULL
                                  ORDER BY completed_at DESC LIMIT 1`,
                                 [recToSeal.email]
                             );
-                            if (fallbackRow && fallbackRow.vi_traza_path) {
-                                trazaPathToUse = fallbackRow.vi_traza_path;
+                            if (fallbackRows[0] && fallbackRows[0].vi_traza_path) {
+                                trazaPathToUse = fallbackRows[0].vi_traza_path;
                                 console.log(`   ✅ [VI-TRAZA-PAGARE] Traza recuperada de otro envio: ${recToSeal.email}`);
                             }
                         }
                         // 2. El registro persistente, que sobrevive al envio.
                         let codigoParaVI = null;
                         if (!trazaPathToUse) {
-                            const [reg] = await db.promise().query(
+                            const [regRows] = await db.promise().query(
                                 `SELECT vi_traza_path, validacion_codigo FROM vi_verified_emails
                                  WHERE LOWER(email) = LOWER(?) LIMIT 1`,
                                 [recToSeal.email]
                             );
+                            const reg = regRows[0];
                             if (reg) {
                                 if (reg.vi_traza_path) {
                                     trazaPathToUse = reg.vi_traza_path;
