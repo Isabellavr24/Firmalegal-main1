@@ -9425,8 +9425,8 @@ app.post('/api/documents/:id/enviar-etitulo', requireAuth, async (req, res) => {
             `SELECT dr.name, dr.email, dp.role_name
              FROM document_recipients dr
              LEFT JOIN document_parts dp ON dr.part_id = dp.part_id
-             WHERE dr.document_id = ? AND dr.is_final_signer = 0 AND dr.status = 'completed'`,
-            [docId]
+             WHERE dr.document_id = ? AND dr.viewer_group_id = ? AND dr.is_final_signer = 0 AND dr.status = 'completed'`,
+            [docId, viewerGroupId]
         );
 
         // Obtener el PDF completo (con firmas + trazabilidades) llamando al endpoint interno
