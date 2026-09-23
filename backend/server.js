@@ -8503,10 +8503,23 @@ app.get('/api/documents/:docId/recipients/:recipientId/download', async (req, re
             return;
         }
 
-        // Si el documento NO está completado, enviar el PDF original
-        console.log(`📄 Documento sin completar, ${mode === 'view' ? 'mostrando' : 'descargando'} PDF original`);
+        // Si el documento NO está completado, enviar SU PDF, no el del documento.
+        //
+        // `documents.file_path` es de la tabla `documents`: en un envio de
+        // pagares lo comparten TODOS los grupos, y se sobreescribe cada vez que
+        // alguien firma. Bajarlo aqui entregaba el pagare firmado de otra
+        // persona a quien todavia no habia firmado (doc 1196, 47 grupos: al
+        // descargar el de un acudiente salia la firma de otro, y por eso creia
+        // que su documento ya estaba firmado y no se atrevia a firmar).
+        //
+        // Se prefiere siempre lo propio del destinatario.
+        const propioRelPath = document.recipient_custom_pdf_path ||
+                              (document.viewer_group_status === 'completed' && document.complete_pdf_path) ||
+                              document.file_path;
 
-        let relativePath = document.file_path;
+        console.log(`📄 Documento sin completar, ${mode === 'view' ? 'mostrando' : 'descargando'}: ${propioRelPath}`);
+
+        let relativePath = propioRelPath;
         if (relativePath.startsWith('/')) {
             relativePath = relativePath.substring(1);
         }
