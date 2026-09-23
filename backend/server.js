@@ -4297,6 +4297,7 @@ app.get('/api/public/document/:token/download', async (req, res) => {
         const [rows] = await new Promise((resolve, reject) => {
             db.query(
                 `SELECT dr.recipient_id, dr.email, dr.vi_traza_path,
+                        dr.custom_pdf_path, dr.personal_pdf_path,
                         d.title, d.signed_file_path, d.file_path,
                         vg.complete_pdf_path, vg.status AS viewer_group_status
                  FROM document_recipients dr
@@ -4311,10 +4312,24 @@ app.get('/api/public/document/:token/download', async (req, res) => {
         if (!rows || rows.length === 0) return res.status(404).send('Documento no encontrado');
 
         const rec = rows[0];
-        // El PDF completo del grupo es el único que lleva las firmas dibujadas.
+        // El PDF se elige SIEMPRE de lo mas propio del destinatario a lo mas
+        // general, nunca al reves:
+        //
+        //   1. complete_pdf_path   — el consolidado del grupo, ya con firmas
+        //   2. custom_pdf_path     — el PDF propio de esta persona
+        //   3. personal_pdf_path   — su base con los datos del CSV
+        //   4. d.signed_file_path / d.file_path — de la tabla `documents`
+        //
+        // Los dos ultimos son del DOCUMENTO, no del destinatario: en un envio
+        // de pagares los comparten todos los grupos. El 23-09-2026 esta ruta
+        // saltaba directamente a ellos cuando el grupo aun no estaba completo,
+        // y al descargar el pagare de una persona que todavia no habia firmado
+        // se entregaba el pagare firmado de OTRA (doc 1196, 47 grupos: salia la
+        // firma de otro acudiente). Solo valen como ultimo recurso.
         const pdfRelPath = (rec.viewer_group_status === 'completed' && rec.complete_pdf_path)
             ? rec.complete_pdf_path
-            : (rec.signed_file_path || rec.file_path);
+            : (rec.custom_pdf_path || rec.personal_pdf_path ||
+               rec.signed_file_path || rec.file_path);
         if (!pdfRelPath) return res.status(404).send('PDF no disponible');
 
         const { PDFDocument: PDFDoc } = require('pdf-lib');
@@ -4327,8 +4342,13 @@ app.get('/api/public/document/:token/download', async (req, res) => {
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
 
-        // Fusionar trazabilidad VI personal si existe
-        if (rec.vi_traza_path) {
+        // Fusionar la trazabilidad solo si el PDF elegido NO la lleva ya dentro.
+        // `custom_pdf_path` y `complete_pdf_path` se generan con las trazas
+        // incorporadas; volver a anexarlas las duplicaria.
+        const yaLlevaTraza = pdfRelPath === rec.complete_pdf_path ||
+                             pdfRelPath === rec.custom_pdf_path;
+
+        if (rec.vi_traza_path && !yaLlevaTraza) {
             const trazaAbsPath = resolveFromRoot(rec.vi_traza_path.replace(/^\/+/, ''));
             if (fs.existsSync(trazaAbsPath)) {
                 const signedPdf = await PDFDoc.load(fs.readFileSync(pdfAbsPath));
