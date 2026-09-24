@@ -1153,6 +1153,9 @@
           setTimeout(() => {
             window.location.reload();
           }, 3000);
+        } else if (result.validation_errors && result.validation_errors.length > 0) {
+          // El CSV tiene errores bloqueantes — mostrar informe sin crear nada
+          showValidationReport(result, blob, 'recipients.csv');
         } else {
           throw new Error(result.error || 'Error desconocido');
         }
@@ -1166,6 +1169,102 @@
         addButton.textContent = originalText;
       }
     } // Fin de window.sendBulkEmails
+
+    // Muestra el informe de validacion del CSV antes de crear nada
+    window.showValidationReport = function(result, blob, filename) {
+      const errors = result.validation_errors || [];
+      const warnings = result.validation_warnings || [];
+      const totalRows = result.total_rows || '?';
+
+      // Construir HTML del informe
+      let errorsHtml = '';
+      if (errors.length > 0) {
+        errorsHtml = '<div class="csv-report-section csv-report-errors">' +
+          '<h4>Errores que impiden el envio (' + errors.length + ')</h4>';
+        errors.forEach(function(e) {
+          errorsHtml += '<div class="csv-report-item">' +
+            '<span class="csv-report-row">Fila ' + e.row + '</span> &middot; ' +
+            '<span class="csv-report-field">' + (e.field || '') + '</span>' +
+            '<p class="csv-report-msg">' + e.message + '</p>' +
+            '</div>';
+        });
+        errorsHtml += '</div>';
+      }
+
+      let warningsHtml = '';
+      if (warnings.length > 0) {
+        warningsHtml = '<div class="csv-report-section csv-report-warnings">' +
+          '<h4>Avisos (' + warnings.length + ')</h4>';
+        warnings.forEach(function(w) {
+          warningsHtml += '<div class="csv-report-item">' +
+            '<span class="csv-report-row">Fila ' + w.row + '</span> &middot; ' +
+            '<span class="csv-report-field">' + (w.field || '') + '</span>' +
+            '<p class="csv-report-msg">' + w.message + '</p>' +
+            '</div>';
+        });
+        warningsHtml += '</div>';
+      }
+
+      const modal = document.createElement('div');
+      modal.id = 'csvValidationModal';
+      modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+      modal.innerHTML = '<div style="background:#fff;border-radius:8px;max-width:680px;width:100%;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.2);">' +
+        '<div style="padding:20px 24px;border-bottom:1px solid #e5e7eb;">' +
+          '<h3 style="margin:0 0 4px;font-size:17px;font-weight:600;">Revision del archivo: ' + filename + '</h3>' +
+          '<p style="margin:0;font-size:14px;color:#6b7280;">' + totalRows + ' filas leidas &middot; ' +
+            '<strong style="color:#dc2626;">' + errors.length + ' error' + (errors.length !== 1 ? 'es' : '') + ' que impiden el envio</strong>' +
+            (warnings.length > 0 ? ' &middot; <strong style="color:#d97706;">' + warnings.length + ' aviso' + (warnings.length !== 1 ? 's' : '') + '</strong>' : '') +
+          '</p>' +
+        '</div>' +
+        '<div style="overflow-y:auto;padding:16px 24px;flex:1;">' + errorsHtml + warningsHtml + '</div>' +
+        '<div style="padding:16px 24px;border-top:1px solid #e5e7eb;display:flex;gap:12px;justify-content:flex-end;">' +
+          '<button onclick="downloadValidationReport()" style="background:#f3f4f6;border:1px solid #d1d5db;padding:8px 16px;border-radius:6px;font-size:14px;cursor:pointer;">Descargar informe</button>' +
+          '<button onclick="document.getElementById(\'csvValidationModal\').remove()" style="background:#2563eb;color:#fff;border:none;padding:8px 16px;border-radius:6px;font-size:14px;cursor:pointer;">Corregir y volver a subir</button>' +
+        '</div>' +
+      '</div>';
+
+      document.body.appendChild(modal);
+
+      // Cerrar al hacer click en el fondo
+      modal.addEventListener('click', function(e) {
+        if (e.target === modal) modal.remove();
+      });
+
+      // Guardar informe para la descarga
+      window._csvReportData = { result: result, filename: filename };
+    };
+
+    window.downloadValidationReport = function() {
+      const data = window._csvReportData;
+      if (!data) return;
+      const errors = (data.result.validation_errors || []);
+      const warnings = (data.result.validation_warnings || []);
+      let lines = ['Informe de validacion: ' + data.filename];
+      lines.push('Filas leidas: ' + (data.result.total_rows || '?'));
+      lines.push('Errores: ' + errors.length + ' | Avisos: ' + warnings.length);
+      lines.push('');
+      if (errors.length > 0) {
+        lines.push('ERRORES');
+        errors.forEach(function(e) {
+          lines.push('Fila ' + e.row + ' | ' + (e.field || '') + ' | ' + e.message);
+        });
+        lines.push('');
+      }
+      if (warnings.length > 0) {
+        lines.push('AVISOS');
+        warnings.forEach(function(w) {
+          lines.push('Fila ' + w.row + ' | ' + (w.field || '') + ' | ' + w.message);
+        });
+      }
+      const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'informe-validacion-' + data.filename.replace('.csv', '') + '.txt';
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+
 
     // =============================================
     // NOTA: La función downloadBulkTemplate() ahora está en tracking.js
@@ -2067,6 +2166,17 @@
         font-size: 14px;
       }
     }
+    /* Informe de validacion CSV */
+    .csv-report-section { margin-bottom: 16px; }
+    .csv-report-section h4 { font-size: 14px; font-weight: 600; margin: 0 0 8px; }
+    .csv-report-errors h4 { color: #dc2626; }
+    .csv-report-warnings h4 { color: #d97706; }
+    .csv-report-item { border-left: 3px solid #e5e7eb; padding: 8px 12px; margin-bottom: 8px; background: #f9fafb; border-radius: 0 4px 4px 0; }
+    .csv-report-errors .csv-report-item { border-left-color: #fca5a5; }
+    .csv-report-warnings .csv-report-item { border-left-color: #fcd34d; }
+    .csv-report-row { font-size: 12px; font-weight: 600; color: #374151; }
+    .csv-report-field { font-size: 12px; color: #6b7280; }
+    .csv-report-msg { margin: 4px 0 0; font-size: 13px; color: #1f2937; }
   </style>
 
   <!-- Modal Registrar Número OTP -->
