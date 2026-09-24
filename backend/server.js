@@ -4328,7 +4328,10 @@ app.get('/api/public/document/:token', async (req, res) => {
                 df.part_id,
                 CASE
                     WHEN df.field_type = 'text' AND ? = 1 THEN NULL
-                    ELSE COALESCE(fv.text_value, dfv.field_value)
+                    ELSE COALESCE(
+                        NULLIF(fv.text_value, 'null'),
+                        NULLIF(dfv.field_value, 'null')
+                    )
                 END as value
             FROM document_fields df
             LEFT JOIN field_values fv ON df.field_id = fv.field_id AND fv.recipient_id = ?

@@ -1347,7 +1347,7 @@ function loadExistingFields(existingFields) {
     // Usar el scale real de cada página (puede diferir de 1.4 en móvil)
 
     interactiveFields.forEach((field, index) => {
-      const hasPrefilledValue = field.value && field.value.trim() !== '';
+      const hasPrefilledValue = field.value && field.value.trim() !== '' && field.value.trim() !== 'null';
       const pageNum = field.page || 1;
       const pageData = allPages.find(p => p.pageNum === pageNum);
       const VIEWPORT_SCALE = pageData ? pageData.scale : 1.4;
