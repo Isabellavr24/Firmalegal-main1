@@ -196,6 +196,41 @@ function normalizeLabel(label) {
         .replace(/[\u0300-\u036f]/g, '');  // Quitar diacríticos pero mantener símbolos como ° y :
 }
 
+
+/**
+ * Busca en una fila CSV el valor de un campo dado un prefijo de parte y palabras clave.
+ * Ej: extractFieldForPart(row, 'primera_parte', CEDULA_KEYWORDS)
+ */
+function extractFieldForPart(row, partName, fieldKeywords) {
+    const partNorm = normalizeLabel(partName).replace(/\s+/g, '_');
+    for (const key of Object.keys(row)) {
+        const keyNorm = normalizeLabel(key).replace(/\s+/g, '_');
+        if (!keyNorm.startsWith(partNorm)) continue;
+        const suffix = keyNorm.slice(partNorm.length).replace(/^_+/, '');
+        if (fieldKeywords.some(kw => {
+            const kwNorm = normalizeLabel(kw).replace(/\s+/g, '_');
+            return suffix.includes(kwNorm) || suffix === kwNorm;
+        })) {
+            return (row[key] || '').toString().trim();
+        }
+    }
+    return '';
+}
+
+/** Elimina puntos, comas y espacios de una cedula; devuelve solo digitos. */
+function normalizeCedula(raw) {
+    if (!raw) return '';
+    return raw.toString().replace(/[\s.,]/g, '');
+}
+
+/** true si la cedula normalizada tiene solo digitos y entre 6 y 12 caracteres. */
+function isCedulaFormatoValido(cedula) {
+    return /^\d{6,12}$/.test(cedula);
+}
+
+const FILL_VALUES = new Set(['casa', 'trabajo', 'n/a', 'na', '-', 'x', 'ninguno', 'ninguna', 'no aplica', 'n.a.', 's/d', 'sin dato']);
+const CEDULA_KEYWORDS = ['cedula', 'c.c.', 'cc', 'documento', 'identidad', 'c.c', 'numero'];
+
 /**
  * Obtener valor de una fila CSV de forma case-insensitive
  * @param {Object} row - Fila del CSV
@@ -444,53 +479,202 @@ function validateRecipients(data, documentParts = [], documentType = 'normal') {
         return { validRecipients, errors, sharedFieldValues: (isNormalType && !hasDistinctRowData) ? sharedFieldValues : null };
 
     } else if (hasMultipleParts) {
-        // Procesamiento con múltiples partes
+        // Procesamiento con multiples partes — incluye 15 comprobaciones de validacion
+
+        const warnings = [];
+
+        // Primera pasada: recolectar todas las cedulas para detectar duplicados entre filas
+        const seenCedulas = new Map(); // cedula normalizada -> { row, name, duplicateRows: [] }
+
         data.forEach((row, index) => {
             const rowNum = index + 2;
-            const rowRecipients = [];
-
             documentParts.forEach(part => {
                 const partName = part.role_name.toLowerCase().replace(/\s+/g, '_');
                 const email = (row[`${partName}_email`] || '').trim();
                 const name = (row[`${partName}_nombre`] || '').trim();
-
-                if (!email || !name) {
-                    return; // Parte opcional vacía
+                if (!email && !name) return;
+                const rawCedula = extractFieldForPart(row, partName, CEDULA_KEYWORDS);
+                const cedula = normalizeCedula(rawCedula);
+                if (cedula && isCedulaFormatoValido(cedula)) {
+                    if (seenCedulas.has(cedula)) {
+                        seenCedulas.get(cedula).duplicateRows.push({ row: rowNum, name });
+                    } else {
+                        seenCedulas.set(cedula, { row: rowNum, name, duplicateRows: [] });
+                    }
                 }
+            });
+        });
 
-                // Validar formato de email
-                if (!emailRegex.test(email)) {
+        // Segunda pasada: validar cada fila
+        data.forEach((row, index) => {
+            const rowNum = index + 2;
+            const rowRecipients = [];
+
+            // Recoger datos de todas las partes presentes en esta fila
+            const rowPartsData = documentParts.map(part => {
+                const partName = part.role_name.toLowerCase().replace(/\s+/g, '_');
+                const email = (row[`${partName}_email`] || '').trim();
+                const name = (row[`${partName}_nombre`] || '').trim();
+                const rawCedula = extractFieldForPart(row, partName, CEDULA_KEYWORDS);
+                const cedula = normalizeCedula(rawCedula);
+                return { part, partName, email, name, rawCedula, cedula };
+            }).filter(p => p.email || p.name);
+
+            if (rowPartsData.length === 0) return;
+
+            // Comprobacion 3 (BLOQUEANTE): mismo correo en los dos responsables de la misma fila
+            if (rowPartsData.length >= 2) {
+                const emails = rowPartsData.map(p => p.email.toLowerCase()).filter(Boolean);
+                if (emails.length >= 2 && new Set(emails).size < emails.length) {
                     errors.push({
                         row: rowNum,
-                        field: `${partName}_email`,
-                        message: `Email inválido: ${email}`
+                        field: 'Correo electronico',
+                        message: `Los dos responsables tienen el mismo correo (${rowPartsData[0].email}). Cada responsable necesita el suyo para firmar por separado. Si solo hay un responsable, dejar la segunda columna vacia.`
+                    });
+                }
+            }
+
+            // Comprobacion 4 (BLOQUEANTE): misma cedula en los dos responsables de la misma fila
+            if (rowPartsData.length >= 2) {
+                const cedulas = rowPartsData.map(p => p.cedula).filter(Boolean);
+                if (cedulas.length >= 2 && new Set(cedulas).size < cedulas.length) {
+                    errors.push({
+                        row: rowNum,
+                        field: 'Cedula',
+                        message: `Los dos responsables tienen la misma cedula (${cedulas[0]}). La validacion de identidad necesita cedulas distintas para cada persona.`
+                    });
+                }
+            }
+
+            // Comprobacion 8 (BLOQUEANTE): mismo nombre en los dos responsables de la misma fila
+            if (rowPartsData.length >= 2) {
+                const names = rowPartsData.map(p => p.name.toLowerCase().trim()).filter(Boolean);
+                if (names.length >= 2 && new Set(names).size < names.length) {
+                    errors.push({
+                        row: rowNum,
+                        field: 'Nombre',
+                        message: `Los dos responsables tienen el mismo nombre ("${rowPartsData[0].name}"). El pagare debe mostrar personas distintas. Si solo hay un responsable, dejar la segunda columna vacia.`
+                    });
+                }
+            }
+
+            // Validar cada responsable presente en la fila
+            rowPartsData.forEach(({ part, partName, email, name, rawCedula, cedula }) => {
+                const partLabel = part.role_name;
+
+                // Comprobacion 2 (BLOQUEANTE): correo vacio en responsable que si tiene nombre
+                if (name && !email) {
+                    errors.push({
+                        row: rowNum,
+                        field: partLabel + ' - Correo',
+                        message: partLabel + ': el correo esta vacio pero el nombre ("' + name + '") si fue ingresado. Sin correo no se puede enviar el enlace de firma.'
                     });
                     return;
                 }
 
-                // Validar email duplicado en esta fila
-                if (seenEmails.has(email.toLowerCase())) {
+                // Comprobacion 1 (BLOQUEANTE): formato de correo invalido
+                if (email && !emailRegex.test(email)) {
                     errors.push({
                         row: rowNum,
-                        field: `${partName}_email`,
-                        message: `Email duplicado: ${email}`
+                        field: partLabel + ' - Correo',
+                        message: partLabel + ': correo invalido "' + email + '". Revisar que no tenga tildes, comas ni dominios con errores (ej. ".con" en lugar de ".com").'
                     });
-                    return;
                 }
 
-                seenEmails.add(email.toLowerCase());
-                rowRecipients.push({
-                    email,
-                    name,
-                    part_id: part.part_id,
-                    part_name: part.role_name
-                });
+                // Comprobacion 7 (BLOQUEANTE): nombre vacio o de una sola palabra
+                if (!name) {
+                    errors.push({
+                        row: rowNum,
+                        field: partLabel + ' - Nombre',
+                        message: partLabel + ': el nombre esta vacio. El nombre va impreso en el pagare.'
+                    });
+                } else if (name.trim().split(/\s+/).length < 2) {
+                    errors.push({
+                        row: rowNum,
+                        field: partLabel + ' - Nombre',
+                        message: partLabel + ': el nombre "' + name + '" tiene solo una palabra. Se esperan al menos nombre y apellido.'
+                    });
+                }
+
+                // Comprobacion 6 (BLOQUEANTE): cedula vacia, con letras, o fuera de rango
+                if (!rawCedula) {
+                    errors.push({
+                        row: rowNum,
+                        field: partLabel + ' - Cedula',
+                        message: partLabel + ': la cedula esta vacia. La validacion de identidad la necesita para comparar con el documento fisico.'
+                    });
+                } else if (!isCedulaFormatoValido(cedula)) {
+                    const sinPuntos = rawCedula.replace(/[.\s,]/g, '');
+                    if (/^\d{6,12}$/.test(sinPuntos)) {
+                        errors.push({
+                            row: rowNum,
+                            field: partLabel + ' - Cedula',
+                            message: partLabel + ': "' + rawCedula + '" tiene puntos o comas. Escribir solo los numeros: ' + sinPuntos + '.'
+                        });
+                    } else {
+                        errors.push({
+                            row: rowNum,
+                            field: partLabel + ' - Cedula',
+                            message: partLabel + ': "' + rawCedula + '" no es una cedula valida. Debe contener solo digitos (entre 6 y 12 caracteres).'
+                        });
+                    }
+                }
+
+                // Comprobacion 5 (BLOQUEANTE): cedula duplicada entre dos personas distintas del archivo
+                if (cedula && isCedulaFormatoValido(cedula)) {
+                    const existing = seenCedulas.get(cedula);
+                    if (existing && existing.duplicateRows.length > 0 && existing.row !== rowNum) {
+                        errors.push({
+                            row: rowNum,
+                            field: partLabel + ' - Cedula',
+                            message: 'La cedula ' + cedula + ' ya aparece en la fila ' + existing.row + ' (' + existing.name + '). Revisar cual de las dos es la correcta.'
+                        });
+                    }
+                }
+
+                // Comprobacion 10 (AVISO): correo repetido en filas distintas
+                if (email && emailRegex.test(email)) {
+                    if (seenEmails.has(email.toLowerCase())) {
+                        warnings.push({
+                            row: rowNum,
+                            field: partLabel + ' - Correo',
+                            message: 'El correo "' + email + '" ya aparece en otra fila. Puede ser un padre con varios hijos — verificar que es intencional.'
+                        });
+                    }
+                    seenEmails.add(email.toLowerCase());
+                    rowRecipients.push({
+                        email,
+                        name,
+                        part_id: part.part_id,
+                        part_name: part.role_name
+                    });
+                }
+
+                // Comprobacion 14 (AVISO): nombre todo en mayusculas o todo en minusculas
+                if (name && name.length > 3) {
+                    if (name === name.toUpperCase()) {
+                        warnings.push({
+                            row: rowNum,
+                            field: partLabel + ' - Nombre',
+                            message: 'El nombre "' + name + '" esta todo en mayusculas. Quedara asi impreso en el pagare.'
+                        });
+                    } else if (name === name.toLowerCase()) {
+                        warnings.push({
+                            row: rowNum,
+                            field: partLabel + ' - Nombre',
+                            message: 'El nombre "' + name + '" esta todo en minusculas. Quedara asi impreso en el pagare.'
+                        });
+                    }
+                }
             });
 
             if (rowRecipients.length > 0) {
                 validRecipients.push(...rowRecipients);
             }
         });
+
+        return { validRecipients, errors, warnings };
+
     } else {
         // Procesamiento simple (sin partes/roles) - MODO CSV SIN COLUMNA "PARTE"
         console.log('📋 Modo SIMPLE: procesando CSV sin columna "Parte"');
@@ -732,26 +916,30 @@ router.post('/bulk-send', requireAuth, upload.single('file'), async (req, res) =
         const validationResult = validateRecipients(parsedData, documentParts, documentType);
         const validRecipients = validationResult.validRecipients;
         const errors = validationResult.errors;
+        const warnings = validationResult.warnings || [];
         const sharedFieldValues = validationResult.sharedFieldValues || null;
 
-        console.log(`✅ ${validRecipients.length} destinatarios válidos`);
-        if (errors.length > 0) {
-            console.log(`⚠️ ${errors.length} errores de validación`);
-        }
+        console.log(`Filas parseadas: ${parsedData.length}, destinatarios validos: ${validRecipients.length}`);
+        if (errors.length > 0) console.log(`Errores bloqueantes: ${errors.length}`);
+        if (warnings.length > 0) console.log(`Avisos: ${warnings.length}`);
         if (sharedFieldValues && Object.keys(sharedFieldValues).length > 0) {
-            console.log(`📝 Campos compartidos detectados (CSV con columna Parte): ${Object.keys(sharedFieldValues).length} campos`);
+            console.log(`Campos compartidos (CSV con columna Parte): ${Object.keys(sharedFieldValues).length} campos`);
         }
 
-        // Si hay errores, retornarlos
+        // Si hay errores bloqueantes, retornar informe sin crear nada en BD
         if (errors.length > 0) {
             return res.status(400).json({
                 success: false,
-                error: 'Errores de validación en el archivo',
+                error: 'El archivo tiene errores que impiden el envio',
                 validation_errors: errors,
+                validation_warnings: warnings,
+                total_rows: parsedData.length,
                 valid_count: validRecipients.length,
-                error_count: errors.length
+                error_count: errors.length,
+                warning_count: warnings.length
             });
         }
+
 
         // Límite de destinatarios (configurable)
         const MAX_RECIPIENTS = 1000;
