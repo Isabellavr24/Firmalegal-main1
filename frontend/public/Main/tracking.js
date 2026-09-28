@@ -4727,7 +4727,9 @@ async function _loadCamposMapeados(container, docId, groupId, groupRecipients, c
     if (pdfDoc && pageData.page_number <= pdfDoc.numPages) {
       try {
         const pdfPage = await pdfDoc.getPage(pageData.page_number);
-        const scale = THUMB_W / pageData.coord_width;
+        // Usar scale=1 primero para obtener dimensiones reales de pdfjs
+        const viewportNatural = pdfPage.getViewport({ scale: 1 });
+        const scale = THUMB_W / viewportNatural.width;
         const viewport = pdfPage.getViewport({ scale });
 
         const canvas = document.createElement('canvas');
@@ -4738,11 +4740,13 @@ async function _loadCamposMapeados(container, docId, groupId, groupRecipients, c
         const ctx = canvas.getContext('2d');
         await pdfPage.render({ canvasContext: ctx, viewport }).promise;
 
-        // Dibujar rectángulos de campos encima
+        // Dibujar rectángulos de campos usando dimensiones reales de pdfjs
+        // pdfjs usa coord_height del viewport natural para invertir el eje Y
+        const pdfHeight = viewportNatural.height;
         ctx.save();
         textFields.forEach(f => {
           const fx = f.x * scale;
-          const fy = (pageData.coord_height - f.y - f.height) * scale;
+          const fy = (pdfHeight - f.y - f.height) * scale;
           const fw = f.width * scale;
           const fh = f.height * scale;
           const roleColor = f.color || '#6b7280';
