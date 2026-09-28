@@ -9723,12 +9723,12 @@ app.get('/api/documents/:docId/campos-mapeados', requireAuth, async (req, res) =
         );
 
         // 5. Valores reales: text_value de cada recipient del grupo
-        //    Indexado por field_id → { recipient_id: text_value }
+        const recipientIds = recipients.map(r => r.recipient_id);
         const [fieldValues] = await db.promise().query(
             `SELECT fv.field_id, fv.recipient_id, fv.text_value
              FROM field_values fv
-             WHERE fv.recipient_id IN (?)`,
-            [recipients.map(r => r.recipient_id)]
+             WHERE fv.recipient_id IN (${recipientIds.map(() => '?').join(',')})`,
+            recipientIds
         );
 
         // Mapa: field_id → signing_order → text_value

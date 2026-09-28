@@ -4633,11 +4633,11 @@ async function _loadCamposMapeados(container, docId, groupId, groupRecipients) {
     const resp = await fetch(`/api/documents/${docId}/campos-mapeados?viewer_group_id=${groupId}&user_id=${userId}`);
     data = await resp.json();
     if (!resp.ok || !data.success) {
-      container.innerHTML = `<div style="padding:16px 18px;font-size:13px;color:#dc2626;">${data.message || 'Error al cargar campos'}</div>`;
+      container.innerHTML = `<div style="padding:16px 18px;font-size:13px;color:#dc2626;">${data.message || 'Error al cargar campos'}${data.error ? ': ' + data.error : ''}</div>`;
       return;
     }
   } catch (e) {
-    container.innerHTML = '<div style="padding:16px 18px;font-size:13px;color:#dc2626;">Error de conexión</div>';
+    container.innerHTML = `<div style="padding:16px 18px;font-size:13px;color:#dc2626;">Error de conexión: ${e.message}</div>`;
     return;
   }
 
