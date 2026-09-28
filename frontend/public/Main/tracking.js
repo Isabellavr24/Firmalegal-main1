@@ -543,11 +543,14 @@ function renderRecipients(recipients, tvGuidsByGroup, pagareSealed) {
       const camposBody = document.createElement('div');
       camposBody.style.cssText = 'display:none;background:#fff;';
 
-      let camposOpen = false;
+      const camposStateKey = `pagare-campos-open-${groupId}`;
+      let camposOpen = sessionStorage.getItem(camposStateKey) === 'true';
       let camposCargados = false;
 
-      camposHeader.addEventListener('click', async () => {
-        camposOpen = !camposOpen;
+      const _toggleCampos = async (forceOpen) => {
+        if (forceOpen !== undefined) camposOpen = forceOpen;
+        else camposOpen = !camposOpen;
+        sessionStorage.setItem(camposStateKey, String(camposOpen));
         const chev = camposHeader.querySelector(`#${camposChevId}`);
         if (camposOpen) {
           camposBody.style.display = 'block';
@@ -560,7 +563,18 @@ function renderRecipients(recipients, tvGuidsByGroup, pagareSealed) {
           camposBody.style.display = 'none';
           if (chev) chev.style.transform = 'rotate(-90deg)';
         }
-      });
+      };
+
+      camposHeader.addEventListener('click', () => _toggleCampos());
+
+      // Restaurar estado tras auto-refresh
+      if (camposOpen) {
+        camposBody.style.display = 'block';
+        const chev = camposHeader.querySelector(`#${camposChevId}`);
+        if (chev) chev.style.transform = 'rotate(0deg)';
+        camposCargados = true;
+        _loadCamposMapeados(camposBody, docId, groupId, groupRecipients);
+      }
 
       camposPanel.appendChild(camposHeader);
       camposPanel.appendChild(camposBody);
