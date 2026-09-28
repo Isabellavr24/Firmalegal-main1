@@ -9696,13 +9696,21 @@ app.get('/api/documents/:docId/campos-mapeados', requireAuth, async (req, res) =
         }
 
         // 3. Leer tamaños reales de cada página con pdf-lib
-        // custom_pdf_path se guarda como 'uploads/pagares/...' o '/uploads/pagares/...'
-        // PATHS.UPLOADS_DIR apunta a <project_root>/uploads — mismo origen que express.static
+        // Usar el mismo patrón que el resto del servidor: resolveFromRoot + strip leading slash
         const { PDFDocument } = require('pdf-lib');
-        const normalizedRel = pdfRelPath.replace(/^\/uploads\//, '');
-        const pdfAbsPath = path.join(PATHS.UPLOADS_DIR, normalizedRel.startsWith('uploads/')
-            ? normalizedRel.replace(/^uploads\//, '')
-            : normalizedRel);
+        const { resolveFromRoot } = require('./config/paths');
+
+        let pdfAbsPath = resolveFromRoot(pdfRelPath.replace(/^\/+/, ''));
+        if (!fs.existsSync(pdfAbsPath)) {
+            // Fallback: PDF base del documento (template original)
+            const [[docRow]] = await db.promise().query(
+                'SELECT file_path FROM documents WHERE document_id = ?', [docId]
+            );
+            if (!docRow || !docRow.file_path) {
+                return res.status(404).json({ success: false, message: 'PDF no encontrado para este pagaré' });
+            }
+            pdfAbsPath = resolveFromRoot(docRow.file_path.replace(/^\/+/, ''));
+        }
         const pdfBytes = fs.readFileSync(pdfAbsPath);
         const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
         const pageCount = pdfDoc.getPageCount();
