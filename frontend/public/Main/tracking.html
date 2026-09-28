@@ -1208,7 +1208,7 @@
       // Cerrar el modal de destinatarios para que el informe no quede detrás
       var recipientsModal = document.getElementById('recipientsModal');
       if (recipientsModal) {
-        recipientsModal.style.display = 'none';
+        recipientsModal.classList.remove('show');
         recipientsModal.setAttribute('aria-hidden', 'true');
       }
 
@@ -1250,10 +1250,11 @@
     window.closeCsvValidationModal = function() {
       var m = document.getElementById('csvValidationModal');
       if (m) m.remove();
-      // Reabrir el modal de destinatarios
+      // Reabrir el modal de destinatarios con la clase correcta (no con style inline)
       var recipientsModal = document.getElementById('recipientsModal');
       if (recipientsModal) {
-        recipientsModal.style.display = 'flex';
+        recipientsModal.style.display = '';
+        recipientsModal.classList.add('show');
         recipientsModal.setAttribute('aria-hidden', 'false');
       }
       // Mostrar botón "Ver errores CSV" en la zona de carga
