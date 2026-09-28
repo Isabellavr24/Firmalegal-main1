@@ -4740,13 +4740,12 @@ async function _loadCamposMapeados(container, docId, groupId, groupRecipients, c
         const ctx = canvas.getContext('2d');
         await pdfPage.render({ canvasContext: ctx, viewport }).promise;
 
-        // Dibujar rectángulos de campos usando dimensiones reales de pdfjs
-        // pdfjs usa coord_height del viewport natural para invertir el eje Y
-        const pdfHeight = viewportNatural.height;
+        // Las coordenadas en DB están en sistema pantalla (Y=0 arriba), igual que canvas pdfjs
+        // No hay que invertir el eje Y — solo escalar
         ctx.save();
         textFields.forEach(f => {
           const fx = f.x * scale;
-          const fy = (pdfHeight - f.y - f.height) * scale;
+          const fy = f.y * scale;
           const fw = f.width * scale;
           const fh = f.height * scale;
           const roleColor = f.color || '#6b7280';
