@@ -573,8 +573,8 @@ function renderRecipients(recipients, tvGuidsByGroup, pagareSealed) {
         const chev = camposHeader.querySelector(`#${camposChevId}`);
         if (chev) chev.style.transform = 'rotate(0deg)';
         if (window[cacheKey]) {
-          // HTML ya cacheado — restaurar instantáneamente sin llamadas al backend
-          camposBody.innerHTML = window[cacheKey];
+          // Nodo DOM ya construido con canvas renderizados — reinsertar directamente
+          camposBody.appendChild(window[cacheKey]);
           camposBody.style.display = 'block';
           camposCargados = true;
         } else {
@@ -4831,6 +4831,13 @@ async function _loadCamposMapeados(container, docId, groupId, groupRecipients, c
     container.appendChild(pageSection);
   }
 
-  // Cachear el HTML generado para restaurarlo sin re-renderizar en auto-refresh
-  if (cacheKey) window[cacheKey] = container.innerHTML;
+  // Cachear un wrapper con los nodos reales (no clones) para poder moverlos de vuelta.
+  // cloneNode e innerHTML pierden los píxeles del canvas — hay que reusar los mismos nodos.
+  if (cacheKey) {
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'display:contents;';
+    Array.from(container.childNodes).forEach(n => wrapper.appendChild(n));
+    window[cacheKey] = wrapper;
+    container.appendChild(wrapper);
+  }
 }
