@@ -1205,11 +1205,21 @@
         warningsHtml += '</div>';
       }
 
-      const modal = document.createElement('div');
+      // Cerrar el modal de destinatarios para que el informe no quede detrás
+      var recipientsModal = document.getElementById('recipientsModal');
+      if (recipientsModal) {
+        recipientsModal.style.display = 'none';
+        recipientsModal.setAttribute('aria-hidden', 'true');
+      }
+
+      var modal = document.createElement('div');
       modal.id = 'csvValidationModal';
-      modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
-      modal.innerHTML = '<div style="background:#fff;border-radius:8px;max-width:680px;width:100%;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.2);">' +
-        '<div style="padding:20px 24px;border-bottom:1px solid #e5e7eb;">' +
+      modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:11000;display:flex;align-items:center;justify-content:center;padding:16px;';
+      modal.innerHTML = '<div style="background:#fff;border-radius:8px;max-width:680px;width:100%;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.25);position:relative;">' +
+        '<button onclick="closeCsvValidationModal()" aria-label="Cerrar" style="position:absolute;top:14px;right:14px;background:transparent;border:none;cursor:pointer;color:#6b7280;padding:4px;line-height:1;z-index:1;" onmouseover="this.style.color=\'#111827\'" onmouseout="this.style.color=\'#6b7280\'">' +
+          '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
+        '</button>' +
+        '<div style="padding:20px 48px 20px 24px;border-bottom:1px solid #e5e7eb;">' +
           '<h3 style="margin:0 0 4px;font-size:17px;font-weight:600;">Revision del archivo: ' + filename + '</h3>' +
           '<p style="margin:0;font-size:14px;color:#6b7280;">' + totalRows + ' filas leidas &middot; ' +
             '<strong style="color:#dc2626;">' + errors.length + ' error' + (errors.length !== 1 ? 'es' : '') + ' que impiden el envio</strong>' +
@@ -1219,7 +1229,7 @@
         '<div style="overflow-y:auto;padding:16px 24px;flex:1;">' + errorsHtml + warningsHtml + '</div>' +
         '<div style="padding:16px 24px;border-top:1px solid #e5e7eb;display:flex;gap:12px;justify-content:flex-end;">' +
           '<button onclick="downloadValidationReport()" style="background:#f3f4f6;border:1px solid #d1d5db;padding:8px 16px;border-radius:6px;font-size:14px;cursor:pointer;">Descargar informe</button>' +
-          '<button onclick="document.getElementById(\'csvValidationModal\').remove()" style="background:#2563eb;color:#fff;border:none;padding:8px 16px;border-radius:6px;font-size:14px;cursor:pointer;">Corregir y volver a subir</button>' +
+          '<button onclick="closeCsvValidationModal()" style="background:#2563eb;color:#fff;border:none;padding:8px 16px;border-radius:6px;font-size:14px;cursor:pointer;">Corregir y volver a subir</button>' +
         '</div>' +
       '</div>';
 
@@ -1227,11 +1237,47 @@
 
       // Cerrar al hacer click en el fondo
       modal.addEventListener('click', function(e) {
-        if (e.target === modal) modal.remove();
+        if (e.target === modal) closeCsvValidationModal();
       });
 
-      // Guardar informe para la descarga
+      // Guardar informe para la descarga y para poder reabrirlo
       window._csvReportData = { result: result, filename: filename };
+
+      // Mostrar botón "Ver errores CSV" en la zona de carga después de cerrar
+      window._csvHasErrors = true;
+    };
+
+    window.closeCsvValidationModal = function() {
+      var m = document.getElementById('csvValidationModal');
+      if (m) m.remove();
+      // Reabrir el modal de destinatarios
+      var recipientsModal = document.getElementById('recipientsModal');
+      if (recipientsModal) {
+        recipientsModal.style.display = 'flex';
+        recipientsModal.setAttribute('aria-hidden', 'false');
+      }
+      // Mostrar botón "Ver errores CSV" en la zona de carga
+      _showCsvErrorsButton();
+    };
+
+    window._showCsvErrorsButton = function() {
+      if (!window._csvHasErrors || !window._csvReportData) return;
+      var zone = document.getElementById('pagareCsvUploadZone');
+      if (!zone) return;
+      // No duplicar el botón
+      if (zone.querySelector('#csvErrorsBtn')) return;
+      var btn = document.createElement('button');
+      btn.id = 'csvErrorsBtn';
+      btn.type = 'button';
+      btn.textContent = 'Ver errores CSV';
+      btn.style.cssText = 'margin-top:10px;background:#dc2626;color:#fff;border:none;padding:8px 18px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;width:100%;';
+      btn.onmouseover = function() { this.style.background = '#b91c1c'; };
+      btn.onmouseout = function() { this.style.background = '#dc2626'; };
+      btn.onclick = function() {
+        var data = window._csvReportData;
+        if (data) showValidationReport(data.result, null, data.filename);
+      };
+      zone.appendChild(btn);
     };
 
     window.downloadValidationReport = function() {

@@ -3432,6 +3432,11 @@ async function downloadPagareTemplate(docId) {
 // Manejar carga de CSV de pagarés
 function handlePagareCsvUpload(file) {
   console.log('📤 Procesando CSV de pagarés:', file.name);
+  // Limpiar estado de errores anteriores al cargar un nuevo archivo
+  window._csvHasErrors = false;
+  window._csvReportData = null;
+  var prevBtn = document.getElementById('csvErrorsBtn');
+  if (prevBtn) prevBtn.remove();
 
   if (!file.name.endsWith('.csv')) {
     ToastManager.error('Error', 'Solo se permiten archivos CSV');
