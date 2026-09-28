@@ -541,7 +541,7 @@ function renderRecipients(recipients, tvGuidsByGroup, pagareSealed) {
       `;
 
       const camposBody = document.createElement('div');
-      camposBody.style.cssText = 'max-height:0;overflow:hidden;transition:max-height 0.3s ease;background:#fff;';
+      camposBody.style.cssText = 'display:none;background:#fff;';
 
       let camposOpen = false;
       let camposCargados = false;
@@ -550,14 +550,14 @@ function renderRecipients(recipients, tvGuidsByGroup, pagareSealed) {
         camposOpen = !camposOpen;
         const chev = camposHeader.querySelector(`#${camposChevId}`);
         if (camposOpen) {
-          camposBody.style.maxHeight = '3000px';
+          camposBody.style.display = 'block';
           if (chev) chev.style.transform = 'rotate(0deg)';
           if (!camposCargados) {
             camposCargados = true;
             await _loadCamposMapeados(camposBody, docId, groupId, groupRecipients);
           }
         } else {
-          camposBody.style.maxHeight = '0';
+          camposBody.style.display = 'none';
           if (chev) chev.style.transform = 'rotate(-90deg)';
         }
       });
