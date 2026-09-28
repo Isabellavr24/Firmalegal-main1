@@ -1173,7 +1173,7 @@
     // Muestra el informe de validacion del CSV antes de crear nada
     window.showValidationReport = function(result, blob, filename) {
       const errors = result.validation_errors || [];
-      const warnings = result.validation_warnings || [];
+      const warnings = result.warnings || result.validation_warnings || [];
       const totalRows = result.total_rows || '?';
 
       // Construir HTML del informe

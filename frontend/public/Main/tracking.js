@@ -3447,7 +3447,7 @@ function handlePagareCsvUpload(file) {
       skipEmptyLines: true,
       delimiter: ',',
       complete: (results) => {
-        _processPagareCsvData(results, file.name).catch(err => console.error('Error procesando CSV pagaré:', err));
+        _processPagareCsvData(results, file.name, file).catch(err => console.error('Error procesando CSV pagaré:', err));
       },
       error: (error) => {
         console.error('❌ Error al parsear CSV:', error);
@@ -3459,7 +3459,7 @@ function handlePagareCsvUpload(file) {
   reader.readAsText(file);
 }
 
-async function _processPagareCsvData(results, fileName) {
+async function _processPagareCsvData(results, fileName, file) {
   const rows = results.data;
   console.log(`📊 CSV parseado: ${rows.length} filas`);
 
@@ -3543,6 +3543,151 @@ async function _processPagareCsvData(results, fileName) {
   });
 
   window.pagareCsvData = pagaresData;
+
+  // ── VALIDACION COMPLETA DEL CSV (Parte 1) ──────────────────────────────────
+  const csvErrors = [];
+  const csvWarnings = [];
+  const emailRegexVal = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const cedulaKeywords = ['cedula', 'c.c', 'cc', 'documento', 'identidad', 'numero'];
+  const fillValues = new Set(['casa','trabajo','n/a','na','-','x','ninguno','ninguna','no aplica','n.a.','s/d','sin dato']);
+
+  const normLabel = s => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,' ').trim();
+  const normCedula = s => (s||'').toString().replace(/[\s.,]/g,'');
+  const cedulaValida = s => /^\d{6,12}$/.test(s);
+
+  const extractCedula = (textFields, firmIndex) => {
+    const suffixPatterns = firmIndex === 1 ? [/^[^_]+$/, /_0$/] : [new RegExp(`_${firmIndex-1}$`)];
+    for (const [key, val] of Object.entries(textFields)) {
+      const kn = normLabel(key);
+      if (!cedulaKeywords.some(kw => kn.includes(kw))) continue;
+      const hasSuffix = /_\d+$/.test(key);
+      if (firmIndex === 1 && !hasSuffix) return val;
+      if (firmIndex > 1 && key.endsWith(`_${firmIndex-1}`)) return val;
+    }
+    return '';
+  };
+
+  // Primera pasada: recolectar cedulas para detectar duplicados entre filas
+  const seenCedulas = new Map();
+  pagaresData.forEach(pagare => {
+    pagare.firmantes.forEach(f => {
+      const raw = extractCedula(pagare.textFields, f.partId);
+      const ced = normCedula(raw);
+      if (ced && cedulaValida(ced)) {
+        if (seenCedulas.has(ced)) {
+          seenCedulas.get(ced).duplicateRows.push({ row: pagare.rowIndex, name: f.name });
+        } else {
+          seenCedulas.set(ced, { row: pagare.rowIndex, name: f.name, duplicateRows: [] });
+        }
+      }
+    });
+  });
+
+  // Segunda pasada: validar cada fila
+  const seenEmails = new Set();
+  pagaresData.forEach(pagare => {
+    const { rowIndex, firmantes, textFields } = pagare;
+
+    // Check 3: mismo correo en los dos responsables
+    if (firmantes.length >= 2) {
+      const emails = firmantes.map(f => f.email.toLowerCase()).filter(Boolean);
+      if (new Set(emails).size < emails.length) {
+        csvErrors.push({ row: rowIndex, field: 'Correo electronico', message: `Los dos responsables tienen el mismo correo (${firmantes[0].email}). Cada responsable necesita el suyo para firmar por separado.` });
+      }
+    }
+
+    // Check 4: misma cedula en los dos responsables de la misma fila
+    if (firmantes.length >= 2) {
+      const cedulas = firmantes.map(f => normCedula(extractCedula(textFields, f.partId))).filter(c => c && cedulaValida(c));
+      if (cedulas.length >= 2 && new Set(cedulas).size < cedulas.length) {
+        csvErrors.push({ row: rowIndex, field: 'Cedula', message: `Los dos responsables tienen la misma cedula (${cedulas[0]}). La validacion de identidad necesita cedulas distintas.` });
+      }
+    }
+
+    // Check 8: mismo nombre en los dos responsables
+    if (firmantes.length >= 2) {
+      const names = firmantes.map(f => f.name.toLowerCase().trim()).filter(Boolean);
+      if (names.length >= 2 && new Set(names).size < names.length) {
+        csvErrors.push({ row: rowIndex, field: 'Nombre', message: `Los dos responsables tienen el mismo nombre ("${firmantes[0].name}"). Si solo hay un responsable, dejar la segunda columna vacia.` });
+      }
+    }
+
+    firmantes.forEach(f => {
+      const partLabel = f.roleName;
+      const rawCedula = extractCedula(textFields, f.partId);
+      const cedula = normCedula(rawCedula);
+
+      // Check 2: correo vacio con nombre presente
+      if (f.name && f.name !== f.email && !f.email) {
+        csvErrors.push({ row: rowIndex, field: partLabel + ' - Correo', message: `${partLabel}: el correo esta vacio pero el nombre si fue ingresado. Sin correo no se puede enviar el enlace de firma.` });
+        return;
+      }
+
+      // Check 1: formato de correo invalido
+      if (f.email && !emailRegexVal.test(f.email)) {
+        csvErrors.push({ row: rowIndex, field: partLabel + ' - Correo', message: `${partLabel}: correo invalido "${f.email}". Revisar que no tenga tildes, comas ni dominios con errores.` });
+      }
+
+      // Check 7: nombre vacio o una sola palabra
+      if (!f.name || f.name === f.email) {
+        csvErrors.push({ row: rowIndex, field: partLabel + ' - Nombre', message: `${partLabel}: el nombre esta vacio. El nombre va impreso en el pagare.` });
+      } else if (f.name.trim().split(/\s+/).length < 2) {
+        csvErrors.push({ row: rowIndex, field: partLabel + ' - Nombre', message: `${partLabel}: el nombre "${f.name}" tiene solo una palabra. Se esperan al menos nombre y apellido.` });
+      }
+
+      // Check 6: cedula vacia, con letras, o fuera de rango
+      if (!rawCedula) {
+        csvErrors.push({ row: rowIndex, field: partLabel + ' - Cedula', message: `${partLabel}: la cedula esta vacia. La validacion de identidad la necesita.` });
+      } else if (!cedulaValida(cedula)) {
+        const sinPuntos = rawCedula.replace(/[.\s,]/g,'');
+        if (/^\d{6,12}$/.test(sinPuntos)) {
+          csvErrors.push({ row: rowIndex, field: partLabel + ' - Cedula', message: `${partLabel}: "${rawCedula}" tiene puntos o comas. Escribir solo los numeros: ${sinPuntos}.` });
+        } else {
+          csvErrors.push({ row: rowIndex, field: partLabel + ' - Cedula', message: `${partLabel}: "${rawCedula}" no es una cedula valida. Debe contener solo digitos (entre 6 y 12 caracteres).` });
+        }
+      }
+
+      // Check 5: cedula duplicada entre dos personas distintas
+      if (cedula && cedulaValida(cedula)) {
+        const existing = seenCedulas.get(cedula);
+        if (existing && existing.duplicateRows.length > 0 && existing.row !== rowIndex) {
+          csvErrors.push({ row: rowIndex, field: partLabel + ' - Cedula', message: `La cedula ${cedula} ya aparece en la fila ${existing.row} (${existing.name}). Revisar cual de las dos es correcta.` });
+        }
+      }
+
+      // Check 10 (aviso): correo repetido en filas distintas
+      if (f.email && emailRegexVal.test(f.email)) {
+        if (seenEmails.has(f.email.toLowerCase())) {
+          csvWarnings.push({ row: rowIndex, field: partLabel + ' - Correo', message: `El correo "${f.email}" ya aparece en otra fila. Puede ser intencional si un padre tiene varios hijos.` });
+        }
+        seenEmails.add(f.email.toLowerCase());
+      }
+
+      // Check 14 (aviso): nombre todo en mayusculas o minusculas
+      if (f.name && f.name !== f.email && f.name.length > 3) {
+        if (f.name === f.name.toUpperCase()) {
+          csvWarnings.push({ row: rowIndex, field: partLabel + ' - Nombre', message: `El nombre "${f.name}" esta todo en mayusculas. Quedara asi impreso en el pagare.` });
+        } else if (f.name === f.name.toLowerCase()) {
+          csvWarnings.push({ row: rowIndex, field: partLabel + ' - Nombre', message: `El nombre "${f.name}" esta todo en minusculas. Quedara asi impreso en el pagare.` });
+        }
+      }
+    });
+  });
+
+  // Si hay errores bloqueantes, mostrar informe y detener
+  if (csvErrors.length > 0) {
+    const fakeResult = {
+      validation_errors: csvErrors,
+      warnings: csvWarnings,
+      total_rows: pagaresData.length,
+      error_count: csvErrors.length,
+      warning_count: csvWarnings.length
+    };
+    const csvBlob = file;
+    showValidationReport(fakeResult, csvBlob, fileName);
+    return;
+  }
+  // ── FIN VALIDACION ──────────────────────────────────────────────────────────
 
   // Estadísticas
   const totalPagares = pagaresData.length;
