@@ -573,8 +573,8 @@ function renderRecipients(recipients, tvGuidsByGroup, pagareSealed) {
         const chev = camposHeader.querySelector(`#${camposChevId}`);
         if (chev) chev.style.transform = 'rotate(0deg)';
         if (window[cacheKey]) {
-          // Nodo DOM ya construido con canvas renderizados — reinsertar directamente
-          camposBody.appendChild(window[cacheKey]);
+          // Miniaturas como <img> data URL — innerHTML las restaura perfectamente
+          camposBody.innerHTML = window[cacheKey];
           camposBody.style.display = 'block';
           camposCargados = true;
         } else {
@@ -4741,24 +4741,23 @@ async function _loadCamposMapeados(container, docId, groupId, groupRecipients, c
         ctx.save();
         textFields.forEach(f => {
           const fx = f.x * scale;
-          // PDF coords: y=0 es abajo; canvas: y=0 es arriba
           const fy = (pageData.coord_height - f.y - f.height) * scale;
           const fw = f.width * scale;
           const fh = f.height * scale;
-
-          // Color del rol o gris por defecto
           const roleColor = f.color || '#6b7280';
           ctx.strokeStyle = roleColor;
           ctx.lineWidth = 1.5;
           ctx.strokeRect(fx, fy, fw, fh);
-
-          // Fondo semitransparente
           ctx.fillStyle = roleColor + '22';
           ctx.fillRect(fx, fy, fw, fh);
         });
         ctx.restore();
 
-        thumbWrap.appendChild(canvas);
+        // Convertir a imagen PNG para que sobreviva manipulaciones del DOM
+        const img = document.createElement('img');
+        img.src = canvas.toDataURL('image/png');
+        img.style.cssText = `width:${THUMB_W}px;height:${Math.round(viewport.height)}px;border:1px solid #e5e7eb;border-radius:4px;display:block;`;
+        thumbWrap.appendChild(img);
       } catch (e) {
         console.warn('[CAMPOS-MAPEADOS] Error renderizando pagina', pageData.page_number, e.message);
         const placeholder = document.createElement('div');
@@ -4831,13 +4830,6 @@ async function _loadCamposMapeados(container, docId, groupId, groupRecipients, c
     container.appendChild(pageSection);
   }
 
-  // Cachear un wrapper con los nodos reales (no clones) para poder moverlos de vuelta.
-  // cloneNode e innerHTML pierden los píxeles del canvas — hay que reusar los mismos nodos.
-  if (cacheKey) {
-    const wrapper = document.createElement('div');
-    wrapper.style.cssText = 'display:contents;';
-    Array.from(container.childNodes).forEach(n => wrapper.appendChild(n));
-    window[cacheKey] = wrapper;
-    container.appendChild(wrapper);
-  }
+  // Las miniaturas son <img> con data URL — innerHTML las preserva intactas
+  if (cacheKey) window[cacheKey] = container.innerHTML;
 }
