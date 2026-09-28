@@ -568,17 +568,18 @@ function renderRecipients(recipients, tvGuidsByGroup, pagareSealed) {
       const cacheKey = `_camposHtml_${groupId}`;
       camposHeader.addEventListener('click', () => _toggleCampos(undefined, cacheKey));
 
-      // Restaurar estado tras auto-refresh: si ya hay contenido cacheado, reutilizarlo
+      // Restaurar estado visual tras auto-refresh
       if (camposOpen) {
-        camposBody.style.display = 'block';
         const chev = camposHeader.querySelector(`#${camposChevId}`);
         if (chev) chev.style.transform = 'rotate(0deg)';
-        const cacheKey = `_camposHtml_${groupId}`;
         if (window[cacheKey]) {
-          // Contenido ya generado — restaurar sin volver a llamar al backend ni a pdfjs
+          // HTML ya cacheado — restaurar instantáneamente sin llamadas al backend
           camposBody.innerHTML = window[cacheKey];
+          camposBody.style.display = 'block';
           camposCargados = true;
         } else {
+          // Primera vez — cargar normalmente
+          camposBody.style.display = 'block';
           camposCargados = true;
           _loadCamposMapeados(camposBody, docId, groupId, groupRecipients, cacheKey);
         }
