@@ -512,6 +512,60 @@ function renderRecipients(recipients, tvGuidsByGroup, pagareSealed) {
         body.appendChild(infoBox);
       }
 
+      // ── Panel "Consultar campos mapeados" ────────────────────────────────
+      const camposPanel = document.createElement('div');
+      camposPanel.style.cssText = 'margin-top:8px;border:1px solid #e9dfe7;border-radius:8px;overflow:hidden;';
+
+      const camposHeader = document.createElement('button');
+      camposHeader.type = 'button';
+      camposHeader.style.cssText = `
+        width:100%;display:flex;align-items:center;justify-content:space-between;
+        padding:9px 14px;background:#f9f5f2;border:none;cursor:pointer;font-size:13px;
+        font-weight:600;color:#2b0e31;gap:8px;
+      `;
+      const camposChevId = `chev-campos-${idx}`;
+      camposHeader.innerHTML = `
+        <span style="display:flex;align-items:center;gap:7px;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/>
+            <line x1="9" y1="21" x2="9" y2="9"/>
+          </svg>
+          Consultar campos mapeados
+        </span>
+        <svg id="${camposChevId}" width="14" height="14" viewBox="0 0 24 24" fill="none"
+             stroke="#4a1e5c" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+             style="flex-shrink:0;transition:transform 0.25s ease;transform:rotate(-90deg);">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      `;
+
+      const camposBody = document.createElement('div');
+      camposBody.style.cssText = 'max-height:0;overflow:hidden;transition:max-height 0.3s ease;background:#fff;';
+
+      let camposOpen = false;
+      let camposCargados = false;
+
+      camposHeader.addEventListener('click', async () => {
+        camposOpen = !camposOpen;
+        const chev = camposHeader.querySelector(`#${camposChevId}`);
+        if (camposOpen) {
+          camposBody.style.maxHeight = '3000px';
+          if (chev) chev.style.transform = 'rotate(0deg)';
+          if (!camposCargados) {
+            camposCargados = true;
+            await _loadCamposMapeados(camposBody, docId, groupId, groupRecipients);
+          }
+        } else {
+          camposBody.style.maxHeight = '0';
+          if (chev) chev.style.transform = 'rotate(-90deg)';
+        }
+      });
+
+      camposPanel.appendChild(camposHeader);
+      camposPanel.appendChild(camposBody);
+      body.appendChild(camposPanel);
+
       accordion.appendChild(body);
       container.appendChild(accordion);
 
@@ -4562,4 +4616,195 @@ function abrirOtpCelularModalCard(email) {
     }
   };
   modal.style.display = 'flex';
+}
+
+// =============================================
+// CAMPOS MAPEADOS — Panel colapsable en tarjeta de pagaré
+// =============================================
+async function _loadCamposMapeados(container, docId, groupId, groupRecipients) {
+  const userStr = localStorage.getItem('currentUser');
+  const userId = userStr ? JSON.parse(userStr).user_id : '';
+
+  // Estado de carga
+  container.innerHTML = '<div style="padding:16px 18px;font-size:13px;color:#6b7280;">Cargando campos...</div>';
+
+  let data;
+  try {
+    const resp = await fetch(`/api/documents/${docId}/campos-mapeados?viewer_group_id=${groupId}&user_id=${userId}`);
+    data = await resp.json();
+    if (!resp.ok || !data.success) {
+      container.innerHTML = `<div style="padding:16px 18px;font-size:13px;color:#dc2626;">${data.message || 'Error al cargar campos'}</div>`;
+      return;
+    }
+  } catch (e) {
+    container.innerHTML = '<div style="padding:16px 18px;font-size:13px;color:#dc2626;">Error de conexión</div>';
+    return;
+  }
+
+  const { pages, recipients, total_text_fields, pdf_path } = data;
+
+  // Nombres de columna por signing_order
+  const colName = {};
+  recipients.forEach(r => {
+    colName[r.signing_order] = r.name || r.email;
+  });
+  const signingOrders = recipients.map(r => r.signing_order).sort((a, b) => a - b);
+  const numCols = signingOrders.length;
+
+  // Encabezado: contador de campos
+  const header = document.createElement('div');
+  header.style.cssText = 'padding:10px 18px 6px;font-size:12px;color:#6b7280;border-bottom:1px solid #f0eaf3;';
+  header.textContent = `${total_text_fields} campo${total_text_fields !== 1 ? 's' : ''} de texto en el documento`;
+  container.innerHTML = '';
+  container.appendChild(header);
+
+  if (!pages.length) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'padding:14px 18px;font-size:13px;color:#6b7280;';
+    empty.textContent = 'Este pagaré no tiene campos mapeados.';
+    container.appendChild(empty);
+    return;
+  }
+
+  // Cargar PDF con pdfjs para las miniaturas
+  let pdfDoc = null;
+  try {
+    const pdfjsLib = window.pdfjsLib || window['pdfjs-dist/build/pdf'];
+    if (pdfjsLib) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      pdfDoc = await pdfjsLib.getDocument('/' + pdf_path).promise;
+    }
+  } catch (e) {
+    console.warn('[CAMPOS-MAPEADOS] No se pudo cargar pdfjs o el PDF:', e.message);
+  }
+
+  // Para cada página que tenga campos de texto, renderizar
+  for (const pageData of pages) {
+    const textFields = pageData.fields.filter(f => f.field_type === 'text');
+    if (!textFields.length) continue;
+
+    const pageSection = document.createElement('div');
+    pageSection.style.cssText = 'padding:14px 18px;border-bottom:1px solid #f0eaf3;';
+
+    const pageLabel = document.createElement('div');
+    pageLabel.style.cssText = 'font-size:11px;font-weight:700;color:#4a1e5c;margin-bottom:10px;text-transform:uppercase;letter-spacing:0.5px;';
+    pageLabel.textContent = `Campos pagina ${pageData.page_number}`;
+    pageSection.appendChild(pageLabel);
+
+    // Layout: miniatura + tabla de dos columnas
+    const pageLayout = document.createElement('div');
+    pageLayout.style.cssText = 'display:flex;gap:14px;align-items:flex-start;';
+
+    // Miniatura del PDF
+    const thumbWrap = document.createElement('div');
+    thumbWrap.style.cssText = 'flex-shrink:0;position:relative;';
+    const THUMB_W = 140;
+
+    if (pdfDoc && pageData.page_number <= pdfDoc.numPages) {
+      try {
+        const pdfPage = await pdfDoc.getPage(pageData.page_number);
+        const scale = THUMB_W / pageData.coord_width;
+        const viewport = pdfPage.getViewport({ scale });
+
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        canvas.style.cssText = `width:${THUMB_W}px;height:${Math.round(viewport.height)}px;border:1px solid #e5e7eb;border-radius:4px;display:block;`;
+
+        const ctx = canvas.getContext('2d');
+        await pdfPage.render({ canvasContext: ctx, viewport }).promise;
+
+        // Dibujar rectángulos de campos encima
+        ctx.save();
+        textFields.forEach(f => {
+          const fx = f.x * scale;
+          // PDF coords: y=0 es abajo; canvas: y=0 es arriba
+          const fy = (pageData.coord_height - f.y - f.height) * scale;
+          const fw = f.width * scale;
+          const fh = f.height * scale;
+
+          // Color del rol o gris por defecto
+          const roleColor = f.color || '#6b7280';
+          ctx.strokeStyle = roleColor;
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(fx, fy, fw, fh);
+
+          // Fondo semitransparente
+          ctx.fillStyle = roleColor + '22';
+          ctx.fillRect(fx, fy, fw, fh);
+        });
+        ctx.restore();
+
+        thumbWrap.appendChild(canvas);
+      } catch (e) {
+        console.warn('[CAMPOS-MAPEADOS] Error renderizando pagina', pageData.page_number, e.message);
+        const placeholder = document.createElement('div');
+        placeholder.style.cssText = `width:${THUMB_W}px;height:180px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#9ca3af;`;
+        placeholder.textContent = `Pag. ${pageData.page_number}`;
+        thumbWrap.appendChild(placeholder);
+      }
+    } else {
+      const placeholder = document.createElement('div');
+      placeholder.style.cssText = `width:${THUMB_W}px;height:180px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#9ca3af;`;
+      placeholder.textContent = `Pag. ${pageData.page_number}`;
+      thumbWrap.appendChild(placeholder);
+    }
+
+    pageLayout.appendChild(thumbWrap);
+
+    // Tabla de campos: dos columnas (una por firmante)
+    const tableWrap = document.createElement('div');
+    tableWrap.style.cssText = 'flex:1;min-width:0;overflow:hidden;';
+
+    // Encabezado de columnas
+    const colHeader = document.createElement('div');
+    colHeader.style.cssText = `display:grid;grid-template-columns:1fr${' 1fr'.repeat(numCols)};gap:4px;margin-bottom:6px;`;
+
+    const labelCell = document.createElement('div');
+    labelCell.style.cssText = 'font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;padding:0 4px;';
+    labelCell.textContent = 'Campo';
+    colHeader.appendChild(labelCell);
+
+    signingOrders.forEach(so => {
+      const hCell = document.createElement('div');
+      hCell.style.cssText = 'font-size:10px;font-weight:700;color:#4a1e5c;text-transform:uppercase;padding:0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+      hCell.title = colName[so] || `Firmante ${so}`;
+      hCell.textContent = colName[so] || `Firmante ${so}`;
+      colHeader.appendChild(hCell);
+    });
+    tableWrap.appendChild(colHeader);
+
+    // Filas de campos
+    textFields.forEach((f, fi) => {
+      const row = document.createElement('div');
+      row.style.cssText = `display:grid;grid-template-columns:1fr${' 1fr'.repeat(numCols)};gap:4px;padding:3px 0;${fi % 2 === 0 ? 'background:#faf8fb;' : ''}border-radius:4px;`;
+
+      const labelTd = document.createElement('div');
+      labelTd.style.cssText = 'font-size:11px;color:#374151;padding:3px 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+      labelTd.title = f.field_label;
+      // Punto de color del rol
+      if (f.color) {
+        labelTd.innerHTML = `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${f.color};margin-right:4px;flex-shrink:0;vertical-align:middle;"></span>${f.field_label}`;
+      } else {
+        labelTd.textContent = f.field_label;
+      }
+      row.appendChild(labelTd);
+
+      signingOrders.forEach(so => {
+        const valTd = document.createElement('div');
+        const val = (f.values && f.values[so]) || '';
+        const isEmpty = !val || val.trim() === '';
+        valTd.style.cssText = `font-size:11px;padding:3px 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-radius:3px;${isEmpty ? 'color:#9ca3af;font-style:italic;' : 'color:#111827;'}`;
+        valTd.title = isEmpty ? '(sin dato)' : val;
+        valTd.textContent = isEmpty ? '(sin dato)' : val;
+        row.appendChild(valTd);
+      });
+
+      tableWrap.appendChild(row);
+    });
+
+    pageLayout.appendChild(tableWrap);
+    pageSection.appendChild(pageLayout);
+    container.appendChild(pageSection);
+  }
 }

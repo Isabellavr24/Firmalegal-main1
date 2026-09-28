@@ -9662,6 +9662,142 @@ app.post('/api/etitulo/subir-masivo', requireAuth, etituloUpload.fields([
     }
 });
 
+// ==================== CAMPOS MAPEADOS DE UN PAGARÉ ====================
+// GET /api/documents/:docId/campos-mapeados?viewer_group_id=X
+// Devuelve los campos del documento con sus valores reales del primer firmante
+// del grupo, junto con el tamaño real de cada página leído del PDF.
+app.get('/api/documents/:docId/campos-mapeados', requireAuth, async (req, res) => {
+    const docId = parseInt(req.params.docId);
+    const viewerGroupId = parseInt(req.query.viewer_group_id);
+
+    if (!viewerGroupId || isNaN(viewerGroupId)) {
+        return res.status(400).json({ success: false, message: 'viewer_group_id requerido' });
+    }
+
+    try {
+        // 1. Destinatarios del grupo ordenados por signing_order
+        const [recipients] = await db.promise().query(
+            `SELECT recipient_id, email, name, signing_order, custom_pdf_path, part_id
+             FROM document_recipients
+             WHERE document_id = ? AND viewer_group_id = ?
+             ORDER BY signing_order ASC`,
+            [docId, viewerGroupId]
+        );
+
+        if (!recipients.length) {
+            return res.status(404).json({ success: false, message: 'Grupo no encontrado' });
+        }
+
+        // 2. PDF del primer firmante — tiene los datos ya rellenos
+        const firstRecipient = recipients[0];
+        const pdfRelPath = firstRecipient.custom_pdf_path;
+        if (!pdfRelPath) {
+            return res.status(404).json({ success: false, message: 'PDF personalizado no disponible para este pagaré' });
+        }
+
+        // 3. Leer tamaños reales de cada página con pdf-lib
+        const { PDFDocument } = require('pdf-lib');
+        const pdfAbsPath = path.resolve(__dirname, '..', pdfRelPath);
+        const pdfBytes = fs.readFileSync(pdfAbsPath);
+        const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+        const pageCount = pdfDoc.getPageCount();
+
+        const pageSizes = [];
+        for (let i = 0; i < pageCount; i++) {
+            const page = pdfDoc.getPage(i);
+            const { width, height } = page.getSize();
+            pageSizes.push({ page_number: i + 1, coord_width: width, coord_height: height });
+        }
+
+        // 4. Campos del documento con info del rol
+        const [fields] = await db.promise().query(
+            `SELECT df.field_id, df.field_type, df.page_number,
+                    df.x_position, df.y_position, df.width, df.height,
+                    df.field_label, df.part_id, df.field_config,
+                    dp.role_name, dp.color, dp.order_position
+             FROM document_fields df
+             LEFT JOIN document_parts dp ON df.part_id = dp.part_id
+             WHERE df.document_id = ?
+             ORDER BY df.page_number ASC, df.y_position ASC, df.x_position ASC`,
+            [docId]
+        );
+
+        // 5. Valores reales: text_value de cada recipient del grupo
+        //    Indexado por field_id → { recipient_id: text_value }
+        const [fieldValues] = await db.promise().query(
+            `SELECT fv.field_id, fv.recipient_id, fv.text_value
+             FROM field_values fv
+             WHERE fv.recipient_id IN (?)`,
+            [recipients.map(r => r.recipient_id)]
+        );
+
+        // Mapa: field_id → signing_order → text_value
+        const valuesMap = {};
+        fieldValues.forEach(fv => {
+            const rec = recipients.find(r => r.recipient_id === fv.recipient_id);
+            if (!rec) return;
+            if (!valuesMap[fv.field_id]) valuesMap[fv.field_id] = {};
+            valuesMap[fv.field_id][rec.signing_order] = fv.text_value || '';
+        });
+
+        // 6. Armar páginas con sus campos
+        const pagesMap = {};
+        pageSizes.forEach(p => {
+            pagesMap[p.page_number] = {
+                page_number: p.page_number,
+                coord_width: p.coord_width,
+                coord_height: p.coord_height,
+                fields: []
+            };
+        });
+
+        const totalTextFields = fields.filter(f => f.field_type === 'text').length;
+
+        fields.forEach(f => {
+            const pageNum = f.page_number || 1;
+            if (!pagesMap[pageNum]) {
+                pagesMap[pageNum] = { page_number: pageNum, coord_width: 612, coord_height: 792, fields: [] };
+            }
+            const values = valuesMap[f.field_id] || {};
+            pagesMap[pageNum].fields.push({
+                field_id: f.field_id,
+                field_type: f.field_type,
+                field_label: f.field_label || '',
+                x: parseFloat(f.x_position),
+                y: parseFloat(f.y_position),
+                width: parseFloat(f.width),
+                height: parseFloat(f.height),
+                part_id: f.part_id || null,
+                role_name: f.role_name || null,
+                color: f.color || null,
+                order_position: f.order_position || null,
+                field_config: f.field_config ? JSON.parse(f.field_config) : null,
+                values
+            });
+        });
+
+        const pages = Object.values(pagesMap).sort((a, b) => a.page_number - b.page_number);
+
+        res.json({
+            success: true,
+            pdf_path: pdfRelPath,
+            total_text_fields: totalTextFields,
+            recipients: recipients.map(r => ({
+                recipient_id: r.recipient_id,
+                email: r.email,
+                name: r.name,
+                signing_order: r.signing_order,
+                part_id: r.part_id
+            })),
+            pages
+        });
+
+    } catch (error) {
+        console.error('❌ [CAMPOS-MAPEADOS] Error:', error.message);
+        res.status(500).json({ success: false, message: 'Error al obtener campos mapeados', error: error.message });
+    }
+});
+
 // ==================== INICIAR SERVIDOR ====================
 const PORT = process.env.PORT || 3000;
 
