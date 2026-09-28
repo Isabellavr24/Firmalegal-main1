@@ -547,7 +547,7 @@ function renderRecipients(recipients, tvGuidsByGroup, pagareSealed) {
       let camposOpen = sessionStorage.getItem(camposStateKey) === 'true';
       let camposCargados = false;
 
-      const _toggleCampos = async (forceOpen) => {
+      const _toggleCampos = async (forceOpen, ck) => {
         if (forceOpen !== undefined) camposOpen = forceOpen;
         else camposOpen = !camposOpen;
         sessionStorage.setItem(camposStateKey, String(camposOpen));
@@ -557,7 +557,7 @@ function renderRecipients(recipients, tvGuidsByGroup, pagareSealed) {
           if (chev) chev.style.transform = 'rotate(0deg)';
           if (!camposCargados) {
             camposCargados = true;
-            await _loadCamposMapeados(camposBody, docId, groupId, groupRecipients);
+            await _loadCamposMapeados(camposBody, docId, groupId, groupRecipients, ck);
           }
         } else {
           camposBody.style.display = 'none';
@@ -565,15 +565,23 @@ function renderRecipients(recipients, tvGuidsByGroup, pagareSealed) {
         }
       };
 
-      camposHeader.addEventListener('click', () => _toggleCampos());
+      const cacheKey = `_camposHtml_${groupId}`;
+      camposHeader.addEventListener('click', () => _toggleCampos(undefined, cacheKey));
 
-      // Restaurar estado tras auto-refresh
+      // Restaurar estado tras auto-refresh: si ya hay contenido cacheado, reutilizarlo
       if (camposOpen) {
         camposBody.style.display = 'block';
         const chev = camposHeader.querySelector(`#${camposChevId}`);
         if (chev) chev.style.transform = 'rotate(0deg)';
-        camposCargados = true;
-        _loadCamposMapeados(camposBody, docId, groupId, groupRecipients);
+        const cacheKey = `_camposHtml_${groupId}`;
+        if (window[cacheKey]) {
+          // Contenido ya generado — restaurar sin volver a llamar al backend ni a pdfjs
+          camposBody.innerHTML = window[cacheKey];
+          camposCargados = true;
+        } else {
+          camposCargados = true;
+          _loadCamposMapeados(camposBody, docId, groupId, groupRecipients, cacheKey);
+        }
       }
 
       camposPanel.appendChild(camposHeader);
@@ -4635,7 +4643,7 @@ function abrirOtpCelularModalCard(email) {
 // =============================================
 // CAMPOS MAPEADOS — Panel colapsable en tarjeta de pagaré
 // =============================================
-async function _loadCamposMapeados(container, docId, groupId, groupRecipients) {
+async function _loadCamposMapeados(container, docId, groupId, groupRecipients, cacheKey) {
   const userStr = localStorage.getItem('currentUser');
   const userId = userStr ? JSON.parse(userStr).user_id : '';
 
@@ -4821,4 +4829,7 @@ async function _loadCamposMapeados(container, docId, groupId, groupRecipients) {
     pageSection.appendChild(pageLayout);
     container.appendChild(pageSection);
   }
+
+  // Cachear el HTML generado para restaurarlo sin re-renderizar en auto-refresh
+  if (cacheKey) window[cacheKey] = container.innerHTML;
 }
