@@ -9696,8 +9696,12 @@ app.get('/api/documents/:docId/campos-mapeados', requireAuth, async (req, res) =
         }
 
         // 3. Leer tamaños reales de cada página con pdf-lib
+        // pdfRelPath puede venir con o sin slash inicial; resolveFromRoot lo normaliza
         const { PDFDocument } = require('pdf-lib');
-        const pdfAbsPath = path.resolve(__dirname, '..', pdfRelPath);
+        const { resolveFromRoot } = require('./config/paths');
+        const pdfAbsPath = pdfRelPath.startsWith('/')
+            ? pdfRelPath
+            : resolveFromRoot(pdfRelPath);
         const pdfBytes = fs.readFileSync(pdfAbsPath);
         const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
         const pageCount = pdfDoc.getPageCount();
