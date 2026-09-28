@@ -4695,7 +4695,8 @@ async function _loadCamposMapeados(container, docId, groupId, groupRecipients, c
     const pdfjsLib = window.pdfjsLib || window['pdfjs-dist/build/pdf'];
     if (pdfjsLib) {
       pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-      pdfDoc = await pdfjsLib.getDocument('/' + pdf_path).promise;
+      const pdfUrl = pdf_path.startsWith('/') ? pdf_path : '/' + pdf_path;
+      pdfDoc = await pdfjsLib.getDocument(pdfUrl).promise;
     }
   } catch (e) {
     console.warn('[CAMPOS-MAPEADOS] No se pudo cargar pdfjs o el PDF:', e.message);

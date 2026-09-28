@@ -9701,6 +9701,7 @@ app.get('/api/documents/:docId/campos-mapeados', requireAuth, async (req, res) =
         const { resolveFromRoot } = require('./config/paths');
 
         let pdfAbsPath = resolveFromRoot(pdfRelPath.replace(/^\/+/, ''));
+        let effectivePdfPath = pdfRelPath; // path real que se usará en la respuesta
         if (!fs.existsSync(pdfAbsPath)) {
             // Fallback: PDF base del documento (template original)
             const [[docRow]] = await db.promise().query(
@@ -9710,6 +9711,7 @@ app.get('/api/documents/:docId/campos-mapeados', requireAuth, async (req, res) =
                 return res.status(404).json({ success: false, message: 'PDF no encontrado para este pagaré' });
             }
             pdfAbsPath = resolveFromRoot(docRow.file_path.replace(/^\/+/, ''));
+            effectivePdfPath = docRow.file_path; // usar el path del PDF base
         }
         const pdfBytes = fs.readFileSync(pdfAbsPath);
         const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
@@ -9793,7 +9795,7 @@ app.get('/api/documents/:docId/campos-mapeados', requireAuth, async (req, res) =
 
         res.json({
             success: true,
-            pdf_path: pdfRelPath,
+            pdf_path: effectivePdfPath,
             total_text_fields: totalTextFields,
             recipients: recipients.map(r => ({
                 recipient_id: r.recipient_id,
