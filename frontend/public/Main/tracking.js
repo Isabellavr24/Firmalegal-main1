@@ -2,7 +2,7 @@
  * TRACKING VIEW - SISTEMA DE SEGUIMIENTO DE DOCUMENTOS
  * v20260317b
  **********************************************************/
-console.log('🔖 tracking.js v20260928e cargado');
+console.log('🔖 tracking.js v20260928f cargado');
 
 // ====== VARIABLES GLOBALES ======
 let currentDocumentType = 'normal'; // ✅ Tipo de documento actual: 'normal' o 'pagare'
@@ -4840,9 +4840,30 @@ function abrirOtpCelularModalCard(email) {
 // =============================================
 // CAMPOS MAPEADOS — Panel colapsable en tarjeta de pagaré
 // =============================================
-// Abre una pagina del pagare a tamano grande, con los campos dibujados encima.
-// La miniatura sirve para ubicarse; esto es lo que permite comprobar de verdad
-// que el documento trae los datos del CSV en su sitio.
+// Un unico listener para todas las miniaturas, presentes y futuras. Se registra
+// una sola vez y sobrevive a los auto-refresh que reconstruyen el panel con
+// innerHTML, que es lo que antes dejaba el zoom muerto a los pocos segundos.
+if (!window._zoomDelegadoListo) {
+  window._zoomDelegadoListo = true;
+  document.addEventListener('click', async (ev) => {
+    const img = ev.target.closest && ev.target.closest('img.campo-mapeado-thumb');
+    if (!img || !img.dataset.zoomPdf) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    try {
+      const pdfjsLib = window.pdfjsLib || window['pdfjs-dist/build/pdf'];
+      if (!pdfjsLib) return;
+      const doc = await pdfjsLib.getDocument(img.dataset.zoomPdf).promise;
+      const pagina = await doc.getPage(parseInt(img.dataset.zoomPagina, 10) || 1);
+      await _ampliarPaginaMapeada(pagina, { page_number: img.dataset.zoomPagina }, 900);
+    } catch (e) {
+      console.warn('[CAMPOS-MAPEADOS] No se pudo ampliar:', e.message);
+    }
+  });
+}
+
+// Abre una pagina del pagare a tamano grande. Muestra el documento tal como va
+// a quedar: la miniatura sirve para ubicarse, esto para leerlo de verdad.
 async function _ampliarPaginaMapeada(pdfPage, pageData, anchoDestino) {
   try {
     const capa = document.createElement('div');
@@ -5017,9 +5038,14 @@ async function _loadCamposMapeados(container, docId, groupId, groupRecipients, c
         img.src = canvas.toDataURL('image/png');
         img.style.cssText = `width:${THUMB_W}px;height:${Math.round(viewport.height)}px;border:1px solid #e5e7eb;border-radius:4px;display:block;cursor:zoom-in;`;
         img.title = 'Pulse para ver la pagina completa';
-        // Al pulsarla se vuelve a dibujar en grande, con sus campos encima, para
-        // poder comprobar que el PDF trae de verdad los datos del CSV.
-        img.onclick = () => _ampliarPaginaMapeada(pdfPage, pageData, ZOOM_W);
+        // El panel se guarda como texto HTML y se restaura con innerHTML tras
+        // cada auto-refresh: eso conserva la imagen pero BORRA los onclick, y
+        // por eso el zoom dejaba de funcionar al poco rato. En vez de un
+        // manejador por imagen se marcan los datos aqui y un unico listener
+        // sobre el documento se encarga de abrirlas (ver _zoomDelegado).
+        img.dataset.zoomPagina = pageData.page_number;
+        img.dataset.zoomPdf = pdf_path.startsWith('/') ? pdf_path : '/' + pdf_path;
+        img.className = 'campo-mapeado-thumb';
         thumbWrap.appendChild(img);
       } catch (e) {
         console.warn('[CAMPOS-MAPEADOS] Error renderizando pagina', pageData.page_number, e.message);
