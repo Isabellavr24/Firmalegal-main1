@@ -4740,16 +4740,13 @@ async function _loadCamposMapeados(container, docId, groupId, groupRecipients, c
         const ctx = canvas.getContext('2d');
         await pdfPage.render({ canvasContext: ctx, viewport }).promise;
 
-        // Las coordenadas en DB están en puntos PDF reales (divididas por 1.4 al guardar)
-        // El canvas pdfjs tiene Y=0 arriba igual que el sistema de pantalla
-        console.log(`[CAMPOS-MAPEADOS] Página ${pageData.page_number}: naturalW=${viewportNatural.width.toFixed(1)} naturalH=${viewportNatural.height.toFixed(1)} scale=${scale.toFixed(4)} canvasW=${canvas.width} canvasH=${canvas.height}`);
+        // Coordenadas en DB: puntos PDF reales (Y=0 arriba). Solo escalar al tamaño de miniatura.
         ctx.save();
         textFields.forEach(f => {
           const fx = f.x * scale;
           const fy = f.y * scale;
           const fw = f.width * scale;
           const fh = f.height * scale;
-          console.log(`  campo "${f.field_label}": db x=${f.x} y=${f.y} w=${f.width} h=${f.height} → canvas fx=${fx.toFixed(1)} fy=${fy.toFixed(1)} fw=${fw.toFixed(1)} fh=${fh.toFixed(1)}`);
           const roleColor = f.color || '#6b7280';
           ctx.strokeStyle = roleColor;
           ctx.lineWidth = 1.5;
