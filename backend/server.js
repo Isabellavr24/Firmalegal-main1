@@ -2606,6 +2606,38 @@ app.post('/api/integration/vi-skip', async (req, res) => {
             );
         });
 
+        // Queda constancia de quien omitio la validacion. Es una decision con
+        // consecuencias legales: ese firmante queda sin trazabilidad de
+        // identidad en el documento, y hasta ahora no se registraba en ningun
+        // sitio quien lo habia autorizado ni cuando.
+        try {
+            await db.promise().query(
+                `INSERT INTO signature_events
+                   (document_id, recipient_id, event_type, event_data, ip_address, user_agent)
+                 SELECT dr.document_id, dr.recipient_id, 'email_sent', ?, ?, ?
+                 FROM document_recipients dr WHERE dr.recipient_id = ?`,
+                [
+                    // `event_type` es un enum cerrado y no admite un valor
+                    // nuevo sin migrar la tabla, asi que se usa 'email_sent'
+                    // —que es lo que de verdad ocurrio— y la marca va dentro
+                    // de los datos. Buscar por accion='vi_omitida'.
+                    JSON.stringify({
+                        accion: 'vi_omitida',
+                        omitido_por_user_id: jwtUser?.user_id || jwtUser?.id || null,
+                        omitido_por_email: jwtUser?.email || null,
+                        destinatario: r.email
+                    }),
+                    req.ip || req.connection?.remoteAddress || null,
+                    req.get('user-agent') || null,
+                    r.recipient_id
+                ]
+            );
+            console.log(`   [VI-SKIP] Registrado: lo omitio ${jwtUser?.email || 'usuario ' + (jwtUser?.user_id || '?')}`);
+        } catch (auditErr) {
+            // Que no se pierda el envio por no poder dejar la constancia.
+            console.warn(`   ⚠️ [VI-SKIP] No se pudo registrar quien omitio: ${auditErr.message}`);
+        }
+
         console.log(`✅ [VI-SKIP] Correo enviado a ${r.email} — status=sent, vi_validated_at=NULL (identidad no verificada)`);
         res.json({ success: true });
 
@@ -4833,6 +4865,61 @@ app.get('/api/public/document/:token', async (req, res) => {
             // si existe, o file_path (PDF original limpio) como fallback.
             sourcePath = recipient.filled_pdf_path || recipient.file_path;
             pdfType = 'COMPARTIDO (Manual)';
+        }
+
+        // El visor debe mostrar el ESTADO REAL del documento, no un paso
+        // intermedio. La trazabilidad solo se incorpora al sellar, cuando ya
+        // firmaron todos, asi que mientras falta alguien se veia una firma sin
+        // su validacion de identidad: quien revisa concluye que algo fallo.
+        //
+        // Aqui se fusiona al vuelo, SOLO para visualizacion. No se toca el
+        // archivo guardado ni la base de datos: el sellado final sigue
+        // haciendo su trabajo igual, sobre el interim limpio.
+        //
+        // Se omite cuando el PDF ya lleva las trazas dentro (un pre_traza, o un
+        // documento ya sellado), para no duplicarlas.
+        const yaIncorporaTrazas = /pre_traza|final_|pagare_completo_/.test(sourcePath) ||
+                                  pdfType === 'COMPLETO CON FIRMAS' ||
+                                  pdfType === 'PERSONALIZADO SELLADO (CSV)' ||
+                                  pdfType === 'COMPARTIDO SELLADO';
+        if (!yaIncorporaTrazas) {
+            try {
+                const [trazasDoc] = await db.promise().query(
+                    `SELECT email, vi_traza_path FROM document_recipients
+                     WHERE document_id = ? AND vi_traza_path IS NOT NULL
+                     ORDER BY signing_order, recipient_id`,
+                    [recipient.document_id]
+                );
+                if (trazasDoc.length) {
+                    const { PDFDocument: PDFDocVista } = require('pdf-lib');
+                    const baseAbs = resolveFromRoot(sourcePath.replace(/^\/+/, ''));
+                    if (fs.existsSync(baseAbs)) {
+                        const vistaPdf = await PDFDocVista.load(fs.readFileSync(baseAbs));
+                        let anexadas = 0;
+                        for (const t of trazasDoc) {
+                            const tAbs = resolveFromRoot(String(t.vi_traza_path).replace(/^\/+/, ''));
+                            if (!fs.existsSync(tAbs)) continue;
+                            const tDoc = await PDFDocVista.load(fs.readFileSync(tAbs));
+                            const pgs = await vistaPdf.copyPages(tDoc, tDoc.getPageIndices());
+                            pgs.forEach(p => vistaPdf.addPage(p));
+                            anexadas++;
+                        }
+                        if (anexadas) {
+                            const dirVista = resolveFromRoot('uploads', 'signed');
+                            if (!fs.existsSync(dirVista)) fs.mkdirSync(dirVista, { recursive: true });
+                            const nombreVista = `vista_${recipient.document_id}_${recipient.recipient_id}_${Date.now()}.pdf`;
+                            fs.writeFileSync(path.join(dirVista, nombreVista), Buffer.from(await vistaPdf.save()));
+                            sourcePath = `uploads/signed/${nombreVista}`;
+                            pdfType += ' + trazabilidad';
+                            console.log(`   [VISTA] ${anexadas} traza(s) fusionada(s) para visualizacion`);
+                        }
+                    }
+                }
+            } catch (eVista) {
+                // Si falla, se sirve el PDF tal cual: es preferible mostrar el
+                // documento sin trazas que no mostrar nada.
+                console.warn(`   ⚠️ [VISTA] No se pudieron fusionar las trazas: ${eVista.message}`);
+            }
         }
 
         // Construir ruta del PDF correctamente (evitar doble barra)
@@ -9782,6 +9869,47 @@ app.post('/api/public/otp/enviar', async (req, res) => {
         const redis = require('redis');
         const redisClient = redis.createClient({ url: 'redis://firmalegal-redis:6379' });
         await redisClient.connect();
+
+        // Espera progresiva entre reenvios, no un bloqueo.
+        //
+        // Infobip rechaza por EC_DESTINATION_FLOODING cuando se manda muchas
+        // veces al mismo numero, y pasaba solo: si el SMS no llega, la persona
+        // vuelve a pedirlo y acaba bloqueada aunque su linea funcione bien.
+        //
+        // Bloquearla del todo es peor: el codigo puede no haber llegado por
+        // causas ajenas a ella. Se hace como en la banca: el PRIMER codigo sale
+        // al instante y cada reenvio pide esperar un poco mas. Nunca se le
+        // cierra la puerta, solo se espacian los envios.
+        //
+        // La cuenta es por ENLACE, asi que no afecta a otros firmantes: cada
+        // uno tiene su propia espera y el primer codigo siempre es inmediato.
+        const ESPERAS = [0, 30, 60, 120, 300];   // segundos antes del envio n
+        const intentosKey = `otp_intentos:${token}`;
+        const ultimoKey = `otp_ultimo:${token}`;
+
+        const intentos = await redisClient.incr(intentosKey);
+        if (intentos === 1) await redisClient.expire(intentosKey, 3600);
+
+        if (intentos > 1) {
+            const ultimo = parseInt(await redisClient.get(ultimoKey), 10) || 0;
+            const espera = ESPERAS[Math.min(intentos - 1, ESPERAS.length - 1)];
+            const transcurrido = Math.floor(Date.now() / 1000) - ultimo;
+            if (ultimo && transcurrido < espera) {
+                const faltan = espera - transcurrido;
+                await redisClient.decr(intentosKey);   // no cuenta el intento frenado
+                await redisClient.quit();
+                console.log(`[OTP] Reenvio pedido antes de tiempo (faltan ${faltan}s) para token ${token.substring(0,8)}...`);
+                return res.status(429).json({
+                    success: false,
+                    esperaSegundos: faltan,
+                    message: faltan >= 60
+                        ? `Espera ${Math.ceil(faltan / 60)} minuto(s) para solicitar otro codigo.`
+                        : `Espera ${faltan} segundo(s) para solicitar otro codigo.`
+                });
+            }
+        }
+        await redisClient.set(ultimoKey, String(Math.floor(Date.now() / 1000)), { EX: 3600 });
+
         const code = Math.floor(100000 + Math.random() * 900000).toString();
         const redisKey = `otp:${token}`;
         await redisClient.setEx(redisKey, 300, code); // 5 minutos

@@ -21,23 +21,48 @@ const REDIS_PORT = process.env.REDIS_PORT || 6379;
 const APP_URL = process.env.APP_URL || 'http://localhost:3000';
 
 // Conexión a MySQL
-const db = mysql.createConnection({
+// Envios que han fallado en los ultimos minutos, para el resumen periodico del
+// final del archivo. Se declara aqui porque el manejador de errores lo usa.
+const fallosRecientes = [];
+
+// Pool, no una conexion suelta. Con `createConnection`, cuando MySQL cerraba
+// la conexion por inactividad esta quedaba muerta para siempre y el worker
+// respondia a todo con "Can't add new command when connection is in closed
+// state". El 17-09-2026 estuvo 21 horas sin enviar un solo correo, y en
+// silencio: los correos se encolaban y el sistema los daba por buenos.
+//
+// El pool abre una conexion nueva cuando la anterior se cae, asi que el worker
+// se recupera solo sin reiniciar el contenedor.
+const db = mysql.createPool({
     host: process.env.DB_HOST || 'localhost',
     port: process.env.DB_PORT || 3306,
     user: process.env.DB_USER || 'root',
     password: process.env.DB_PASSWORD || '',
     database: process.env.DB_NAME || 'firmalegalonline',
+    waitForConnections: true,
+    connectionLimit: 5,
+    queueLimit: 0,
+    enableKeepAlive: true,          // evita que MySQL la cierre por inactividad
+    keepAliveInitialDelay: 30000,
     authPlugins: {
         mysql_native_password: () => () => require('mysql2/lib/auth_plugins').mysql_native_password
     }
 });
 
-db.connect(err => {
+// Comprobacion inicial: si la base no responde al arrancar, mejor saberlo aqui.
+db.query('SELECT 1', err => {
     if (err) {
-        console.error('🔴 [EMAIL-WORKER] Error al conectar a MySQL:', err);
+        console.error('🔴 [EMAIL-WORKER] Error al conectar a MySQL:', err.message);
         process.exit(1);
     }
-    console.log('🟢 [EMAIL-WORKER] Conectado a MySQL');
+    console.log('🟢 [EMAIL-WORKER] Conectado a MySQL (pool con reconexion)');
+});
+
+// Un fallo del pool ya no deja al worker mudo: se registra y se sigue. La
+// siguiente consulta abrira una conexion nueva.
+db.on('error', err => {
+    console.error(`🔴 [EMAIL-WORKER] Error de conexion (${err.code}): ${err.message}`);
+    console.error('   El pool abrira una conexion nueva en el proximo trabajo.');
 });
 
 // Cola de Bull
@@ -247,27 +272,40 @@ De acuerdo con la Ley Estatutaria 1581 de 2012 de Proteccion de Datos y normas c
     } catch (error) {
         console.error(`   ❌ Error al procesar email para ${email}:`, error.message);
 
-        // Actualizar estado a error en BD (opcional)
-        try {
-            await new Promise((resolve, reject) => {
-                db.query(
-                    `UPDATE document_recipients
-                     SET status = 'sent'
-                     WHERE recipient_id = ?`,
-                    [recipientId],
-                    (err, result) => {
-                        if (err) reject(err);
-                        else resolve(result);
-                    }
-                );
-            });
-        } catch (dbError) {
-            console.error(`   ❌ Error al actualizar estado en BD:`, dbError.message);
-        }
+        // Se cuenta para el resumen periodico. Sin esto, un worker caido pasaba
+        // horas fallando y nadie se enteraba hasta que un padre reclamaba.
+        fallosRecientes.push({ email, motivo: error.message, cuando: new Date() });
 
+        // NO se marca como 'sent': el correo no salio. Antes se ponia 'sent'
+        // igualmente, asi que un envio fallido quedaba indistinguible de uno
+        // bueno y nadie podia saber a quien habia que reenviar. Se deja el
+        // estado como estaba y Bull reintenta.
         throw error; // Bull reintentará automáticamente
     }
 });
+
+// Resumen periodico: un worker que falla en silencio es el peor caso, porque
+// los correos se encolan, el sistema los da por buenos y el fallo solo se
+// descubre cuando alguien reclama. Cada 15 minutos deja constancia en el log
+// de cuantos envios fallaron, para que se vea al revisar.
+setInterval(() => {
+    const corte = Date.now() - 15 * 60 * 1000;
+    while (fallosRecientes.length && fallosRecientes[0].cuando.getTime() < corte) {
+        fallosRecientes.shift();
+    }
+    if (!fallosRecientes.length) return;
+
+    const porMotivo = {};
+    for (const f of fallosRecientes) {
+        const clave = String(f.motivo).slice(0, 80);
+        porMotivo[clave] = (porMotivo[clave] || 0) + 1;
+    }
+    console.error(`\n🔴 [EMAIL-WORKER] ${fallosRecientes.length} envio(s) fallido(s) en los ultimos 15 minutos:`);
+    for (const [motivo, n] of Object.entries(porMotivo)) {
+        console.error(`   ${String(n).padStart(4)} x  ${motivo}`);
+    }
+    console.error(`   Ultimos correos afectados: ${fallosRecientes.slice(-5).map(f => f.email).join(', ')}\n`);
+}, 15 * 60 * 1000);
 
 // =============================================
 // EVENTOS DE LA COLA

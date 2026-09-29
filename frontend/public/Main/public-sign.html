@@ -414,7 +414,7 @@
       <input id="otpInput" type="text" maxlength="6" placeholder="000000" style="width:100%;box-sizing:border-box;text-align:center;font-size:28px;font-weight:700;letter-spacing:8px;padding:16px;border:2px solid #c9b8d0;border-radius:10px;outline:none;color:#2b0e31;font-family:inherit;" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
       <p id="otpError" style="color:#c2185b;font-size:13px;text-align:center;margin:8px 0 0;display:none;"></p>
       <button onclick="otpVerificar()" style="width:100%;padding:14px;background:#2b0e31;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;margin-top:16px;font-family:inherit;">Verificar codigo</button>
-      <button onclick="otpEnviar(true)" style="width:100%;padding:10px;background:none;border:none;color:#2b0e31;font-size:13px;cursor:pointer;margin-top:4px;text-decoration:underline;font-family:inherit;">Reenviar codigo</button>
+      <button id="otpReenviarBtn" onclick="otpEnviar(true)" style="width:100%;padding:10px;background:none;border:none;color:#2b0e31;font-size:13px;cursor:pointer;margin-top:4px;text-decoration:underline;font-family:inherit;">Reenviar codigo</button>
     </div>
   </div>
 </div>
@@ -2946,6 +2946,38 @@ console.log('✅ Modal de progreso de firma cargado');
 // ==================== OTP WhatsApp ====================
 window._otpVerified = false;
 
+// Deshabilita el boton de reenviar y va descontando los segundos que faltan.
+// El primer codigo sale siempre al instante; solo los reenvios esperan, y la
+// espera crece un poco cada vez para no saturar al operador movil.
+let _otpTemporizador = null;
+function otpCuentaAtras(segundos) {
+  const btn = document.getElementById('otpReenviarBtn');
+  if (!btn) return;
+  if (_otpTemporizador) clearInterval(_otpTemporizador);
+
+  let quedan = Math.max(0, parseInt(segundos, 10) || 0);
+  const pintar = () => {
+    if (quedan <= 0) {
+      clearInterval(_otpTemporizador);
+      _otpTemporizador = null;
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      btn.style.cursor = 'pointer';
+      btn.textContent = 'Reenviar codigo';
+      return;
+    }
+    btn.disabled = true;
+    btn.style.opacity = '0.55';
+    btn.style.cursor = 'default';
+    btn.textContent = quedan >= 60
+      ? `Reenviar codigo en ${Math.ceil(quedan / 60)} min`
+      : `Reenviar codigo en ${quedan}s`;
+    quedan--;
+  };
+  pintar();
+  _otpTemporizador = setInterval(pintar, 1000);
+}
+
 async function otpEnviar(isResend) {
   const btn = document.getElementById('otpSendBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'Enviando...'; }
@@ -2969,6 +3001,16 @@ async function otpEnviar(isResend) {
         if (btn) { btn.disabled = false; btn.textContent = 'Enviar codigo por SMS'; }
         return;
       }
+      // Si hay que esperar entre reenvios, se muestra la cuenta atras en el
+      // propio boton en vez de un error seco. Asi la persona ve cuanto falta y
+      // no se queda sin saber que hacer.
+      if (data.esperaSegundos) {
+        otpCuentaAtras(data.esperaSegundos);
+        const err = document.getElementById('otpError');
+        if (err) { err.textContent = data.message; err.style.display = 'block'; }
+        if (btn) { btn.disabled = false; btn.textContent = 'Enviar codigo por SMS'; }
+        return;
+      }
       document.getElementById('otpDesc').textContent = data.message || 'Error al enviar el codigo';
       if (btn) { btn.disabled = false; btn.textContent = 'Enviar codigo por SMS'; }
       return;
@@ -2985,6 +3027,9 @@ async function otpEnviar(isResend) {
     document.getElementById('otpStep1').style.display = 'none';
     document.getElementById('otpStep2').style.display = 'block';
     document.getElementById('otpPhoneMsg').textContent = `Codigo enviado al numero ${data.phone} via SMS.`;
+    // Se bloquea el reenvio durante 30s tras cada envio correcto, para que no
+    // se pida otro codigo antes de que llegue el primero.
+    otpCuentaAtras(30);
     document.getElementById('otpInput').focus();
 
   } catch(e) {
