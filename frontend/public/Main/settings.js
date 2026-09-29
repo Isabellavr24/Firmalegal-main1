@@ -1381,6 +1381,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (navFirmas) navFirmas.style.display = '';
     const navEtitulo = document.getElementById('navEtitulo');
     if (navEtitulo) navEtitulo.style.display = '';
+    // Los registros llevan correos, cedulas e IP: solo el Superadministrador.
+    // El servidor lo comprueba otra vez, esto solo es la parte visible.
+    const navRegistros = document.getElementById('navRegistros');
+    if (navRegistros) navRegistros.style.display = '';
   }
 })();
 

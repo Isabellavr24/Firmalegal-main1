@@ -72,6 +72,7 @@
         <button class="sn-item" data-section="equipos">Equipos e Inquilinos</button>
         <button class="sn-item" data-section="plantillas">Mis Plantillas</button>
         <button class="sn-item" data-section="firmas" id="navFirmas" style="display:none;">Gestionar Firmas</button>
+        <button class="sn-item" data-section="registros" id="navRegistros" style="display:none;">Registros</button>
         <button class="sn-item" data-section="etitulo" id="navEtitulo" style="display:none;">Subir a e-Titulo</button>
       </nav>
     </aside>
@@ -1124,6 +1125,76 @@
       <section class="set-section" id="sec-sms"><h1 class="page-h1">SMS</h1></section>
 
       <!-- SEC: Mis Plantillas — plantillas de campos de pagares -->
+      <!-- Registros: todo lo que va pasando en el sistema, en lenguaje llano.
+           Lee de la vista v_registros, que une lo que hace cada usuario con lo
+           que le pasa a cada documento. Solo para administradores. -->
+      <section class="set-section" id="sec-registros" aria-labelledby="sec-registros-h">
+        <h1 class="page-h1" id="sec-registros-h">Registros</h1>
+        <p style="color:#666;font-size:14px;line-height:1.6;margin:0 0 22px;max-width:760px;">
+          Lo que va ocurriendo en el sistema: quien firma, quien valida su
+          identidad, que correos salen y que falla. Se puede filtrar por usuario,
+          equipo o documento.
+        </p>
+
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:18px;">
+          <div>
+            <label for="regUsuario" style="display:block;font-size:12px;color:#7b6f82;margin-bottom:4px;">Usuario</label>
+            <select id="regUsuario" style="min-width:180px;padding:8px 10px;border:1px solid #e5e0e8;border-radius:8px;font-family:inherit;font-size:13px;">
+              <option value="">Todos</option>
+            </select>
+          </div>
+          <div>
+            <label for="regEquipo" style="display:block;font-size:12px;color:#7b6f82;margin-bottom:4px;">Equipo</label>
+            <select id="regEquipo" style="min-width:160px;padding:8px 10px;border:1px solid #e5e0e8;border-radius:8px;font-family:inherit;font-size:13px;">
+              <option value="">Todos</option>
+            </select>
+          </div>
+          <div>
+            <label for="regDocumento" style="display:block;font-size:12px;color:#7b6f82;margin-bottom:4px;">Documento</label>
+            <input id="regDocumento" type="text" inputmode="numeric" placeholder="N.º"
+                   style="width:90px;padding:8px 10px;border:1px solid #e5e0e8;border-radius:8px;font-family:inherit;font-size:13px;">
+          </div>
+          <div>
+            <label for="regTipo" style="display:block;font-size:12px;color:#7b6f82;margin-bottom:4px;">Mostrar</label>
+            <select id="regTipo" style="min-width:150px;padding:8px 10px;border:1px solid #e5e0e8;border-radius:8px;font-family:inherit;font-size:13px;">
+              <option value="">Todo</option>
+              <option value="movimientos">Solo movimientos</option>
+              <option value="errores">Solo errores</option>
+            </select>
+          </div>
+          <div>
+            <label for="regDesde" style="display:block;font-size:12px;color:#7b6f82;margin-bottom:4px;">Desde</label>
+            <input id="regDesde" type="date" style="padding:8px 10px;border:1px solid #e5e0e8;border-radius:8px;font-family:inherit;font-size:13px;">
+          </div>
+          <div>
+            <label for="regHasta" style="display:block;font-size:12px;color:#7b6f82;margin-bottom:4px;">Hasta</label>
+            <input id="regHasta" type="date" style="padding:8px 10px;border:1px solid #e5e0e8;border-radius:8px;font-family:inherit;font-size:13px;">
+          </div>
+          <div style="flex:1;min-width:150px;">
+            <label for="regBuscar" style="display:block;font-size:12px;color:#7b6f82;margin-bottom:4px;">Buscar</label>
+            <input id="regBuscar" type="text" placeholder="correo, nombre..."
+                   style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #e5e0e8;border-radius:8px;font-family:inherit;font-size:13px;">
+          </div>
+          <button id="regBtnBuscar" type="button"
+                  style="padding:9px 20px;background:#2a0d31;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">Buscar</button>
+        </div>
+
+        <div id="regResumen" style="font-size:13px;color:#7b6f82;margin-bottom:10px;"></div>
+
+        <div id="regConsola" style="background:#fbfafc;border:1px solid #ece7ee;border-radius:10px;
+             max-height:520px;overflow:auto;font-size:13px;">
+          <div style="padding:26px;text-align:center;color:#9b8fa2;">Cargando registros...</div>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;">
+          <button id="regAnterior" type="button" disabled
+                  style="padding:7px 16px;background:#fff;color:#2a0d31;border:1px solid #e5e0e8;border-radius:7px;font-size:13px;cursor:pointer;font-family:inherit;">Anterior</button>
+          <span id="regPagina" style="font-size:13px;color:#7b6f82;"></span>
+          <button id="regSiguiente" type="button" disabled
+                  style="padding:7px 16px;background:#fff;color:#2a0d31;border:1px solid #e5e0e8;border-radius:7px;font-size:13px;cursor:pointer;font-family:inherit;">Siguiente</button>
+        </div>
+      </section>
+
       <section class="set-section" id="sec-plantillas" aria-labelledby="sec-plantillas-h">
         <h1 class="page-h1" id="sec-plantillas-h">Mis Plantillas</h1>
         <p style="color:#666;font-size:14px;line-height:1.6;margin:0 0 22px;max-width:760px;">
@@ -1457,6 +1528,165 @@
     document.getElementById('navFirmas')?.addEventListener('click', () => {
       firmasLoaded = false;
       checkAndLoad();
+    });
+  })();
+  </script>
+
+  <!-- ===================== SECCIÓN REGISTROS ===================== -->
+  <script>
+  (function () {
+    let regPagina = 1, regTotal = 0, regPorPagina = 50;
+
+    // Traduce un evento a una frase que se entienda sin saber como esta hecho
+    // el sistema. No "event_type: document_signed, recipient_id: 4247", sino
+    // "Juan Diego firmo el documento Contrato octavo".
+    function enPalabras(r, nombres) {
+      let d = {};
+      try { d = r.datos ? JSON.parse(r.datos) : {}; } catch (_) { d = {}; }
+
+      const quien = nombres.usuarios[r.user_id] || d.omitido_por_email || null;
+      const doc = nombres.documentos[r.document_id] || (r.document_id ? 'documento ' + r.document_id : null);
+      const persona = d.nombre || d.correo || d.destinatario || d.email || null;
+
+      const frases = {
+        document_signed:     () => `${persona || 'Un firmante'} firmo ${doc || 'un documento'}` +
+                                   (d.identidad_validada === false ? ' (sin validacion de identidad)' : ''),
+        vi_validated:        () => `${persona || 'Un firmante'} valido su identidad` + (doc ? ` para ${doc}` : ''),
+        document_completed:  () => `Se completo y sello ${doc || 'un documento'}` +
+                                   (d.trazas_incluidas != null ? ` con ${d.trazas_incluidas} trazabilidad(es)` : ''),
+        document_opened:     () => `${persona || 'Un firmante'} abrio ${doc || 'el documento'}`,
+        email_sent:          () => d.accion === 'vi_omitida'
+                                   ? `${quien || 'Un operador'} omitio la validacion de identidad de ${d.destinatario || 'un firmante'}`
+                                   : `Se envio un correo${persona ? ' a ' + persona : ''}${doc ? ' por ' + doc : ''}`,
+        otp_sent:            () => `Se envio el codigo de verificacion${d.phone ? ' al ' + d.phone : ''}`,
+        otp_verified:        () => `Codigo de verificacion confirmado`,
+        error:               () => `${d.mensaje || 'Ocurrio un error'}${d.donde ? ' — al ' + d.donde : ''}`,
+        // los de activity_log
+        login:               () => `${quien || 'Un usuario'} inicio sesion`,
+        view_document:       () => `${quien || 'Un usuario'} consulto ${d.title || doc || 'un documento'}`,
+        download_document:   () => `${quien || 'Un usuario'} descargo ${d.file_name || doc || 'un documento'}`,
+        upload_document:     () => `${quien || 'Un usuario'} subio ${d.title || 'un documento'}`,
+        delete_document:     () => `${quien || 'Un usuario'} elimino ${d.title || doc || 'un documento'}`,
+        document_sent:       () => `${quien || 'Un usuario'} envio ${doc || 'un documento'}` +
+                                   (d.recipient_count ? ` a ${d.recipient_count} destinatario(s)` : ''),
+        document_fields_updated: () => `${quien || 'Un usuario'} cambio los campos de ${doc || 'un documento'}` +
+                                   (d.field_count ? ` (${d.field_count})` : ''),
+        bulk_send_documents: () => `${quien || 'Un usuario'} hizo un envio masivo`,
+        create_folder:       () => `${quien || 'Un usuario'} creo la carpeta ${d.name || ''}`.trim(),
+        list_folders:        () => `${quien || 'Un usuario'} consulto sus carpetas`
+      };
+
+      if (frases[r.accion]) return frases[r.accion]();
+      // Lo que no tenga frase propia se muestra legible, no en crudo.
+      return String(r.accion || '').replace(/_/g, ' ') + (doc ? ' — ' + doc : '');
+    }
+
+    function pintar(datos) {
+      const caja = document.getElementById('regConsola');
+      const lista = datos.registros || [];
+      if (!lista.length) {
+        caja.innerHTML = '<div style="padding:26px;text-align:center;color:#9b8fa2;">No hay registros con esos filtros.</div>';
+        return;
+      }
+      const esc = s => String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+      caja.innerHTML = lista.map(r => {
+        const f = new Date(r.fecha);
+        const cuando = f.toLocaleString('es-CO', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+        const error = r.es_error == 1;
+        const equipo = datos.nombres.equipos[r.team_id];
+        return '<div style="display:flex;gap:12px;padding:9px 14px;border-bottom:1px solid #f2eef3;' +
+               (error ? 'background:#fdf6f6;' : '') + '">' +
+               '<span style="color:#9b8fa2;font-size:12px;white-space:nowrap;min-width:82px;">' + esc(cuando) + '</span>' +
+               (error ? '<span style="color:#b91c1c;font-weight:700;font-size:11px;min-width:44px;">ERROR</span>' : '<span style="min-width:44px;"></span>') +
+               '<span style="flex:1;color:' + (error ? '#991b1b' : '#2b2430') + ';line-height:1.45;">' +
+                 esc(enPalabras(r, datos.nombres)) +
+               '</span>' +
+               (equipo ? '<span style="color:#9b8fa2;font-size:11px;white-space:nowrap;">' + esc(equipo) + '</span>' : '') +
+               '</div>';
+      }).join('');
+    }
+
+    async function cargar() {
+      const caja = document.getElementById('regConsola');
+      caja.innerHTML = '<div style="padding:26px;text-align:center;color:#9b8fa2;">Cargando registros...</div>';
+
+      const p = new URLSearchParams({ pagina: regPagina, por_pagina: regPorPagina });
+      const campos = { usuario: 'regUsuario', equipo: 'regEquipo', documento: 'regDocumento',
+                       tipo: 'regTipo', desde: 'regDesde', hasta: 'regHasta', buscar: 'regBuscar' };
+      for (const [clave, id] of Object.entries(campos)) {
+        const v = document.getElementById(id)?.value?.trim();
+        if (v) p.set(clave, v);
+      }
+
+      try {
+        const resp = await fetch('/api/registros?' + p.toString(), { credentials: 'include' });
+        const datos = await resp.json();
+        if (!datos.success) {
+          caja.innerHTML = '<div style="padding:26px;text-align:center;color:#b91c1c;">' +
+                           (datos.message || 'No se pudieron cargar los registros') + '</div>';
+          return;
+        }
+        regTotal = datos.total || 0;
+        pintar(datos);
+
+        document.getElementById('regResumen').textContent =
+          regTotal === 1 ? '1 registro' : regTotal.toLocaleString('es-CO') + ' registros';
+        const paginas = Math.max(1, Math.ceil(regTotal / regPorPagina));
+        document.getElementById('regPagina').textContent = 'Pagina ' + regPagina + ' de ' + paginas;
+        document.getElementById('regAnterior').disabled = regPagina <= 1;
+        document.getElementById('regSiguiente').disabled = regPagina >= paginas;
+      } catch (e) {
+        caja.innerHTML = '<div style="padding:26px;text-align:center;color:#b91c1c;">Error de conexion.</div>';
+      }
+    }
+
+    async function cargarFiltros() {
+      try {
+        const resp = await fetch('/api/registros/filtros', { credentials: 'include' });
+        const d = await resp.json();
+        if (!d.success) return;
+        const selU = document.getElementById('regUsuario');
+        for (const u of (d.usuarios || [])) {
+          const o = document.createElement('option');
+          o.value = u.user_id;
+          o.textContent = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email;
+          selU.appendChild(o);
+        }
+        const selE = document.getElementById('regEquipo');
+        for (const t of (d.equipos || [])) {
+          const o = document.createElement('option');
+          o.value = t.team_id;
+          o.textContent = t.team_name;
+          selE.appendChild(o);
+        }
+      } catch (_) { /* los filtros son opcionales */ }
+    }
+
+    let cargado = false;
+    function abrirSiTocaN() {
+      const sec = document.getElementById('sec-registros');
+      if (!sec || sec.style.display === 'none' || cargado) return;
+      cargado = true;
+      cargarFiltros();
+      cargar();
+    }
+
+    document.getElementById('navRegistros')?.addEventListener('click', () => {
+      regPagina = 1;
+      cargado = false;
+      setTimeout(abrirSiTocaN, 60);
+    });
+    document.getElementById('regBtnBuscar')?.addEventListener('click', () => { regPagina = 1; cargar(); });
+    document.getElementById('regBuscar')?.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { regPagina = 1; cargar(); }
+    });
+    document.getElementById('regAnterior')?.addEventListener('click', () => {
+      if (regPagina > 1) { regPagina--; cargar(); }
+    });
+    document.getElementById('regSiguiente')?.addEventListener('click', () => {
+      regPagina++; cargar();
     });
   })();
   </script>

@@ -2894,6 +2894,141 @@ function canAccessConfig(roleName) {
 // RUTAS DE API
 // =========================================
 
+// GET /api/registros — los movimientos del sistema, para la pantalla de
+// Configuracion → Registros.
+//
+// Lee de la vista `v_registros`, que unifica las dos tablas de registro sin
+// duplicar datos: `activity_log` (lo que hace un usuario) y `signature_events`
+// (lo que le pasa a un documento). Ver la migracion 004.
+//
+// Solo para administradores: los registros llevan correos, cedulas e IP.
+app.get('/api/registros', requireAuth, async (req, res) => {
+    try {
+        // Comprobar el rol contra la base, no contra lo que diga el navegador.
+        const [quien] = await db.promise().query(
+            `SELECT r.role_name FROM users u
+             JOIN roles r ON r.role_id = u.role_id
+             WHERE u.user_id = ?`, [req.userId]
+        );
+        const rol = quien[0]?.role_name;
+        if (!canAccessConfig(rol)) {
+            return res.status(403).json({ success: false, message: 'Esta seccion es solo para administradores' });
+        }
+
+        const {
+            usuario, equipo, documento,      // los tres filtros pedidos
+            tipo,                            // 'errores' | 'movimientos' | vacio
+            desde, hasta,
+            buscar,
+            pagina = 1, por_pagina = 50
+        } = req.query;
+
+        // Se filtra por las columnas que tienen indice compuesto con la fecha,
+        // para que no haya que ordenar en memoria cuando la tabla crezca.
+        const condiciones = [];
+        const valores = [];
+
+        if (usuario)   { condiciones.push('user_id = ?');     valores.push(usuario); }
+        if (equipo)    { condiciones.push('team_id = ?');     valores.push(equipo); }
+        if (documento) { condiciones.push('document_id = ?'); valores.push(documento); }
+        if (tipo === 'errores')     condiciones.push('es_error = 1');
+        if (tipo === 'movimientos') condiciones.push('es_error = 0');
+        if (desde) { condiciones.push('fecha >= ?'); valores.push(desde + ' 00:00:00'); }
+        if (hasta) { condiciones.push('fecha <= ?'); valores.push(hasta + ' 23:59:59'); }
+        if (buscar) {
+            condiciones.push('(accion LIKE ? OR datos LIKE ?)');
+            valores.push(`%${buscar}%`, `%${buscar}%`);
+        }
+
+        const donde = condiciones.length ? 'WHERE ' + condiciones.join(' AND ') : '';
+        const limite = Math.min(parseInt(por_pagina, 10) || 50, 200);
+        const salto = (Math.max(parseInt(pagina, 10) || 1, 1) - 1) * limite;
+
+        const [filas] = await db.promise().query(
+            `SELECT origen, id, fecha, accion, user_id, team_id, document_id,
+                    recipient_id, datos, ip, es_error
+             FROM v_registros ${donde}
+             ORDER BY fecha DESC
+             LIMIT ? OFFSET ?`,
+            [...valores, limite, salto]
+        );
+
+        const [[conteo]] = await db.promise().query(
+            `SELECT COUNT(*) AS total FROM v_registros ${donde}`, valores
+        );
+
+        // Los nombres se resuelven aparte y en bloque: meter los JOIN en la
+        // vista obligaria a recorrer las dos tablas enteras en cada consulta.
+        const idsUsuario = [...new Set(filas.map(f => f.user_id).filter(Boolean))];
+        const idsDoc = [...new Set(filas.map(f => f.document_id).filter(Boolean))];
+        const idsEquipo = [...new Set(filas.map(f => f.team_id).filter(Boolean))];
+
+        const nombres = { usuarios: {}, documentos: {}, equipos: {} };
+        if (idsUsuario.length) {
+            const [us] = await db.promise().query(
+                `SELECT user_id, first_name, last_name, email FROM users WHERE user_id IN (?)`, [idsUsuario]);
+            for (const u of us) {
+                nombres.usuarios[u.user_id] = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email;
+            }
+        }
+        if (idsDoc.length) {
+            const [ds] = await db.promise().query(
+                `SELECT document_id, title FROM documents WHERE document_id IN (?)`, [idsDoc]);
+            for (const d of ds) nombres.documentos[d.document_id] = d.title;
+        }
+        if (idsEquipo.length) {
+            const [ts] = await db.promise().query(
+                `SELECT team_id, team_name FROM teams WHERE team_id IN (?)`, [idsEquipo]);
+            for (const t of ts) nombres.equipos[t.team_id] = t.team_name;
+        }
+
+        res.json({
+            success: true,
+            registros: filas,
+            nombres,
+            total: conteo.total,
+            pagina: parseInt(pagina, 10) || 1,
+            por_pagina: limite
+        });
+    } catch (error) {
+        console.error('[REGISTROS] Error:', error.message);
+        // Si la vista no existe, la migracion 004 no se ha aplicado.
+        if (/v_registros/.test(error.message)) {
+            return res.status(503).json({
+                success: false,
+                message: 'Los registros no estan disponibles: falta aplicar la migracion 004.'
+            });
+        }
+        res.status(500).json({ success: false, message: 'Error al consultar los registros' });
+    }
+});
+
+// GET /api/registros/filtros — lo que se ofrece en los desplegables.
+app.get('/api/registros/filtros', requireAuth, async (req, res) => {
+    try {
+        const [quien] = await db.promise().query(
+            `SELECT r.role_name FROM users u
+             JOIN roles r ON r.role_id = u.role_id
+             WHERE u.user_id = ?`, [req.userId]
+        );
+        if (!canAccessConfig(quien[0]?.role_name)) {
+            return res.status(403).json({ success: false, message: 'Esta seccion es solo para administradores' });
+        }
+
+        const [usuarios] = await db.promise().query(
+            `SELECT u.user_id, u.first_name, u.last_name, u.email
+             FROM users u ORDER BY u.first_name, u.last_name`
+        );
+        const [equipos] = await db.promise().query(
+            `SELECT team_id, team_name FROM teams WHERE is_active = TRUE ORDER BY team_name`
+        );
+        res.json({ success: true, usuarios, equipos });
+    } catch (error) {
+        console.error('[REGISTROS] Error en filtros:', error.message);
+        res.json({ success: true, usuarios: [], equipos: [] });
+    }
+});
+
 // Endpoint para obtener todos los roles
 app.get('/api/roles', (req, res) => {
     console.log('📋 Solicitando roles disponibles');
