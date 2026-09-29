@@ -2984,6 +2984,12 @@ function updateUploadListUI(template) {
 
   console.log(`📝 Campos de texto detectados: ${textFields.length} de ${template.fields.length} totales`);
 
+  // Se guardan las etiquetas para poder avisar si el CSV no trae alguna:
+  // sin esto se podia subir un CSV incompleto y el pagare salia con huecos.
+  window._pagareTextFieldLabels = textFields
+    .map(f => f.field_label || f.label || '')
+    .filter(Boolean);
+
   // Mostrar info de campos detectados
   if (templateFieldsInfo) {
     templateFieldsInfo.style.display = 'block';
@@ -3652,8 +3658,46 @@ async function _processPagareCsvData(results, fileName, file) {
 
   const hasEmailColumns = results.meta.fields.some(field => field.startsWith('email firma'));
   if (!hasEmailColumns) {
-    ToastManager.error('Error', 'El CSV debe tener columnas "email firma 1", "email firma 2", etc.');
+    // Antes solo salia un aviso que desaparecia en segundos y no daba tiempo
+    // a leerlo. Ahora se muestra en el informe, que se queda en pantalla.
+    showValidationReport({
+      validation_errors: [{
+        row: '-',
+        field: 'Cabeceras del archivo',
+        message: 'El archivo no tiene las columnas que el sistema necesita. ' +
+                 'Debe incluir "email firma 1" y "email firma 2". ' +
+                 'Descargue la plantilla CSV de esta misma pantalla y vacie sus datos sobre ella.'
+      }],
+      warnings: [],
+      total_rows: rows.length,
+      error_count: 1,
+      warning_count: 0
+    }, file, fileName);
     return;
+  }
+
+  // Comprobar que esten TODOS los campos que el pagare tiene mapeados. Sin
+  // esto se podian corregir los errores y enviar igual un CSV incompleto: el
+  // pagare salia con espacios en blanco donde deberian ir los datos.
+  const camposDelPagare = (window._pagareTextFieldLabels || []);
+  if (camposDelPagare.length) {
+    const norm = s => String(s || '').toLowerCase()
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9]/g, '');
+    const presentes = new Set((results.meta.fields || []).map(norm));
+    const faltantes = camposDelPagare.filter(lbl => {
+      const n = norm(lbl);
+      if (!n) return false;
+      if (presentes.has(n)) return false;
+      // tambien vale si alguna columna lo contiene (por los sufijos _1, _2...)
+      for (const p of presentes) { if (p.startsWith(n) || n.startsWith(p)) return false; }
+      return true;
+    });
+    if (faltantes.length) {
+      window._csvCamposFaltantes = faltantes;
+    } else {
+      window._csvCamposFaltantes = null;
+    }
   }
 
   // Procesar cada fila del CSV
@@ -3855,6 +3899,22 @@ async function _processPagareCsvData(results, fileName, file) {
       }
     });
   });
+
+  // Campos del pagare que el CSV no trae. Va al principio de la lista porque
+  // afecta al archivo entero, no a una fila suelta.
+  if (window._csvCamposFaltantes && window._csvCamposFaltantes.length) {
+    const faltan = window._csvCamposFaltantes;
+    const muestra = faltan.slice(0, 12).join(', ');
+    csvErrors.unshift({
+      row: '-',
+      field: 'Columnas del archivo',
+      message: 'Al archivo le faltan ' + faltan.length + ' de los ' +
+               (window._pagareTextFieldLabels || []).length +
+               ' campos que este pagare tiene mapeados. Sin ellos el documento saldria ' +
+               'con espacios en blanco. Faltan: ' + muestra +
+               (faltan.length > 12 ? ' y ' + (faltan.length - 12) + ' mas.' : '.')
+    });
+  }
 
   // Si hay errores bloqueantes, mostrar informe y detener
   if (csvErrors.length > 0) {
