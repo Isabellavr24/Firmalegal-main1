@@ -35,11 +35,14 @@
 -- ---------------------------------------------------------------------------
 -- Ambas admiten NULL, asi que las filas existentes quedan intactas.
 
+-- El COMMENT va ANTES del AFTER: al reves MySQL da error de sintaxis.
 ALTER TABLE signature_events
-  ADD COLUMN user_id INT NULL AFTER recipient_id
-    COMMENT 'Usuario de la plataforma que origino el evento, si lo hubo',
-  ADD COLUMN team_id INT NULL AFTER user_id
-    COMMENT 'Equipo del documento, desnormalizado para poder filtrar sin JOIN';
+  ADD COLUMN user_id INT NULL
+    COMMENT 'Usuario de la plataforma que origino el evento, si lo hubo'
+    AFTER recipient_id,
+  ADD COLUMN team_id INT NULL
+    COMMENT 'Equipo del documento, desnormalizado para poder filtrar sin JOIN'
+    AFTER user_id;
 
 -- Los 12 valores actuales se repiten EN SU ORDEN. MySQL guarda los enum por
 -- posicion: si se reordenan o se quita uno, las filas existentes cambian de
@@ -70,8 +73,9 @@ ALTER TABLE signature_events
 -- resolver la pertenencia en cada consulta.
 
 ALTER TABLE activity_log
-  ADD COLUMN team_id INT NULL AFTER user_id
-    COMMENT 'Equipo del usuario en el momento del registro';
+  ADD COLUMN team_id INT NULL
+    COMMENT 'Equipo del usuario en el momento del registro'
+    AFTER user_id;
 
 
 -- ---------------------------------------------------------------------------
