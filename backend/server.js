@@ -235,6 +235,7 @@ console.log('✅ Rutas de templates y bulk enhanced registradas');
 // Rutas para las páginas HTML
 const { resolveFromRoot } = require('./config/paths');
 
+
 app.get('/', (req, res) => {
     res.sendFile(resolveFromRoot('frontend', 'public', 'Main', 'login.html'));
 });
@@ -320,6 +321,94 @@ db.getConnection((err, connection) => {
 // COMPARTIR CONEXIÓN DB CON CONTROLADORES
 // =============================================
 app.locals.db = db;
+
+// ============================================================================
+// REGISTRO DE EVENTOS
+// ============================================================================
+//
+// Deja constancia en `signature_events` de lo que va pasando: quien firmo,
+// quien valido su identidad, que correo salio, que fallo.
+//
+// Hasta ahora esto no existia como tal: de los 12 tipos de evento que la tabla
+// admite, el codigo solo escribia 3, y cada incidente (los 8 pagares sin firma,
+// las trazas que faltaban, los SMS no entregados) hubo que investigarlo leyendo
+// los logs de Docker a mano. Y esos rotan y se pierden.
+//
+// REGLA QUE NO SE ROMPE: esta funcion NUNCA lanza excepcion. Un fallo al
+// registrar no puede tumbar una firma ni un envio. Si algo va mal se queja en
+// el log y devuelve false, pero la operacion sigue su curso.
+//
+// `user_id` y `team_id` son columnas de la migracion 004. Mientras no este
+// aplicada, se escriben como NULL sin romper nada: la funcion comprueba que
+// existan antes de usarlas.
+let _columnasLogsComprobadas = false;
+let _hayColumnasUsuarioEquipo = false;
+
+async function registrarEvento({ tipo, documentId, recipientId = null, userId = null,
+                                 teamId = null, datos = null, req = null }) {
+    try {
+        if (!tipo || !documentId) return false;
+
+        // Se comprueba una sola vez si la migracion 004 esta aplicada. Asi el
+        // codigo nuevo funciona igual antes y despues de migrar.
+        if (!_columnasLogsComprobadas) {
+            try {
+                const [cols] = await db.promise().query(
+                    `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'signature_events'
+                       AND COLUMN_NAME IN ('user_id','team_id')`
+                );
+                _hayColumnasUsuarioEquipo = cols.length === 2;
+                if (!_hayColumnasUsuarioEquipo) {
+                    console.warn('[EVENTOS] La migracion 004 no esta aplicada: no se guardara usuario ni equipo');
+                }
+            } catch (_) {
+                _hayColumnasUsuarioEquipo = false;
+            }
+            _columnasLogsComprobadas = true;
+        }
+
+        // El equipo se deduce del dueno del documento si no viene dado.
+        let equipo = teamId;
+        if (_hayColumnasUsuarioEquipo && !equipo) {
+            try {
+                const [filas] = await db.promise().query(
+                    `SELECT tm.team_id FROM documents d
+                     JOIN team_members tm ON tm.user_id = d.owner_id
+                     WHERE d.document_id = ? LIMIT 1`,
+                    [documentId]
+                );
+                equipo = filas[0]?.team_id || null;
+            } catch (_) { equipo = null; }
+        }
+
+        const ip = req ? (req.ip || req.connection?.remoteAddress || null) : null;
+        const navegador = req ? (req.get?.('user-agent') || null) : null;
+        const cuerpo = datos ? JSON.stringify(datos) : null;
+
+        if (_hayColumnasUsuarioEquipo) {
+            await db.promise().query(
+                `INSERT INTO signature_events
+                   (document_id, recipient_id, user_id, team_id, event_type, event_data, ip_address, user_agent)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                [documentId, recipientId, userId, equipo, tipo, cuerpo, ip, navegador]
+            );
+        } else {
+            // Sin la migracion: se guarda igual, solo sin usuario ni equipo.
+            await db.promise().query(
+                `INSERT INTO signature_events
+                   (document_id, recipient_id, event_type, event_data, ip_address, user_agent)
+                 VALUES (?, ?, ?, ?, ?, ?)`,
+                [documentId, recipientId, tipo, cuerpo, ip, navegador]
+            );
+        }
+        return true;
+    } catch (e) {
+        // Nunca se propaga: registrar es importante, pero no tanto como firmar.
+        console.warn(`[EVENTOS] No se pudo registrar "${tipo}" del documento ${documentId}: ${e.message}`);
+        return false;
+    }
+}
 
 // =============================================
 // ✅ FUNCIONES AUXILIARES PARA PAGARÉS
@@ -3885,6 +3974,20 @@ app.post('/api/public/vi-callback', async (req, res) => {
         });
         console.log(`✅ [VI-CALLBACK] vi_validated_at marcado para token=${token.substring(0, 8)}...`);
 
+        // Queda constancia de la validacion. Antes solo se sabia mirando la
+        // columna vi_validated_at, que dice QUE valido pero no deja rastro de
+        // cuando llego el aviso ni si el callback se repitio.
+        await registrarEvento({
+            tipo: 'vi_validated',
+            documentId: recipient.document_id,
+            recipientId: recipient.recipient_id,
+            datos: {
+                correo: recipient.email,
+                validacion_id: validacion_id || null
+            },
+            req
+        });
+
         // 3. Guardar trazabilidad VI
         // IDEMPOTENCIA: Si ya existe vi_traza_path para este recipient, el callback llegó duplicado.
         // Esto ocurre cuando un intento es exitoso automáticamente (callback 1) Y el operador
@@ -4695,6 +4798,18 @@ app.get('/api/public/document/:token', async (req, res) => {
                 );
             });
             console.log('✅ Estado actualizado a opened');
+
+            // Solo la primera apertura: si no, cada recarga de la pagina
+            // llenaria la tabla de ruido. Sirve para saber si alguien recibio
+            // el enlace y lo abrio, que es la primera pregunta cuando un
+            // firmante dice que no le llego nada.
+            await registrarEvento({
+                tipo: 'document_opened',
+                documentId: recipient.document_id,
+                recipientId: recipient.recipient_id,
+                datos: { correo: recipient.email },
+                req
+            });
         }
 
         // Obtener los campos del documento con sus valores guardados para este recipient
@@ -5267,6 +5382,7 @@ app.post('/api/public/sign/:token', async (req, res) => {
                 dr.custom_pdf_path,
                 dr.personal_pdf_path,
                 dr.vi_traza_path,
+                dr.vi_validated_at,
                 dr.viewer_group_id,
                 dr.is_final_signer,
                 d.file_path,
@@ -5425,6 +5541,21 @@ app.post('/api/public/sign/:token', async (req, res) => {
 
         console.log('✅ Documento firmado exitosamente');
         console.log('📊 Estado actualizado a completed');
+
+        // Queda constancia de la firma. Es el evento que mas falta hacia: hasta
+        // ahora no habia forma de saber quien firmo y cuando sin leer los logs
+        // de Docker, que rotan y se pierden.
+        await registrarEvento({
+            tipo: 'document_signed',
+            documentId: recipient.document_id,
+            recipientId: recipient.recipient_id,
+            datos: {
+                nombre: recipient.name || recipient.email,
+                correo: recipient.email,
+                identidad_validada: !!recipient.vi_validated_at
+            },
+            req
+        });
 
         // 💳 DESCONTAR 1 FIRMA del balance del dueño del documento (owner)
         try {
@@ -7635,6 +7766,21 @@ app.post('/api/public/sign/:token', async (req, res) => {
                             );
                         });
                         console.log(`✅ [VI-TRAZA] PDF final asignado a todos los destinatarios del documento ${recipient.document_id}`);
+
+                        // El documento queda cerrado y sellado. Se guarda
+                        // cuantas trazas llevaba: es lo que permite detectar
+                        // despues un pagare cerrado sin su trazabilidad, que ya
+                        // nos paso y hubo que descubrir abriendo los PDF.
+                        await registrarEvento({
+                            tipo: 'document_completed',
+                            documentId: recipient.document_id,
+                            datos: {
+                                titulo: recipient.title || null,
+                                trazas_incluidas: recipientsWithTraza.length,
+                                firmantes: allDocRecipientsFinal.length
+                            },
+                            req
+                        });
 
                         // Actualizar signed_file_path con el PDF final
                         await new Promise((resolve, reject) => {
