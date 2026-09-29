@@ -4884,10 +4884,24 @@ app.get('/api/public/document/:token', async (req, res) => {
                                   pdfType === 'COMPARTIDO SELLADO';
         if (!yaIncorporaTrazas) {
             try {
+                // La traza puede estar en DOS sitios y hay que mirar los dos:
+                // la fila del envio donde se valido, o el registro persistente
+                // `vi_verified_emails`, que sobrevive a que se recreen los
+                // destinatarios. Mirar solo el primero dejaba la vista sin
+                // trazabilidad para quien se habia validado en otro envio, que
+                // es el mismo fallo que ya se corrigio en el sellado.
+                //
+                // El COLLATE es necesario: las dos tablas lo tienen distinto y
+                // el JOIN falla sin el.
                 const [trazasDoc] = await db.promise().query(
-                    `SELECT email, vi_traza_path FROM document_recipients
-                     WHERE document_id = ? AND vi_traza_path IS NOT NULL
-                     ORDER BY signing_order, recipient_id`,
+                    `SELECT dr.email,
+                            COALESCE(dr.vi_traza_path, v.vi_traza_path) AS vi_traza_path
+                     FROM document_recipients dr
+                     LEFT JOIN vi_verified_emails v
+                       ON LOWER(v.email) COLLATE utf8mb4_unicode_ci = LOWER(dr.email) COLLATE utf8mb4_unicode_ci
+                     WHERE dr.document_id = ?
+                       AND COALESCE(dr.vi_traza_path, v.vi_traza_path) IS NOT NULL
+                     ORDER BY dr.signing_order, dr.recipient_id`,
                     [recipient.document_id]
                 );
                 if (trazasDoc.length) {
