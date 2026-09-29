@@ -1347,9 +1347,14 @@ document.addEventListener('DOMContentLoaded', () => {
   const userRole = currentUser.role_name;
   console.log('🔐 Aplicando permisos de configuración para:', userRole);
 
-  // Superadministrador: acceso a todo. Otros roles: solo Perfil
+  // Superadministrador: acceso a todo. Otros roles: Perfil y Mis Plantillas.
+  //
+  // Las plantillas son del operador que las crea: sin esta seccion no puede
+  // consultar las suyas ni ver que campos guardo. No abre ningun acceso de
+  // mas —el backend filtra por req.userId y solo devuelve las propias y las
+  // del equipo—, asi que ocultar el boton no protegia nada.
   if (userRole !== 'Superadministrador') {
-    const allowedSections = ['perfil'];
+    const allowedSections = ['perfil', 'plantillas'];
     
     // Ocultar botones del sidebar que no están permitidos
     document.querySelectorAll('#settingsNav .sn-item').forEach(btn => {
@@ -1368,7 +1373,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
 
-    console.log('✅ Permisos aplicados: Solo Perfil e Inquilinos visibles');
+    console.log('✅ Permisos aplicados: Perfil y Mis Plantillas visibles');
   } else {
     console.log('✅ Superadministrador: Acceso completo a todas las secciones');
     // Mostrar sección Gestionar Firmas solo para Superadministrador

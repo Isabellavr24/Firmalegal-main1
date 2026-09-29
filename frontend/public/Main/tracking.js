@@ -2,7 +2,7 @@
  * TRACKING VIEW - SISTEMA DE SEGUIMIENTO DE DOCUMENTOS
  * v20260317b
  **********************************************************/
-console.log('🔖 tracking.js v20260317b cargado');
+console.log('🔖 tracking.js v20260916a cargado');
 
 // ====== VARIABLES GLOBALES ======
 let currentDocumentType = 'normal'; // ✅ Tipo de documento actual: 'normal' o 'pagare'
@@ -2276,29 +2276,11 @@ async function sendPagaresBulk() {
     const userStr = localStorage.getItem('currentUser');
     const user = JSON.parse(userStr);
 
-    // Pre-insertar trazabilidades VI en el PDF antes de enviar los correos
     // Incluir también el firmante definitivo si está presente
     const allPagareEmails = [...new Set([
       ...(window.pagareCsvData || []).flatMap(p => (p.firmantes || []).map(f => f.email).filter(Boolean)),
       ...(finalSignerEmail ? [finalSignerEmail] : [])
     ])];
-    if (allPagareEmails.length > 0) {
-      if (sendBtn) sendBtn.textContent = 'Verificando trazabilidades...';
-      try {
-        const preResp = await fetch(`/api/documents/${docData.id}/pre-insert-trazas`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ emails: allPagareEmails })
-        });
-        if (preResp.ok) {
-          const preData = await preResp.json();
-          if (preData.inserted > 0) console.log(`[PRE-TRAZA] ${preData.inserted} traza(s) insertada(s):`, preData.emails);
-        }
-      } catch (preErr) {
-        console.warn('[PRE-TRAZA] Error al pre-insertar, continuando:', preErr);
-      }
-      if (sendBtn) sendBtn.textContent = 'PROCESANDO...';
-    }
 
     // Enviar al backend
     const response = await fetch(`/api/documents/${docData.id}/pagare/send-bulk?user_id=${user.user_id}`, {
@@ -2322,6 +2304,24 @@ async function sendPagaresBulk() {
 
     ToastManager.success('Pagarés procesados', result.message);
     console.log('✅ Pagarés enviados:', result);
+
+    // Las trazabilidades se adjuntan DESPUES de enviar: es el envio el que
+    // recupera de VI la validacion de quien ya se habia validado antes.
+    if (allPagareEmails.length > 0) {
+      try {
+        const preResp = await fetch(`/api/documents/${docData.id}/pre-insert-trazas`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ emails: allPagareEmails })
+        });
+        if (preResp.ok) {
+          const preData = await preResp.json();
+          if (preData.inserted > 0) console.log(`[PRE-TRAZA] ${preData.inserted} traza(s) adjuntada(s):`, preData.emails);
+        }
+      } catch (preErr) {
+        console.warn('[PRE-TRAZA] Error al adjuntar trazabilidades:', preErr);
+      }
+    }
 
     // Cerrar modal y recargar
     const modal = document.getElementById('recipientsModal');
@@ -2574,35 +2574,7 @@ recipientsAddBtn?.addEventListener('click', async (event) => {
   
   try {
     // Pre-insertar trazabilidades VI antes de enviar correos.
-    // Recolectar todos los emails que se van a enviar y consultar al backend
-    // cuáles tienen traza VI disponible.
     const allEmailsToSend = recipients.map(r => r.email).filter(Boolean);
-    console.log(`🔐 [PRE-TRAZA] Verificando trazas para ${allEmailsToSend.length} email(s):`, allEmailsToSend);
-
-    if (allEmailsToSend.length > 0) {
-      const sendBtn = document.getElementById('recipientsAdd');
-      if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = 'Verificando trazabilidades...'; }
-      try {
-        const preResp = await fetch(`/api/documents/${docData.id}/pre-insert-trazas`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ emails: allEmailsToSend })
-        });
-        if (preResp.ok) {
-          const preData = await preResp.json();
-          if (preData.inserted > 0) {
-            console.log(`✅ [PRE-TRAZA] ${preData.inserted} traza(s) insertada(s):`, preData.emails);
-          } else {
-            console.log(`ℹ️ [PRE-TRAZA] Sin trazas disponibles para estos emails`);
-          }
-        } else {
-          console.warn(`⚠️ [PRE-TRAZA] Error ${preResp.status}, continuando con envío...`);
-        }
-      } catch (preErr) {
-        console.warn(`⚠️ [PRE-TRAZA] Error, continuando con envío:`, preErr);
-      }
-      if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = 'ENVIAR'; }
-    }
 
     // Enviar al backend
     const response = await fetch(`/api/documents/${docData.id}/send?user_id=${user.user_id}`, {
@@ -2620,6 +2592,33 @@ recipientsAddBtn?.addEventListener('click', async (event) => {
     }
     
     console.log('✅ Documento enviado:', data);
+
+    // Las trazabilidades se adjuntan DESPUES de enviar: es el envio el que
+    // recupera de VI la validacion de quien ya se habia validado antes. Hacerlo
+    // al reves deja el documento sin la trazabilidad de esa persona, que
+    // entonces solo aparece al firmar.
+    if (allEmailsToSend.length > 0) {
+      console.log(`🔐 [PRE-TRAZA] Adjuntando trazabilidades de ${allEmailsToSend.length} firmante(s):`, allEmailsToSend);
+      try {
+        const preResp = await fetch(`/api/documents/${docData.id}/pre-insert-trazas`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ emails: allEmailsToSend })
+        });
+        if (preResp.ok) {
+          const preData = await preResp.json();
+          if (preData.inserted > 0) {
+            console.log(`✅ [PRE-TRAZA] ${preData.inserted} traza(s) adjuntada(s):`, preData.emails);
+          } else {
+            console.log(`ℹ️ [PRE-TRAZA] Ningun firmante tiene validacion todavia`);
+          }
+        } else {
+          console.warn(`⚠️ [PRE-TRAZA] Error ${preResp.status} al adjuntar trazabilidades`);
+        }
+      } catch (preErr) {
+        console.warn(`⚠️ [PRE-TRAZA] Error al adjuntar trazabilidades:`, preErr);
+      }
+    }
     
     ToastManager.success(
       '¡Documento enviado!',
@@ -3058,6 +3057,86 @@ async function loadAssignedFieldValues(documentId) {
 }
 
 // Evento para descargar plantilla CSV
+/**
+ * Construye el CSV de ejemplo para el envio masivo.
+ *
+ * Las columnas tienen que llamarse EXACTAMENTE igual que las etiquetas
+ * mapeadas en el documento: es lo que empareja cada dato con su hueco. Se usa
+ * la misma convencion que ya muestra la vista previa de columnas.
+ *
+ * Las etiquetas se repiten a proposito ("Nombre:" sale dos veces, una por
+ * responsable). Se numeran para poder distinguirlas en el CSV, respetando el
+ * ORDEN en que estan en el documento —ese orden decide a que responsable
+ * pertenece cada una—.
+ */
+function generateCSVTemplate(template) {
+  if (!template || !Array.isArray(template.fields)) {
+    throw new Error('La plantilla no tiene campos');
+  }
+
+  const textFields = template.fields.filter(f =>
+    f.field_type === 'text' || f.field_type === 'date' || f.field_type === 'number'
+  );
+
+  // Una columna de nombre y otra de email por firmante.
+  const columnas = [];
+  (template.parts || []).forEach(p => {
+    columnas.push(`${p.name} - Nombre`);
+    columnas.push(`${p.name} - Email`);
+  });
+
+  // Etiquetas repetidas: se numeran sin alterar el orden del documento.
+  const vistas = {};
+  const totales = {};
+  textFields.forEach(f => {
+    const et = f.field_label || `Campo ${f.id}`;
+    totales[et] = (totales[et] || 0) + 1;
+  });
+  textFields.forEach(f => {
+    const et = f.field_label || `Campo ${f.id}`;
+    if (totales[et] > 1) {
+      vistas[et] = (vistas[et] || 0) + 1;
+      columnas.push(`${et} (${vistas[et]})`);
+    } else {
+      columnas.push(et);
+    }
+  });
+
+  // Una fila de ejemplo, para que se vea que va en cada columna.
+  const ejemplo = columnas.map(col => {
+    const c = col.toLowerCase();
+    if (c.includes('email') || c.includes('correo')) return 'correo@ejemplo.com';
+    if (c.includes('nombre') || c.includes('apellido')) return 'NOMBRE APELLIDO';
+    if (c.includes('c.c') || c.includes('cedula') || c.includes('cédula')) return '1000000000';
+    if (c.includes('telefono') || c.includes('teléfono') || c.includes('movil')) return '3000000000';
+    if (c.includes('direccion') || c.includes('dirección') || c.includes('residencia')) return 'Calle 1 # 2-3';
+    if (c.includes('estado civil')) return 'Soltero';
+    if (c.includes('ocupacion') || c.includes('ocupación')) return 'Empleado';
+    if (c.includes('empresa')) return 'Empresa S.A.S.';
+    if (c.includes('edad') || c.includes('domiciliados')) return 'Bogota D.C.';
+    if (c.includes('alumno')) return 'NOMBRE DEL ESTUDIANTE';
+    return 'dato';
+  });
+
+  const escapar = v => {
+    const t = String(v == null ? '' : v);
+    var peligroso = [String.fromCharCode(34), String.fromCharCode(44), String.fromCharCode(59), String.fromCharCode(13), String.fromCharCode(10)];
+    return peligroso.some(function (c) { return t.indexOf(c) !== -1; })
+      ? String.fromCharCode(34) + t.split(String.fromCharCode(34)).join(String.fromCharCode(34,34)) + String.fromCharCode(34)
+      : t;
+  };
+
+  // BOM para que Excel respete las tildes al abrirlo.
+  var SALTO = String.fromCharCode(13) + String.fromCharCode(10);
+  var BOM = String.fromCharCode(65279);
+  // Coma y "sep=," igual que el generador principal: el lector espera coma, y
+  // la directiva es lo que hace que Excel en español no meta todo en una sola
+  // columna.
+  return BOM + 'sep=,' + SALTO +
+    columnas.map(escapar).join(',') + SALTO +
+    ejemplo.map(escapar).join(',') + SALTO;
+}
+
 document.getElementById('downloadCsvTemplateBtn')?.addEventListener('click', async () => {
   console.log('📥 Descargando plantilla CSV...');
   
@@ -3487,7 +3566,14 @@ async function downloadPagareTemplate(docId) {
     const csvContent = csvRows.join('\n');
 
     // Descargar archivo
-    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    //
+    // "sep=," como primera linea: sin ella, un Excel configurado en espa\u00f1ol
+    // abre el CSV con las 54 columnas metidas en una sola, y quien lo llene
+    // tiene que separarlas a mano \u2014con 54 columnas y cedulas de por medio, es
+    // facil cruzar los datos de un responsable con los del otro\u2014.
+    // Excel la interpreta y no la muestra como dato; al subir el CSV, el
+    // lector de arriba la detecta y la salta.
+    const blob = new Blob(['\ufeff' + 'sep=,\r\n' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -3522,12 +3608,26 @@ function handlePagareCsvUpload(file) {
 
   const reader = new FileReader();
   reader.onload = (e) => {
-    const csvContent = e.target.result;
+    let csvContent = e.target.result;
+    // Excel en espanol escribe (y espera) una primera linea sep=; o sep=,
+    // que declara el separador. No es un dato: si no se quita, Papa la lee
+    // como una fila y el CSV entero se malinterpreta.
+    let separador = ',';
+    const corte = csvContent.indexOf('\n');
+    let primeraLinea = corte === -1 ? csvContent : csvContent.slice(0, corte);
+    primeraLinea = primeraLinea.replace(/^﻿/, '').replace(/\r$/, '');
+
+    if (primeraLinea.toLowerCase().startsWith('sep=')) {
+      const declarado = primeraLinea.slice(4).trim();
+      if (declarado) separador = declarado.charAt(0);
+      csvContent = corte === -1 ? '' : csvContent.slice(corte + 1);
+      console.log(`ℹ️ CSV con separador declarado: "${separador}"`);
+    }
 
     Papa.parse(csvContent, {
       header: true,
       skipEmptyLines: true,
-      delimiter: ',',
+      delimiter: separador,
       complete: (results) => {
         _processPagareCsvData(results, file.name, file).catch(err => console.error('Error procesando CSV pagaré:', err));
       },

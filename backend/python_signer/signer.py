@@ -211,6 +211,7 @@ class PDFSigner:
         self._cached_signer = None
         self._cached_cert_data = None
         self._signer_lock = threading.Lock()
+        self.last_timestamp_info = None
 
         logger.info(f"✅ Certificado cargado: {self.cert_path}")
         logger.info(f"🚀 Optimizaciones activadas: Cache de timestamps y certificado")
