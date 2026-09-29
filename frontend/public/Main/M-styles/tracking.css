@@ -791,6 +791,69 @@
   color: white;
 }
 
+/* Zona de carga cuando el CSV subido tiene errores.
+   Antes seguia diciendo "Arrastra el CSV..." como si no se hubiera subido
+   nada, y no se veia cual era el archivo con problemas. */
+.upload-zone.has-errors {
+  border-color: #dc2626;
+  border-style: solid;
+  background: #fef2f2;
+  padding: 24px 20px;
+}
+
+.upload-zone.has-errors:hover {
+  border-color: #b91c1c;
+  background: #fee2e2;
+}
+
+.upload-zone.has-errors svg { color: #dc2626; }
+
+.upload-zone.has-errors .upload-zone-title {
+  color: #991b1b;
+  font-weight: 700;
+  font-size: 15px;
+  margin: 0 0 4px;
+}
+
+.upload-zone.has-errors .upload-zone-file {
+  color: #7f1d1d;
+  font-size: 13px;
+  margin: 0 0 16px;
+  word-break: break-all;
+}
+
+/* Los dos botones con el mismo ancho, uno debajo del otro. */
+.upload-zone .upload-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 320px;
+  margin: 0 auto;
+}
+
+.upload-zone .upload-actions .upload-btn,
+.upload-zone .upload-actions .upload-btn-errors {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.upload-btn-errors {
+  border: 2px solid #dc2626;
+  background: #dc2626;
+  color: #fff;
+}
+
+.upload-btn-errors:hover {
+  background: #b91c1c;
+  border-color: #b91c1c;
+}
+
 /* Opciones del modal */
 .recipients-options {
   display: flex;

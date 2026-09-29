@@ -516,9 +516,12 @@
                     <polyline points="17 8 12 3 7 8"/>
                     <line x1="12" y1="3" x2="12" y2="15"/>
                   </svg>
-                  <p>Arrastra el CSV con los datos de los firmantes</p>
+                  <p class="upload-zone-title" id="pagareCsvZoneTitle">Arrastra el CSV con los datos de los firmantes</p>
+                  <p class="upload-zone-file" id="pagareCsvZoneFile" style="display:none;"></p>
                   <input type="file" id="pagareCsvFileInput" accept=".csv" style="display:none">
-                  <button class="upload-btn" onclick="document.getElementById('pagareCsvFileInput').click()">Seleccionar archivo CSV</button>
+                  <div class="upload-actions">
+                    <button class="upload-btn" id="pagareCsvSelectBtn" onclick="document.getElementById('pagareCsvFileInput').click()">Seleccionar archivo CSV</button>
+                  </div>
                 </div>
 
                 <!-- Preview cuando hay archivo cargado -->
@@ -1263,24 +1266,63 @@
       _showCsvErrorsButton();
     };
 
+    // Deja la zona de carga en estado de error: en rojo, diciendo que el
+    // archivo tiene errores y CUAL es, con los dos botones del mismo ancho.
+    // Antes seguia mostrando "Arrastra el CSV..." como si no se hubiera
+    // subido nada, y no se veia el nombre del archivo con problemas.
     window._showCsvErrorsButton = function() {
       if (!window._csvHasErrors || !window._csvReportData) return;
       var zone = document.getElementById('pagareCsvUploadZone');
       if (!zone) return;
+
+      zone.classList.add('has-errors');
+
+      var nErr = (window._csvReportData.result.validation_errors || []).length;
+      var titulo = document.getElementById('pagareCsvZoneTitle');
+      if (titulo) {
+        titulo.textContent = nErr === 1
+          ? 'Este archivo tiene 1 error que impide el envio'
+          : 'Este archivo tiene ' + nErr + ' errores que impiden el envio';
+      }
+
+      var archivo = document.getElementById('pagareCsvZoneFile');
+      if (archivo) {
+        archivo.textContent = window._csvReportData.filename || '';
+        archivo.style.display = window._csvReportData.filename ? '' : 'none';
+      }
+
+      var selectBtn = document.getElementById('pagareCsvSelectBtn');
+      if (selectBtn) selectBtn.textContent = 'Seleccionar otro archivo CSV';
+
       // No duplicar el botón
       if (zone.querySelector('#csvErrorsBtn')) return;
       var btn = document.createElement('button');
       btn.id = 'csvErrorsBtn';
       btn.type = 'button';
-      btn.textContent = 'Ver errores CSV';
-      btn.style.cssText = 'margin-top:10px;background:#dc2626;color:#fff;border:none;padding:8px 18px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;width:100%;';
-      btn.onmouseover = function() { this.style.background = '#b91c1c'; };
-      btn.onmouseout = function() { this.style.background = '#dc2626'; };
+      btn.className = 'upload-btn-errors';
+      btn.textContent = 'Ver errores del archivo';
       btn.onclick = function() {
         var data = window._csvReportData;
         if (data) showValidationReport(data.result, null, data.filename);
       };
-      zone.appendChild(btn);
+      var acciones = zone.querySelector('.upload-actions');
+      (acciones || zone).appendChild(btn);
+    };
+
+    // Devuelve la zona a su estado normal al elegir otro archivo.
+    window._resetCsvUploadZone = function() {
+      var zone = document.getElementById('pagareCsvUploadZone');
+      if (!zone) return;
+      zone.classList.remove('has-errors');
+      var titulo = document.getElementById('pagareCsvZoneTitle');
+      if (titulo) titulo.textContent = 'Arrastra el CSV con los datos de los firmantes';
+      var archivo = document.getElementById('pagareCsvZoneFile');
+      if (archivo) { archivo.textContent = ''; archivo.style.display = 'none'; }
+      var selectBtn = document.getElementById('pagareCsvSelectBtn');
+      if (selectBtn) selectBtn.textContent = 'Seleccionar archivo CSV';
+      var errBtn = zone.querySelector('#csvErrorsBtn');
+      if (errBtn) errBtn.remove();
+      window._csvHasErrors = false;
     };
 
     window.downloadValidationReport = function() {
@@ -1288,30 +1330,85 @@
       if (!data) return;
       const errors = (data.result.validation_errors || []);
       const warnings = (data.result.validation_warnings || []);
-      let lines = ['Informe de validacion: ' + data.filename];
-      lines.push('Filas leidas: ' + (data.result.total_rows || '?'));
-      lines.push('Errores: ' + errors.length + ' | Avisos: ' + warnings.length);
-      lines.push('');
-      if (errors.length > 0) {
-        lines.push('ERRORES');
-        errors.forEach(function(e) {
-          lines.push('Fila ' + e.row + ' | ' + (e.field || '') + ' | ' + e.message);
-        });
-        lines.push('');
+      // El informe se abre listo para imprimir, para poder guardarlo como PDF.
+      // Antes se bajaba un .txt, que ademas de quedar feo no sirve para
+      // mandarselo al colegio. No se añade ninguna libreria: se usa la
+      // impresion del propio navegador.
+      const esc = function(s) {
+        return String(s == null ? '' : s)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      };
+      const filas = function(lista, color) {
+        return lista.map(function(x) {
+          return '<tr>' +
+            '<td class="fila">' + esc(x.row) + '</td>' +
+            '<td class="campo">' + esc(x.field || '') + '</td>' +
+            '<td>' + esc(x.message) + '</td>' +
+            '</tr>';
+        }).join('');
+      };
+      const hoy = new Date().toLocaleString('es-CO');
+      const html =
+        '<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">' +
+        '<title>Informe de validacion - ' + esc(data.filename) + '</title><style>' +
+        'body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#1f2937;margin:32px;}' +
+        'h1{font-size:20px;margin:0 0 4px;}' +
+        '.sub{color:#6b7280;font-size:13px;margin:0 0 20px;}' +
+        '.resumen{display:flex;gap:10px;margin-bottom:24px;flex-wrap:wrap;}' +
+        '.caja{border:1px solid #e5e7eb;border-radius:8px;padding:10px 16px;font-size:13px;}' +
+        '.caja b{display:block;font-size:20px;margin-top:2px;}' +
+        '.caja.err{border-color:#fecaca;background:#fef2f2;color:#991b1b;}' +
+        '.caja.avi{border-color:#fde68a;background:#fffbeb;color:#92400e;}' +
+        'h2{font-size:15px;margin:22px 0 8px;padding-bottom:6px;border-bottom:2px solid #e5e7eb;}' +
+        'h2.err{color:#991b1b;border-color:#fecaca;}' +
+        'h2.avi{color:#92400e;border-color:#fde68a;}' +
+        'table{width:100%;border-collapse:collapse;font-size:13px;}' +
+        'th{text-align:left;padding:7px 8px;background:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:12px;color:#6b7280;}' +
+        'td{padding:7px 8px;border-bottom:1px solid #f3f4f6;vertical-align:top;}' +
+        '.fila{width:52px;font-weight:600;}' +
+        '.campo{width:170px;color:#6b7280;}' +
+        '@media print{body{margin:14mm;} .noprint{display:none;}}' +
+        '.noprint{margin-bottom:20px;}' +
+        '.noprint button{background:#2563eb;color:#fff;border:none;padding:9px 18px;' +
+        'border-radius:6px;font-size:14px;cursor:pointer;}' +
+        '</style></head><body>' +
+        '<div class="noprint"><button onclick="window.print()">Guardar como PDF o imprimir</button></div>' +
+        '<h1>Informe de validacion del archivo</h1>' +
+        '<p class="sub">' + esc(data.filename) + ' &middot; ' + esc(hoy) + '</p>' +
+        '<div class="resumen">' +
+          '<div class="caja">Filas leidas<b>' + esc(data.result.total_rows || '?') + '</b></div>' +
+          '<div class="caja err">Errores que impiden el envio<b>' + errors.length + '</b></div>' +
+          '<div class="caja avi">Avisos<b>' + warnings.length + '</b></div>' +
+        '</div>' +
+        (errors.length
+          ? '<h2 class="err">Errores que impiden el envio</h2><table>' +
+            '<tr><th>Fila</th><th>Campo</th><th>Que pasa y como se corrige</th></tr>' +
+            filas(errors) + '</table>'
+          : '') +
+        (warnings.length
+          ? '<h2 class="avi">Avisos</h2><table>' +
+            '<tr><th>Fila</th><th>Campo</th><th>Observacion</th></tr>' +
+            filas(warnings) + '</table>'
+          : '') +
+        (!errors.length && !warnings.length
+          ? '<p>El archivo no presenta errores ni avisos.</p>'
+          : '') +
+        '</body></html>';
+
+      const win = window.open('', '_blank');
+      if (!win) {
+        // Si el navegador bloquea la ventana, se baja como archivo.
+        const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'informe-validacion-' + data.filename.replace(/\.csv$/i, '') + '.html';
+        a.click();
+        URL.revokeObjectURL(url);
+        return;
       }
-      if (warnings.length > 0) {
-        lines.push('AVISOS');
-        warnings.forEach(function(w) {
-          lines.push('Fila ' + w.row + ' | ' + (w.field || '') + ' | ' + w.message);
-        });
-      }
-      const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'informe-validacion-' + data.filename.replace('.csv', '') + '.txt';
-      a.click();
-      URL.revokeObjectURL(url);
+      win.document.write(html);
+      win.document.close();
     };
 
 

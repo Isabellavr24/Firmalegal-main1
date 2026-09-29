@@ -4135,6 +4135,9 @@ document.addEventListener('DOMContentLoaded', () => {
     pagareCsvFileInput.addEventListener('change', (e) => {
       const file = e.target.files[0];
       if (file) {
+        // Quitar el estado de error del archivo anterior antes de validar el
+        // nuevo: si no, la zona seguiria en rojo aunque este ya venga bien.
+        if (typeof window._resetCsvUploadZone === 'function') window._resetCsvUploadZone();
         handlePagareCsvUpload(file);
       }
     });
