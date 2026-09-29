@@ -9915,37 +9915,99 @@ app.post('/api/public/otp/enviar', async (req, res) => {
         await redisClient.setEx(redisKey, 300, code); // 5 minutos
         await redisClient.quit();
 
-        // 5. Enviar por SMS via Infobip
+        // 5. Enviar el codigo: WhatsApp primero, SMS como respaldo.
+        //
+        // En septiembre se migro a SMS porque Meta bloqueo el remitente de
+        // WhatsApp (error 63051). Ese bloqueo ya se levanto —comprobado el
+        // 29-09-2026 con un envio real que llego como `delivered`— y conviene
+        // volver a WhatsApp: los SMS no llegan a Movistar ni a las lineas
+        // portadas, donde se quedan en PENDING_WAITING_DELIVERY para siempre.
+        //
+        // WhatsApp exige una PLANTILLA aprobada fuera de la ventana de 24h. Sin
+        // ella Twilio responde 63016 y el mensaje no se entrega. La plantilla
+        // es `firmalegal_otp`, de tipo authentication.
+        //
+        // Si WhatsApp falla por lo que sea, se cae a SMS sin que el firmante se
+        // entere: mejor un SMS que quedarse sin codigo.
         let celularNorm = celular.replace(/\s+/g, '');
         if (celularNorm.startsWith('0')) celularNorm = celularNorm.slice(1);
         if (!celularNorm.startsWith('+')) celularNorm = '+57' + celularNorm.replace(/^\+?57/, '');
 
-        const infobipHost = process.env.INFOBIP_BASE_URL;
-        const infobipApiKey = process.env.INFOBIP_API_KEY;
-        const infobipSender = process.env.INFOBIP_SENDER || 'PKIServ';
-        if (!infobipHost || !infobipApiKey) throw new Error('Configuracion Infobip no disponible');
-
-        const infobipRes = await fetch(`https://${infobipHost}/sms/3/messages`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `App ${infobipApiKey}`,
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-            },
-            body: JSON.stringify({
-                messages: [{
-                    destinations: [{ to: celularNorm }],
-                    sender: infobipSender,
-                    content: { text: `Tu codigo de verificacion FirmaLegal es: ${code}. Valido por 5 minutos.` },
-                }],
-            }),
-        });
-        const infobipData = await infobipRes.json();
-        if (!infobipRes.ok) throw new Error(infobipData?.requestError?.serviceException?.text || 'Infobip error');
-
-        // Enmascarar número para la respuesta
         const maskedPhone = celular.replace(/(\+\d{2,3})\d+(\d{2})$/, '$1****$2');
-        console.log(`[OTP] Codigo enviado a ${maskedPhone} para token ${token.substring(0,8)}...`);
+        let canalUsado = null;
+
+        // --- WhatsApp (Twilio, con plantilla) ---
+        const twSid = process.env.TWILIO_ACCOUNT_SID;
+        const twToken = process.env.TWILIO_AUTH_TOKEN;
+        const twFrom = process.env.TWILIO_WHATSAPP_NUMBER;
+        const twTemplate = process.env.TWILIO_OTP_TEMPLATE_SID || 'HX77761f3c0b839ae7bb96e8b317f145c0';
+
+        if (twSid && twToken && twFrom) {
+            try {
+                const cuerpo = new URLSearchParams({
+                    From: `whatsapp:${twFrom}`,
+                    To: `whatsapp:${celularNorm}`,
+                    ContentSid: twTemplate,
+                    ContentVariables: JSON.stringify({ '1': code })
+                }).toString();
+                const auth = Buffer.from(`${twSid}:${twToken}`).toString('base64');
+                const respWa = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twSid}/Messages.json`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Basic ${auth}`,
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: cuerpo
+                });
+                const datosWa = await respWa.json();
+                if (respWa.ok && datosWa.sid) {
+                    canalUsado = 'whatsapp';
+                    console.log(`[OTP] Codigo enviado por WhatsApp a ${maskedPhone} (${datosWa.sid})`);
+                } else {
+                    // 63051 es el bloqueo del remitente por Meta, que ya nos
+                    // dejo sin WhatsApp un mes. Se marca bien alto en el log
+                    // para que no vuelva a pasar inadvertido: el sistema sigue
+                    // funcionando por SMS, y ahi esta el riesgo de no enterarse.
+                    if (String(datosWa.code) === '63051') {
+                        console.error('🔴🔴🔴 [OTP] META HA BLOQUEADO EL REMITENTE DE WHATSAPP (63051).');
+                        console.error('        Los codigos saldran por SMS, que NO llegan a Movistar ni a lineas portadas.');
+                        console.error('        Hay que abrir un ticket con Meta cuanto antes.');
+                    } else {
+                        console.warn(`[OTP] WhatsApp no acepto el envio (${datosWa.code || respWa.status}): ${datosWa.message || ''} — se intenta por SMS`);
+                    }
+                }
+            } catch (eWa) {
+                console.warn(`[OTP] Fallo WhatsApp: ${eWa.message} — se intenta por SMS`);
+            }
+        }
+
+        // --- SMS (Infobip), solo si WhatsApp no salio ---
+        if (!canalUsado) {
+            const infobipHost = process.env.INFOBIP_BASE_URL;
+            const infobipApiKey = process.env.INFOBIP_API_KEY;
+            const infobipSender = process.env.INFOBIP_SENDER || 'PKIServ';
+            if (!infobipHost || !infobipApiKey) throw new Error('No se pudo enviar el codigo: WhatsApp fallo y no hay configuracion de SMS');
+
+            const infobipRes = await fetch(`https://${infobipHost}/sms/3/messages`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `App ${infobipApiKey}`,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                },
+                body: JSON.stringify({
+                    messages: [{
+                        destinations: [{ to: celularNorm }],
+                        sender: infobipSender,
+                        content: { text: `Tu codigo de verificacion FirmaLegal es: ${code}. Valido por 5 minutos.` },
+                    }],
+                }),
+            });
+            const infobipData = await infobipRes.json();
+            if (!infobipRes.ok) throw new Error(infobipData?.requestError?.serviceException?.text || 'Infobip error');
+            canalUsado = 'sms';
+            console.log(`[OTP] Codigo enviado por SMS a ${maskedPhone} para token ${token.substring(0,8)}...`);
+        }
 
         // Registrar evento OTP en trazabilidad
         try {
@@ -9966,7 +10028,7 @@ app.post('/api/public/otp/enviar', async (req, res) => {
             console.error('[OTP] Error guardando evento trazabilidad:', auditErr.message);
         }
 
-        res.json({ success: true, phone: maskedPhone });
+        res.json({ success: true, phone: maskedPhone, canal: canalUsado });
 
     } catch (err) {
         console.error('[OTP] Error enviando OTP:', err.message);

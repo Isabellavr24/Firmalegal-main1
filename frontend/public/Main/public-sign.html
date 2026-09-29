@@ -398,7 +398,7 @@
         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2b0e31" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
       </div>
       <h2 style="margin:0 0 8px;font-size:20px;font-weight:700;color:#2b0e31;">Verificacion de identidad</h2>
-      <p id="otpDesc" style="margin:0;font-size:14px;color:#6d6270;line-height:1.5;">Para firmar este documento enviaremos un codigo de verificacion a tu numero de celular via SMS (momentaneamente WhatsApp no disponible).</p>
+      <p id="otpDesc" style="margin:0;font-size:14px;color:#6d6270;line-height:1.5;">Para firmar este documento enviaremos un codigo de verificacion a tu WhatsApp.</p>
     </div>
     <div id="otpStep0" style="display:none;">
       <p style="font-size:13px;color:#6d6270;text-align:center;margin:0 0 16px;">Ingresa tu numero de celular con codigo de pais (ej: +573001234567)</p>
@@ -407,7 +407,7 @@
       <button onclick="otpRegistrarCelular()" style="width:100%;padding:14px;background:#2b0e31;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;margin-top:16px;font-family:inherit;">Continuar</button>
     </div>
     <div id="otpStep1">
-      <button id="otpSendBtn" onclick="otpEnviar()" style="width:100%;padding:14px;background:#2b0e31;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;">Enviar codigo por SMS</button>
+      <button id="otpSendBtn" onclick="otpEnviar()" style="width:100%;padding:14px;background:#2b0e31;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;">Enviar codigo por WhatsApp</button>
     </div>
     <div id="otpStep2" style="display:none;">
       <p id="otpPhoneMsg" style="font-size:13px;color:#6d6270;text-align:center;margin:0 0 16px;"></p>
@@ -2996,9 +2996,9 @@ async function otpEnviar(isResend) {
         // No tiene celular registrado — pedir número en step0
         document.getElementById('otpStep1').style.display = 'none';
         document.getElementById('otpStep0').style.display = 'block';
-        document.getElementById('otpDesc').textContent = 'Para verificar tu identidad necesitamos tu numero de celular.';
+        document.getElementById('otpDesc').textContent = 'Para verificar tu identidad necesitamos tu numero de celular con WhatsApp.';
         document.getElementById('otpCelularInput').focus();
-        if (btn) { btn.disabled = false; btn.textContent = 'Enviar codigo por SMS'; }
+        if (btn) { btn.disabled = false; btn.textContent = 'Enviar codigo por WhatsApp'; }
         return;
       }
       // Si hay que esperar entre reenvios, se muestra la cuenta atras en el
@@ -3008,11 +3008,11 @@ async function otpEnviar(isResend) {
         otpCuentaAtras(data.esperaSegundos);
         const err = document.getElementById('otpError');
         if (err) { err.textContent = data.message; err.style.display = 'block'; }
-        if (btn) { btn.disabled = false; btn.textContent = 'Enviar codigo por SMS'; }
+        if (btn) { btn.disabled = false; btn.textContent = 'Enviar codigo por WhatsApp'; }
         return;
       }
       document.getElementById('otpDesc').textContent = data.message || 'Error al enviar el codigo';
-      if (btn) { btn.disabled = false; btn.textContent = 'Enviar codigo por SMS'; }
+      if (btn) { btn.disabled = false; btn.textContent = 'Enviar codigo por WhatsApp'; }
       return;
     }
 
@@ -3026,7 +3026,7 @@ async function otpEnviar(isResend) {
     // Mostrar paso 2 — ingresar código
     document.getElementById('otpStep1').style.display = 'none';
     document.getElementById('otpStep2').style.display = 'block';
-    document.getElementById('otpPhoneMsg').textContent = `Codigo enviado al numero ${data.phone} via SMS.`;
+    document.getElementById('otpPhoneMsg').textContent = `Codigo enviado al numero ${data.phone} por ${data.canal === "sms" ? "SMS" : "WhatsApp"}.`;
     // Se bloquea el reenvio durante 30s tras cada envio correcto, para que no
     // se pida otro codigo antes de que llegue el primero.
     otpCuentaAtras(30);
@@ -3034,7 +3034,7 @@ async function otpEnviar(isResend) {
 
   } catch(e) {
     document.getElementById('otpDesc').textContent = 'Error de conexion. Intenta de nuevo.';
-    if (btn) { btn.disabled = false; btn.textContent = 'Enviar codigo por SMS'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Enviar codigo por WhatsApp'; }
   }
 }
 
@@ -3065,7 +3065,7 @@ async function otpRegistrarCelular() {
     // Celular registrado — ocultar step0, mostrar step1 y enviar OTP
     document.getElementById('otpStep0').style.display = 'none';
     document.getElementById('otpStep1').style.display = 'block';
-    document.getElementById('otpDesc').textContent = 'Para firmar este documento enviaremos un codigo de verificacion a tu numero de celular via SMS (momentaneamente WhatsApp no disponible).';
+    document.getElementById('otpDesc').textContent = 'Para firmar este documento enviaremos un codigo de verificacion a tu WhatsApp.';
     await otpEnviar();
   } catch(e) {
     errEl.textContent = 'Error de conexion. Intenta de nuevo.';
