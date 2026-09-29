@@ -1351,33 +1351,66 @@
         }).join('');
       };
       const hoy = new Date().toLocaleString('es-CO');
+      const logoUrl = window.location.origin + '/img/Nuevologo.jpg';
       const html =
         '<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">' +
         '<title>Informe de validacion - ' + esc(data.filename) + '</title><style>' +
-        'body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#1f2937;margin:32px;}' +
-        'h1{font-size:20px;margin:0 0 4px;}' +
-        '.sub{color:#6b7280;font-size:13px;margin:0 0 20px;}' +
-        '.resumen{display:flex;gap:10px;margin-bottom:24px;flex-wrap:wrap;}' +
-        '.caja{border:1px solid #e5e7eb;border-radius:8px;padding:10px 16px;font-size:13px;}' +
-        '.caja b{display:block;font-size:20px;margin-top:2px;}' +
-        '.caja.err{border-color:#fecaca;background:#fef2f2;color:#991b1b;}' +
-        '.caja.avi{border-color:#fde68a;background:#fffbeb;color:#92400e;}' +
-        'h2{font-size:15px;margin:22px 0 8px;padding-bottom:6px;border-bottom:2px solid #e5e7eb;}' +
-        'h2.err{color:#991b1b;border-color:#fecaca;}' +
-        'h2.avi{color:#92400e;border-color:#fde68a;}' +
-        'table{width:100%;border-collapse:collapse;font-size:13px;}' +
-        'th{text-align:left;padding:7px 8px;background:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:12px;color:#6b7280;}' +
-        'td{padding:7px 8px;border-bottom:1px solid #f3f4f6;vertical-align:top;}' +
-        '.fila{width:52px;font-weight:600;}' +
-        '.campo{width:170px;color:#6b7280;}' +
-        '@media print{body{margin:14mm;} .noprint{display:none;}}' +
-        '.noprint{margin-bottom:20px;}' +
-        '.noprint button{background:#2563eb;color:#fff;border:none;padding:9px 18px;' +
-        'border-radius:6px;font-size:14px;cursor:pointer;}' +
-        '</style></head><body>' +
+        ':root{--plum:#2a0d31;--plum-soft:#f7f3f8;}' +
+        '*{box-sizing:border-box;}' +
+        'body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#2b2430;' +
+        'margin:0;background:#faf8f9;}' +
+        '.hoja{max-width:1000px;margin:0 auto;background:#fff;min-height:100vh;' +
+        'box-shadow:0 1px 3px rgba(0,0,0,0.06);}' +
+        '.cabecera{background:var(--plum);color:#fff;padding:22px 34px;' +
+        'display:flex;align-items:center;gap:18px;}' +
+        '.cabecera img{height:44px;background:#fff;border-radius:6px;padding:5px 9px;}' +
+        '.cabecera h1{font-size:19px;margin:0;font-weight:700;letter-spacing:.2px;}' +
+        '.cabecera p{margin:3px 0 0;font-size:12.5px;opacity:.75;}' +
+        '.cuerpo{padding:26px 34px 40px;}' +
+        '.archivo{background:var(--plum-soft);border-left:3px solid var(--plum);' +
+        'padding:11px 16px;border-radius:0 6px 6px 0;margin-bottom:22px;}' +
+        '.archivo .n{font-weight:600;font-size:14px;color:var(--plum);word-break:break-all;}' +
+        '.archivo .f{font-size:12px;color:#7b6f82;margin-top:2px;}' +
+        '.resumen{display:flex;gap:12px;margin-bottom:26px;flex-wrap:wrap;}' +
+        '.caja{border:1px solid #e8e2ea;border-radius:9px;padding:12px 20px;font-size:12.5px;' +
+        'color:#7b6f82;min-width:130px;}' +
+        '.caja b{display:block;font-size:24px;margin-top:3px;color:var(--plum);font-weight:700;}' +
+        '.caja.err{border-color:#f3c3c3;background:#fdf4f4;color:#9c3535;}' +
+        '.caja.err b{color:#b91c1c;}' +
+        '.caja.avi{border-color:#f0dcae;background:#fdfaf1;color:#8a6a24;}' +
+        '.caja.avi b{color:#b45309;}' +
+        'h2{font-size:14.5px;margin:26px 0 10px;padding-bottom:7px;' +
+        'border-bottom:2px solid #ece7ee;color:var(--plum);}' +
+        'h2.err{color:#b91c1c;border-color:#f3c3c3;}' +
+        'h2.avi{color:#b45309;border-color:#f0dcae;}' +
+        'table{width:100%;border-collapse:collapse;font-size:12.8px;}' +
+        'th{text-align:left;padding:8px 10px;background:var(--plum-soft);' +
+        'border-bottom:1px solid #e8e2ea;font-size:11.5px;color:#7b6f82;' +
+        'text-transform:uppercase;letter-spacing:.4px;font-weight:700;}' +
+        'td{padding:9px 10px;border-bottom:1px solid #f2eef3;vertical-align:top;line-height:1.5;}' +
+        'tr:nth-child(even) td{background:#fcfbfc;}' +
+        '.fila{width:56px;font-weight:700;color:var(--plum);}' +
+        '.campo{width:180px;color:#7b6f82;}' +
+        '.pie{margin-top:34px;padding-top:14px;border-top:1px solid #ece7ee;' +
+        'font-size:11.5px;color:#9b8fa2;text-align:center;}' +
+        '.noprint{padding:16px 34px 0;}' +
+        '.noprint button{background:var(--plum);color:#fff;border:none;padding:10px 22px;' +
+        'border-radius:7px;font-size:14px;font-weight:600;cursor:pointer;}' +
+        '.noprint button:hover{background:#3d1547;}' +
+        '@media print{body{background:#fff;} .hoja{box-shadow:none;max-width:none;}' +
+        '.noprint{display:none;} .cuerpo{padding:0 4mm;} thead{display:table-header-group;}' +
+        'tr{break-inside:avoid;}}' +
+        '</style></head><body><div class="hoja">' +
         '<div class="noprint"><button onclick="window.print()">Guardar como PDF o imprimir</button></div>' +
-        '<h1>Informe de validacion del archivo</h1>' +
-        '<p class="sub">' + esc(data.filename) + ' &middot; ' + esc(hoy) + '</p>' +
+        '<div class="cabecera">' +
+          '<img src="' + esc(logoUrl) + '" alt="PKI Services" ' +
+          'onerror="this.style.display=\'none\'">' +
+          '<div><h1>Informe de validacion del archivo</h1>' +
+          '<p>FirmaLegal Online &middot; PKI Services S.A.S.</p></div>' +
+        '</div>' +
+        '<div class="cuerpo">' +
+        '<div class="archivo"><div class="n">' + esc(data.filename) + '</div>' +
+        '<div class="f">Revisado el ' + esc(hoy) + '</div></div>' +
         '<div class="resumen">' +
           '<div class="caja">Filas leidas<b>' + esc(data.result.total_rows || '?') + '</b></div>' +
           '<div class="caja err">Errores que impiden el envio<b>' + errors.length + '</b></div>' +
@@ -1396,7 +1429,9 @@
         (!errors.length && !warnings.length
           ? '<p>El archivo no presenta errores ni avisos.</p>'
           : '') +
-        '</body></html>';
+        '<div class="pie">Informe generado automaticamente por FirmaLegal Online &middot; ' +
+        'PKI Services S.A.S. &middot; Entidad de Certificacion Digital acreditada por la ONAC</div>' +
+        '</div></div></body></html>';
 
       const win = window.open('', '_blank');
       if (!win) {
@@ -2359,6 +2394,6 @@
   <script src="/public/Main/auth-helper.js"></script>
   <script src="/public/Main/permissions.js"></script>
   <!-- Luego el script de tracking -->
-  <script src="/public/Main/tracking.js?v=20260928a"></script>
+  <script src="/public/Main/tracking.js?v=20260928b"></script>
 </body>
 </html>
