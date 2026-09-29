@@ -2,7 +2,7 @@
  * TRACKING VIEW - SISTEMA DE SEGUIMIENTO DE DOCUMENTOS
  * v20260317b
  **********************************************************/
-console.log('🔖 tracking.js v20260928d cargado');
+console.log('🔖 tracking.js v20260928e cargado');
 
 // ====== VARIABLES GLOBALES ======
 let currentDocumentType = 'normal'; // ✅ Tipo de documento actual: 'normal' o 'pagare'
@@ -3775,7 +3775,14 @@ async function _processPagareCsvData(results, fileName, file) {
   const csvWarnings = [];
   const emailRegexVal = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const cedulaKeywords = ['cedula', 'c.c', 'cc', 'documento', 'identidad', 'numero'];
-  const fillValues = new Set(['casa','trabajo','n/a','na','-','x','ninguno','ninguna','no aplica','n.a.','s/d','sin dato']);
+  // Lo que los padres escriben cuando no quieren o no saben poner el dato.
+  // Queda impreso tal cual en un documento legal, asi que se avisa.
+  const fillValues = new Set([
+    'casa','trabajo','n/a','na','-','--','x','xx','ninguno','ninguna','no aplica',
+    'n.a.','s/d','sin dato','no tengo','no tiene','no se','no sabe','nose',
+    'ninguna direccion','sin direccion','independiente','hogar','ama de casa',
+    '.','..','0','00','sin','nada','no','n','no aplica.','pendiente','por definir'
+  ]);
 
   const normLabel = s => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,' ').trim();
   const normCedula = s => (s||'').toString().replace(/[\s.,]/g,'');
@@ -3896,6 +3903,32 @@ async function _processPagareCsvData(results, fileName, file) {
         } else if (f.name === f.name.toLowerCase()) {
           csvWarnings.push({ row: rowIndex, field: partLabel + ' - Nombre', message: `El nombre "${f.name}" esta todo en minusculas. Quedara asi impreso en el pagare.` });
         }
+      }
+    });
+
+    // Check 11 (aviso): datos de relleno. La lista fillValues estaba definida
+    // pero no se usaba en ningun sitio, asi que direcciones como "casa" o
+    // "no tengo" pasaban sin avisar y quedaban impresas en el pagare.
+    // Solo se revisan direcciones y empresa: en Ocupacion o Estado civil
+    // palabras como "hogar" o "independiente" son respuestas legitimas.
+    Object.entries(textFields || {}).forEach(([etiqueta, valor]) => {
+      const v = String(valor || '').trim().toLowerCase();
+      if (!v) return;
+      const et = normLabel(etiqueta);
+      const esRevisable = /direccion|residencia|empresa|trabaja/.test(et);
+      if (!esRevisable) return;
+      if (fillValues.has(v)) {
+        csvWarnings.push({
+          row: rowIndex,
+          field: etiqueta,
+          message: `"${valor}" no parece un dato real. Quedara impreso asi en el documento; conviene confirmarlo con la familia.`
+        });
+      } else if (v.length < 8 && /direccion|residencia/.test(et)) {
+        csvWarnings.push({
+          row: rowIndex,
+          field: etiqueta,
+          message: `La direccion "${valor}" parece incompleta. Revisar que este completa.`
+        });
       }
     });
   });
@@ -4839,23 +4872,24 @@ async function _ampliarPaginaMapeada(pdfPage, pageData, anchoDestino) {
     const c = lienzo.getContext('2d');
     await pdfPage.render({ canvasContext: c, viewport: vp }).promise;
 
-    (pageData.fields || []).filter(f => f.field_type === 'text').forEach(f => {
-      const x = f.x * escala, y = f.y * escala;
-      const w = f.width * escala, h = f.height * escala;
-      const color = f.color || '#6b7280';
-      c.strokeStyle = color;
-      c.lineWidth = 1.5;
-      c.strokeRect(x, y, w, h);
-      c.fillStyle = color + '22';
-      c.fillRect(x, y, w, h);
-    });
+    // Sin recuadros: la ampliacion muestra el documento tal como va a quedar,
+    // con su texto y nada encima. Los recuadros solo tienen sentido en la
+    // miniatura, para ubicar de un vistazo donde cae cada campo.
 
     caja.appendChild(lienzo);
     capa.appendChild(caja);
-    capa.onclick = () => capa.remove();
-    document.addEventListener('keydown', function esc(ev) {
-      if (ev.key === 'Escape') { capa.remove(); document.removeEventListener('keydown', esc); }
-    });
+
+    // Una sola salida para los dos modos de cierre. Antes, al cerrar pulsando
+    // fuera, el listener de Escape se quedaba vivo y la capa sin limpiar: a la
+    // segunda vez ya no se podia volver a ampliar.
+    const cerrar = () => {
+      document.removeEventListener('keydown', alPulsarTecla);
+      if (capa.parentNode) capa.remove();
+    };
+    function alPulsarTecla(ev) { if (ev.key === 'Escape') cerrar(); }
+
+    capa.onclick = cerrar;
+    document.addEventListener('keydown', alPulsarTecla);
     document.body.appendChild(capa);
   } catch (e) {
     console.warn('[CAMPOS-MAPEADOS] No se pudo ampliar la pagina:', e.message);
@@ -4942,7 +4976,7 @@ async function _loadCamposMapeados(container, docId, groupId, groupRecipients, c
     thumbWrap.style.cssText = 'flex-shrink:0;position:relative;';
     // 140px no dejaba leer nada: en una pagina con 18 campos la miniatura era
     // ilegible y no se podia comprobar que el PDF trajera los datos del CSV.
-    const THUMB_W = 260;
+    const THUMB_W = 140;
     // Para ampliarla al pulsarla se renderiza aparte a mayor resolucion.
     const ZOOM_W = 900;
 
