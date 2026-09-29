@@ -326,89 +326,17 @@ app.locals.db = db;
 // REGISTRO DE EVENTOS
 // ============================================================================
 //
-// Deja constancia en `signature_events` de lo que va pasando: quien firmo,
-// quien valido su identidad, que correo salio, que fallo.
+// Deja constancia en `signature_events` de lo que va pasando en los
+// documentos. Vive en backend/lib/registro-eventos.js porque los
+// controladores tambien lo necesitan.
 //
-// Hasta ahora esto no existia como tal: de los 12 tipos de evento que la tabla
-// admite, el codigo solo escribia 3, y cada incidente (los 8 pagares sin firma,
-// las trazas que faltaban, los SMS no entregados) hubo que investigarlo leyendo
-// los logs de Docker a mano. Y esos rotan y se pierden.
-//
-// REGLA QUE NO SE ROMPE: esta funcion NUNCA lanza excepcion. Un fallo al
-// registrar no puede tumbar una firma ni un envio. Si algo va mal se queja en
-// el log y devuelve false, pero la operacion sigue su curso.
-//
-// `user_id` y `team_id` son columnas de la migracion 004. Mientras no este
-// aplicada, se escriben como NULL sin romper nada: la funcion comprueba que
-// existan antes de usarlas.
-let _columnasLogsComprobadas = false;
-let _hayColumnasUsuarioEquipo = false;
+// REGLA QUE NO SE ROMPE: registrar NUNCA lanza excepcion. Un fallo al dejar
+// constancia no puede tumbar una firma ni un envio.
+const { registrarEvento: _registrarEvento, registrarError: _registrarError } = require('./lib/registro-eventos');
 
-async function registrarEvento({ tipo, documentId, recipientId = null, userId = null,
-                                 teamId = null, datos = null, req = null }) {
-    try {
-        if (!tipo || !documentId) return false;
-
-        // Se comprueba una sola vez si la migracion 004 esta aplicada. Asi el
-        // codigo nuevo funciona igual antes y despues de migrar.
-        if (!_columnasLogsComprobadas) {
-            try {
-                const [cols] = await db.promise().query(
-                    `SELECT COLUMN_NAME FROM information_schema.COLUMNS
-                     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'signature_events'
-                       AND COLUMN_NAME IN ('user_id','team_id')`
-                );
-                _hayColumnasUsuarioEquipo = cols.length === 2;
-                if (!_hayColumnasUsuarioEquipo) {
-                    console.warn('[EVENTOS] La migracion 004 no esta aplicada: no se guardara usuario ni equipo');
-                }
-            } catch (_) {
-                _hayColumnasUsuarioEquipo = false;
-            }
-            _columnasLogsComprobadas = true;
-        }
-
-        // El equipo se deduce del dueno del documento si no viene dado.
-        let equipo = teamId;
-        if (_hayColumnasUsuarioEquipo && !equipo) {
-            try {
-                const [filas] = await db.promise().query(
-                    `SELECT tm.team_id FROM documents d
-                     JOIN team_members tm ON tm.user_id = d.owner_id
-                     WHERE d.document_id = ? LIMIT 1`,
-                    [documentId]
-                );
-                equipo = filas[0]?.team_id || null;
-            } catch (_) { equipo = null; }
-        }
-
-        const ip = req ? (req.ip || req.connection?.remoteAddress || null) : null;
-        const navegador = req ? (req.get?.('user-agent') || null) : null;
-        const cuerpo = datos ? JSON.stringify(datos) : null;
-
-        if (_hayColumnasUsuarioEquipo) {
-            await db.promise().query(
-                `INSERT INTO signature_events
-                   (document_id, recipient_id, user_id, team_id, event_type, event_data, ip_address, user_agent)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                [documentId, recipientId, userId, equipo, tipo, cuerpo, ip, navegador]
-            );
-        } else {
-            // Sin la migracion: se guarda igual, solo sin usuario ni equipo.
-            await db.promise().query(
-                `INSERT INTO signature_events
-                   (document_id, recipient_id, event_type, event_data, ip_address, user_agent)
-                 VALUES (?, ?, ?, ?, ?, ?)`,
-                [documentId, recipientId, tipo, cuerpo, ip, navegador]
-            );
-        }
-        return true;
-    } catch (e) {
-        // Nunca se propaga: registrar es importante, pero no tanto como firmar.
-        console.warn(`[EVENTOS] No se pudo registrar "${tipo}" del documento ${documentId}: ${e.message}`);
-        return false;
-    }
-}
+// Envoltorios para no tener que pasar `db` en cada llamada.
+const registrarEvento = (evento) => _registrarEvento(db, evento);
+const registrarError = (evento) => _registrarError(db, evento);
 
 // =============================================
 // ✅ FUNCIONES AUXILIARES PARA PAGARÉS
@@ -1304,6 +1232,17 @@ async function sealPagaresWithoutFinalSigner(documentId) {
                         // un documento incompleto: que no pase en silencio.
                         if (!trazaPathToUse && recToSeal.vi_validated_at) {
                             console.warn(`   ⚠️ [VI-TRAZA-PAGARE] ${recToSeal.email} valido su identidad pero se sella SIN trazabilidad`);
+                            // Queda en la base, no solo en el log de Docker: es
+                            // el fallo que dejo pagares sellados sin su soporte
+                            // de identidad y que solo se descubrio abriendo los
+                            // PDF uno por uno.
+                            await registrarError({
+                                documentId,
+                                recipientId: recToSeal.recipient_id,
+                                donde: 'sellado sin firmante definitivo',
+                                mensaje: 'Se sello sin la trazabilidad de un firmante que si valido su identidad',
+                                datos: { correo: recToSeal.email }
+                            });
                         }
                         if (trazaPathToUse) {
                             const trazaAbs = resolveFromRoot(trazaPathToUse.replace(/^\/+/, ''));
@@ -10000,7 +9939,8 @@ app.post('/api/public/otp/enviar', async (req, res) => {
     try {
         // 1. Obtener datos del recipient
         const [rows] = await db.promise().query(
-            `SELECT dr.email, dr.viewer_group_id, dr.is_final_signer, dr.status, d.document_type
+            `SELECT dr.recipient_id, dr.document_id, dr.email, dr.viewer_group_id,
+                    dr.is_final_signer, dr.status, d.document_type
              FROM document_recipients dr
              INNER JOIN documents d ON dr.document_id = d.document_id
              WHERE dr.token = ?`,
@@ -10130,6 +10070,17 @@ app.post('/api/public/otp/enviar', async (req, res) => {
                     // funcionando por SMS, y ahi esta el riesgo de no enterarse.
                     if (String(datosWa.code) === '63051') {
                         console.error('🔴🔴🔴 [OTP] META HA BLOQUEADO EL REMITENTE DE WHATSAPP (63051).');
+                        // En la base tambien: el bloqueo de septiembre paso un
+                        // mes inadvertido porque el sistema seguia funcionando
+                        // por SMS y el fallo solo estaba en los logs de Docker.
+                        await registrarError({
+                            documentId: recipient.document_id,
+                            recipientId: recipient.recipient_id,
+                            donde: 'envio del codigo por WhatsApp',
+                            mensaje: 'Meta ha bloqueado el remitente de WhatsApp (63051)',
+                            datos: { codigo_twilio: 63051 },
+                            req
+                        });
                         console.error('        Los codigos saldran por SMS, que NO llegan a Movistar ni a lineas portadas.');
                         console.error('        Hay que abrir un ticket con Meta cuanto antes.');
                     } else {
