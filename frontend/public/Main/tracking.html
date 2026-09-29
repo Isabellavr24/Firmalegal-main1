@@ -7,7 +7,7 @@
 
   <!-- CSS -->
   <link rel="stylesheet" href="/public/Main/M-styles/Styles.css?v=8">
-  <link rel="stylesheet" href="/public/Main/M-styles/tracking.css?v=8">
+  <link rel="stylesheet" href="/public/Main/M-styles/tracking.css?v=9">
   <link rel="stylesheet" href="/public/Main/M-styles/profile-menu.css?v=2">
 
   <!-- Fuente -->
@@ -1329,7 +1329,10 @@
       const data = window._csvReportData;
       if (!data) return;
       const errors = (data.result.validation_errors || []);
-      const warnings = (data.result.validation_warnings || []);
+      // La validacion del front los manda en `warnings` y la del backend en
+      // `validation_warnings`. Se aceptan los dos: si solo se mira uno, el
+      // informe sale sin avisos.
+      const warnings = (data.result.warnings || data.result.validation_warnings || []);
       // El informe se abre listo para imprimir, para poder guardarlo como PDF.
       // Antes se bajaba un .txt, que ademas de quedar feo no sirve para
       // mandarselo al colegio. No se añade ninguna libreria: se usa la
@@ -2356,6 +2359,6 @@
   <script src="/public/Main/auth-helper.js"></script>
   <script src="/public/Main/permissions.js"></script>
   <!-- Luego el script de tracking -->
-  <script src="/public/Main/tracking.js?v=20260916a"></script>
+  <script src="/public/Main/tracking.js?v=20260928a"></script>
 </body>
 </html>

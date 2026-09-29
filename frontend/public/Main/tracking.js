@@ -2,7 +2,7 @@
  * TRACKING VIEW - SISTEMA DE SEGUIMIENTO DE DOCUMENTOS
  * v20260317b
  **********************************************************/
-console.log('🔖 tracking.js v20260916a cargado');
+console.log('🔖 tracking.js v20260928a cargado');
 
 // ====== VARIABLES GLOBALES ======
 let currentDocumentType = 'normal'; // ✅ Tipo de documento actual: 'normal' o 'pagare'
