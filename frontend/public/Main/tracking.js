@@ -2,7 +2,7 @@
  * TRACKING VIEW - SISTEMA DE SEGUIMIENTO DE DOCUMENTOS
  * v20260317b
  **********************************************************/
-console.log('🔖 tracking.js v20260928c cargado');
+console.log('🔖 tracking.js v20260928d cargado');
 
 // ====== VARIABLES GLOBALES ======
 let currentDocumentType = 'normal'; // ✅ Tipo de documento actual: 'normal' o 'pagare'
@@ -4807,6 +4807,61 @@ function abrirOtpCelularModalCard(email) {
 // =============================================
 // CAMPOS MAPEADOS — Panel colapsable en tarjeta de pagaré
 // =============================================
+// Abre una pagina del pagare a tamano grande, con los campos dibujados encima.
+// La miniatura sirve para ubicarse; esto es lo que permite comprobar de verdad
+// que el documento trae los datos del CSV en su sitio.
+async function _ampliarPaginaMapeada(pdfPage, pageData, anchoDestino) {
+  try {
+    const capa = document.createElement('div');
+    capa.style.cssText = 'position:fixed;inset:0;background:rgba(20,10,24,0.82);z-index:10000;' +
+      'display:flex;align-items:center;justify-content:center;padding:24px;cursor:zoom-out;overflow:auto;';
+
+    const caja = document.createElement('div');
+    caja.style.cssText = 'background:#fff;border-radius:10px;padding:14px;max-height:100%;overflow:auto;' +
+      'box-shadow:0 12px 40px rgba(0,0,0,0.35);cursor:default;';
+    caja.onclick = (e) => e.stopPropagation();
+
+    const titulo = document.createElement('div');
+    titulo.style.cssText = 'font-size:12px;font-weight:700;color:#4a1e5c;margin-bottom:10px;' +
+      'text-transform:uppercase;letter-spacing:.5px;display:flex;justify-content:space-between;gap:16px;';
+    titulo.innerHTML = '<span>Pagina ' + pageData.page_number + '</span>' +
+      '<span style="font-weight:400;text-transform:none;color:#8b7d93;">Pulse fuera para cerrar</span>';
+    caja.appendChild(titulo);
+
+    const vpNat = pdfPage.getViewport({ scale: 1 });
+    const escala = Math.min(anchoDestino, window.innerWidth - 90) / vpNat.width;
+    const vp = pdfPage.getViewport({ scale: escala });
+
+    const lienzo = document.createElement('canvas');
+    lienzo.width = vp.width;
+    lienzo.height = vp.height;
+    lienzo.style.cssText = 'display:block;border:1px solid #e5e7eb;border-radius:4px;max-width:100%;';
+    const c = lienzo.getContext('2d');
+    await pdfPage.render({ canvasContext: c, viewport: vp }).promise;
+
+    (pageData.fields || []).filter(f => f.field_type === 'text').forEach(f => {
+      const x = f.x * escala, y = f.y * escala;
+      const w = f.width * escala, h = f.height * escala;
+      const color = f.color || '#6b7280';
+      c.strokeStyle = color;
+      c.lineWidth = 1.5;
+      c.strokeRect(x, y, w, h);
+      c.fillStyle = color + '22';
+      c.fillRect(x, y, w, h);
+    });
+
+    caja.appendChild(lienzo);
+    capa.appendChild(caja);
+    capa.onclick = () => capa.remove();
+    document.addEventListener('keydown', function esc(ev) {
+      if (ev.key === 'Escape') { capa.remove(); document.removeEventListener('keydown', esc); }
+    });
+    document.body.appendChild(capa);
+  } catch (e) {
+    console.warn('[CAMPOS-MAPEADOS] No se pudo ampliar la pagina:', e.message);
+  }
+}
+
 async function _loadCamposMapeados(container, docId, groupId, groupRecipients, cacheKey) {
   const userStr = localStorage.getItem('currentUser');
   const userId = userStr ? JSON.parse(userStr).user_id : '';
@@ -4885,7 +4940,11 @@ async function _loadCamposMapeados(container, docId, groupId, groupRecipients, c
     // Miniatura del PDF
     const thumbWrap = document.createElement('div');
     thumbWrap.style.cssText = 'flex-shrink:0;position:relative;';
-    const THUMB_W = 140;
+    // 140px no dejaba leer nada: en una pagina con 18 campos la miniatura era
+    // ilegible y no se podia comprobar que el PDF trajera los datos del CSV.
+    const THUMB_W = 260;
+    // Para ampliarla al pulsarla se renderiza aparte a mayor resolucion.
+    const ZOOM_W = 900;
 
     if (pdfDoc && pageData.page_number <= pdfDoc.numPages) {
       try {
@@ -4922,7 +4981,11 @@ async function _loadCamposMapeados(container, docId, groupId, groupRecipients, c
         // Convertir a imagen PNG para que sobreviva manipulaciones del DOM
         const img = document.createElement('img');
         img.src = canvas.toDataURL('image/png');
-        img.style.cssText = `width:${THUMB_W}px;height:${Math.round(viewport.height)}px;border:1px solid #e5e7eb;border-radius:4px;display:block;`;
+        img.style.cssText = `width:${THUMB_W}px;height:${Math.round(viewport.height)}px;border:1px solid #e5e7eb;border-radius:4px;display:block;cursor:zoom-in;`;
+        img.title = 'Pulse para ver la pagina completa';
+        // Al pulsarla se vuelve a dibujar en grande, con sus campos encima, para
+        // poder comprobar que el PDF trae de verdad los datos del CSV.
+        img.onclick = () => _ampliarPaginaMapeada(pdfPage, pageData, ZOOM_W);
         thumbWrap.appendChild(img);
       } catch (e) {
         console.warn('[CAMPOS-MAPEADOS] Error renderizando pagina', pageData.page_number, e.message);
