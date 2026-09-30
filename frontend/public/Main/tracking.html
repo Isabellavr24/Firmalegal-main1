@@ -1302,6 +1302,13 @@
       var zone = document.getElementById('pagareCsvUploadZone');
       if (!zone) return;
 
+      // La zona tiene que estar VISIBLE, no solo pintada de rojo: si el archivo
+      // anterior habia salido bien, quedo oculta al cargarse, y sin esto el
+      // paso 3 aparece vacio y no hay forma de subir otro archivo.
+      zone.style.display = '';
+      var resumen = document.getElementById('pagareCsvPreview');
+      if (resumen) resumen.style.display = 'none';
+
       zone.classList.add('has-errors');
 
       var nErr = (window._csvReportData.result.validation_errors || []).length;
@@ -1340,6 +1347,7 @@
     window._resetCsvUploadZone = function() {
       var zone = document.getElementById('pagareCsvUploadZone');
       if (!zone) return;
+      zone.style.display = '';
       zone.classList.remove('has-errors');
       var titulo = document.getElementById('pagareCsvZoneTitle');
       if (titulo) titulo.textContent = 'Arrastra el CSV con los datos de los firmantes';
@@ -2421,6 +2429,6 @@
   <script src="/public/Main/auth-helper.js"></script>
   <script src="/public/Main/permissions.js"></script>
   <!-- Luego el script de tracking -->
-  <script src="/public/Main/tracking.js?v=20260929b"></script>
+  <script src="/public/Main/tracking.js?v=20260929c"></script>
 </body>
 </html>

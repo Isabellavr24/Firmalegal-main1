@@ -3627,8 +3627,17 @@ function handlePagareCsvUpload(file) {
   // ENVIAR— tambien. Parecia que ibas a enviar un archivo y en realidad ibas a
   // enviar el otro.
   window.pagareCsvData = null;
+
+  // Se vuelve al estado de "no hay nada cargado": se esconde el resumen verde
+  // y REAPARECE la zona de subir. Esto ultimo es imprescindible: al cargar un
+  // CSV con exito la zona se oculta (mas abajo), asi que esconder solo el
+  // resumen dejaba el paso 3 completamente vacio, sin sitio donde soltar el
+  // archivo ni boton para elegirlo. El usuario se quedaba sin poder subir nada
+  // y tenia que recargar la pagina entera.
   const previo = document.getElementById('pagareCsvPreview');
   if (previo) previo.style.display = 'none';
+  const zona = document.getElementById('pagareCsvUploadZone');
+  if (zona) zona.style.display = '';
 
   if (!file.name.endsWith('.csv')) {
     ToastManager.error('Error', 'Solo se permiten archivos CSV');
