@@ -1191,7 +1191,15 @@
       // Registros no aparecia nada. No se espera la respuesta ni se comprueba:
       // es solo constancia, y no puede estorbar a quien esta corrigiendo su
       // archivo.
-      if (errors.length > 0) {
+      // Solo la PRIMERA vez que se ve este archivo. El boton "Ver errores del
+      // archivo" vuelve a abrir este mismo informe, y sin esto cada vistazo
+      // anotaba un rechazo nuevo: en DEV salieron dos filas identicas de un
+      // solo CSV. Se recuerda por nombre y numero de errores, que basta para
+      // distinguir un archivo corregido y vuelto a subir.
+      const huella = (filename || '') + '|' + errors.length;
+      const yaAnotado = window._csvRechazoAnotado === huella;
+      if (errors.length > 0 && !yaAnotado) {
+        window._csvRechazoAnotado = huella;
         try {
           const idDoc = new URLSearchParams(location.search).get('id');
           fetch('/api/registros/csv-rechazado', {
@@ -2429,6 +2437,6 @@
   <script src="/public/Main/auth-helper.js"></script>
   <script src="/public/Main/permissions.js"></script>
   <!-- Luego el script de tracking -->
-  <script src="/public/Main/tracking.js?v=20260929c"></script>
+  <script src="/public/Main/tracking.js?v=20260929d"></script>
 </body>
 </html>

@@ -3627,6 +3627,9 @@ function handlePagareCsvUpload(file) {
   // ENVIAR— tambien. Parecia que ibas a enviar un archivo y en realidad ibas a
   // enviar el otro.
   window.pagareCsvData = null;
+  // Cada archivo que se elige es un intento nuevo, aunque se llame igual y
+  // traiga los mismos fallos: se olvida la huella para que vuelva a anotarse.
+  window._csvRechazoAnotado = null;
 
   // Se vuelve al estado de "no hay nada cargado": se esconde el resumen verde
   // y REAPARECE la zona de subir. Esto ultimo es imprescindible: al cargar un
