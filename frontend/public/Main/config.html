@@ -1155,6 +1155,11 @@
                    style="width:90px;padding:8px 10px;border:1px solid #e5e0e8;border-radius:8px;font-family:inherit;font-size:13px;">
           </div>
           <div>
+            <label for="regCorreo" style="display:block;font-size:12px;color:#7b6f82;margin-bottom:4px;">Correo</label>
+            <input id="regCorreo" type="text" inputmode="email" placeholder="correo del firmante"
+                   style="min-width:190px;padding:8px 10px;border:1px solid #e5e0e8;border-radius:8px;font-family:inherit;font-size:13px;">
+          </div>
+          <div>
             <label for="regTipo" style="display:block;font-size:12px;color:#7b6f82;margin-bottom:4px;">Mostrar</label>
             <select id="regTipo" style="min-width:150px;padding:8px 10px;border:1px solid #e5e0e8;border-radius:8px;font-family:inherit;font-size:13px;">
               <option value="">Todo</option>
@@ -1178,6 +1183,11 @@
           <button id="regBtnBuscar" type="button"
                   style="padding:9px 20px;background:#2a0d31;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">Buscar</button>
         </div>
+
+        <!-- Totales de lo que hay bajo los filtros puestos. Las tres primeras
+             tarjetas tambien filtran al pulsarlas: es la forma mas rapida de
+             pasar de "hubo 12 errores" a ver cuales fueron. -->
+        <div id="regTotales" style="display:none;gap:10px;flex-wrap:wrap;margin-bottom:14px;"></div>
 
         <div id="regResumen" style="font-size:13px;color:#7b6f82;margin-bottom:10px;"></div>
 
@@ -1608,13 +1618,52 @@
       }).join('');
     }
 
+    // Las tarjetas de arriba. Cuentan lo que hay bajo los filtros puestos
+    // (documento, correo, usuario, fechas...), pero NO bajo el de Mostrar: asi
+    // la tarjeta de Movimientos sigue marcando su numero mientras se esta
+    // viendo solo errores, y sirve para volver. Las tres primeras filtran al
+    // pulsarlas, cambiando ese selector.
+    function pintarTotales(t) {
+      const caja = document.getElementById('regTotales');
+      if (!caja) return;
+      if (!t) { caja.style.display = 'none'; return; }
+
+      const num = v => Number(v || 0).toLocaleString('es-CO');
+      const tipoActual = document.getElementById('regTipo')?.value || '';
+
+      const tarjetas = [
+        { clave: '',            etiqueta: 'Todo',          valor: t.todo,          color: '#2a0d31', filtra: true },
+        { clave: 'movimientos', etiqueta: 'Movimientos',   valor: t.movimientos,   color: '#2a0d31', filtra: true },
+        { clave: 'errores',     etiqueta: 'Errores',       valor: t.errores,       color: '#b91c1c', filtra: true },
+        { clave: null,          etiqueta: 'Firmas',        valor: t.firmas,        color: '#166534' },
+        { clave: null,          etiqueta: 'Validaciones',  valor: t.validaciones,  color: '#166534' },
+        { clave: null,          etiqueta: 'Documentos',    valor: t.documentos,    color: '#7b6f82' },
+        { clave: null,          etiqueta: 'Usuarios',      valor: t.usuarios,      color: '#7b6f82' }
+      ];
+
+      caja.innerHTML = tarjetas.map(c => {
+        const activa = c.filtra && c.clave === tipoActual;
+        return '<div' + (c.filtra ? ' data-tipo="' + c.clave + '" role="button" tabindex="0"' : '') + ' ' +
+               'style="flex:1;min-width:104px;padding:11px 14px;border-radius:10px;' +
+               'background:' + (activa ? '#f6f1f8' : '#fff') + ';' +
+               'border:1px solid ' + (activa ? '#2a0d31' : '#ece7ee') + ';' +
+               (c.filtra ? 'cursor:pointer;' : '') + '">' +
+               '<div style="font-size:19px;font-weight:700;color:' + c.color + ';line-height:1.2;">' +
+               num(c.valor) + '</div>' +
+               '<div style="font-size:11px;color:#7b6f82;margin-top:2px;">' + c.etiqueta + '</div>' +
+               '</div>';
+      }).join('');
+      caja.style.display = 'flex';
+    }
+
     async function cargar() {
       const caja = document.getElementById('regConsola');
       caja.innerHTML = '<div style="padding:26px;text-align:center;color:#9b8fa2;">Cargando registros...</div>';
 
       const p = new URLSearchParams({ pagina: regPagina, por_pagina: regPorPagina });
       const campos = { usuario: 'regUsuario', equipo: 'regEquipo', documento: 'regDocumento',
-                       tipo: 'regTipo', desde: 'regDesde', hasta: 'regHasta', buscar: 'regBuscar' };
+                       correo: 'regCorreo', tipo: 'regTipo', desde: 'regDesde',
+                       hasta: 'regHasta', buscar: 'regBuscar' };
       for (const [clave, id] of Object.entries(campos)) {
         const v = document.getElementById(id)?.value?.trim();
         if (v) p.set(clave, v);
@@ -1630,6 +1679,7 @@
         }
         regTotal = datos.total || 0;
         pintar(datos);
+        pintarTotales(datos.totales);
 
         document.getElementById('regResumen').textContent =
           regTotal === 1 ? '1 registro' : regTotal.toLocaleString('es-CO') + ' registros';
@@ -1681,6 +1731,33 @@
     document.getElementById('regBtnBuscar')?.addEventListener('click', () => { regPagina = 1; cargar(); });
     document.getElementById('regBuscar')?.addEventListener('keydown', e => {
       if (e.key === 'Enter') { regPagina = 1; cargar(); }
+    });
+    document.getElementById('regCorreo')?.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { regPagina = 1; cargar(); }
+    });
+    document.getElementById('regDocumento')?.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { regPagina = 1; cargar(); }
+    });
+    // Los tres selectores recargan solos: nadie espera pulsar Buscar despues
+    // de elegir en una lista.
+    for (const id of ['regUsuario', 'regEquipo', 'regTipo']) {
+      document.getElementById(id)?.addEventListener('change', () => { regPagina = 1; cargar(); });
+    }
+    // Delegacion, porque las tarjetas se vuelven a crear en cada carga.
+    document.getElementById('regTotales')?.addEventListener('click', e => {
+      const t = e.target.closest('[data-tipo]');
+      if (!t) return;
+      const sel = document.getElementById('regTipo');
+      if (sel) sel.value = t.dataset.tipo;
+      regPagina = 1;
+      cargar();
+    });
+    document.getElementById('regTotales')?.addEventListener('keydown', e => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const t = e.target.closest('[data-tipo]');
+      if (!t) return;
+      e.preventDefault();
+      t.click();
     });
     document.getElementById('regAnterior')?.addEventListener('click', () => {
       if (regPagina > 1) { regPagina--; cargar(); }

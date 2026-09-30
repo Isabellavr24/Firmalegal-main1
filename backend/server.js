@@ -338,6 +338,132 @@ const { registrarEvento: _registrarEvento, registrarError: _registrarError } = r
 const registrarEvento = (evento) => _registrarEvento(db, evento);
 const registrarError = (evento) => _registrarError(db, evento);
 
+/**
+ * Comprueba que un pagare cerrado tenga de verdad su documento completo.
+ *
+ * Un pagare se da por cerrado cuando todos firman, pero eso no garantiza que
+ * el PDF salga bien: el 22-09-2026 se sellaron cuatro con 11 paginas y SIN
+ * trazabilidad, pese a que sus firmantes habian validado. Nadie se entero
+ * hasta que alguien abrio los PDF uno por uno.
+ *
+ * Esto lo comprueba al sellar, ABRIENDO el PDF, no fiandose de la ruta:
+ *
+ *   - que el archivo exista
+ *   - que lleve una traza por cada firmante que valido su identidad
+ *   - que tenga mas paginas que el documento base (si no, no se anexo nada)
+ *
+ * Si algo no cuadra queda como error en los registros, con el detalle. No
+ * interrumpe el sellado: el documento ya esta hecho, de lo que se trata es de
+ * que no pase inadvertido.
+ */
+async function comprobarPagareCompleto(documentId, viewerGroupId = null) {
+    try {
+        const [firmantes] = await db.promise().query(
+            `SELECT dr.recipient_id, dr.email, dr.name, dr.custom_pdf_path,
+                    COALESCE(dr.vi_traza_path, v.vi_traza_path) AS traza
+             FROM document_recipients dr
+             LEFT JOIN vi_verified_emails v
+               ON LOWER(v.email) COLLATE utf8mb4_unicode_ci = LOWER(dr.email) COLLATE utf8mb4_unicode_ci
+             WHERE dr.document_id = ?
+               ${viewerGroupId ? 'AND dr.viewer_group_id = ?' : ''}`,
+            viewerGroupId ? [documentId, viewerGroupId] : [documentId]
+        );
+        if (!firmantes.length) return;
+
+        const esperadas = firmantes.filter(f => f.traza).length;
+        if (!esperadas) return;   // nadie valido: no hay traza que exigir
+
+        // Cada firmante puede tener SU PDF (pagares con datos individuales). Se
+        // comprueba cada archivo distinto por separado: si solo se mirara uno,
+        // un PDF completo taparia el de al lado al que le falta la traza.
+        const porArchivo = new Map();
+        for (const f of firmantes) {
+            if (!f.custom_pdf_path) continue;
+            if (!porArchivo.has(f.custom_pdf_path)) porArchivo.set(f.custom_pdf_path, []);
+            porArchivo.get(f.custom_pdf_path).push(f);
+        }
+
+        if (!porArchivo.size) {
+            await registrarError({
+                documentId, donde: 'cierre del pagare',
+                mensaje: 'El pagare quedo cerrado pero ningun firmante tiene su PDF asignado',
+                datos: { viewer_group_id: viewerGroupId, firmantes_validados: esperadas }
+            });
+            return;
+        }
+
+        // Los que no tienen archivo propio tampoco pueden verlo.
+        const huerfanos = firmantes.filter(f => f.traza && !f.custom_pdf_path);
+        if (huerfanos.length) {
+            await registrarError({
+                documentId, donde: 'cierre del pagare',
+                mensaje: `${huerfanos.length} firmante(s) validado(s) quedaron sin PDF asignado al cerrar el pagare`,
+                datos: {
+                    correos: huerfanos.map(f => f.email),
+                    viewer_group_id: viewerGroupId
+                }
+            });
+        }
+
+        const pdfjs = require('pdfjs-dist/legacy/build/pdf.js');
+
+        for (const [pdfRel, suyos] of porArchivo) {
+            const abs = resolveFromRoot(String(pdfRel).replace(/^\/+/, ''));
+            if (!fs.existsSync(abs)) {
+                await registrarError({
+                    documentId, donde: 'cierre del pagare',
+                    mensaje: 'El pagare quedo cerrado pero su PDF no existe en el disco',
+                    datos: {
+                        archivo: pdfRel,
+                        correos: suyos.map(f => f.email),
+                        viewer_group_id: viewerGroupId
+                    }
+                });
+                continue;
+            }
+
+            // Se cuentan las paginas de trazabilidad leyendo el PDF, no la ruta.
+            const doc = await pdfjs.getDocument({
+                data: new Uint8Array(fs.readFileSync(abs)), useSystemFonts: true
+            }).promise;
+
+            let conTraza = 0;
+            for (let i = 1; i <= doc.numPages; i++) {
+                const texto = (await (await doc.getPage(i)).getTextContent()).items.map(x => x.str).join(' ');
+                if (/TRAZABILIDAD/i.test(texto)) conTraza++;
+            }
+
+            // Cuantas trazas toca en ESTE archivo. Si el PDF es de una persona
+            // sola, la suya; si lo comparten, la de todos los que validaron.
+            const tocan = (porArchivo.size > 1)
+                ? suyos.filter(f => f.traza).length
+                : esperadas;
+            if (!tocan) continue;
+
+            if (conTraza < tocan) {
+                await registrarError({
+                    documentId, donde: 'cierre del pagare',
+                    mensaje: `El pagare se cerro con ${conTraza} trazabilidad(es) y se esperaban al menos ${tocan}`,
+                    datos: {
+                        paginas_del_pdf: doc.numPages,
+                        trazas_encontradas: conTraza,
+                        firmantes_validados: tocan,
+                        correos: suyos.filter(f => f.traza).map(f => f.email),
+                        archivo: pdfRel,
+                        viewer_group_id: viewerGroupId
+                    }
+                });
+                console.warn(`   ⚠️ [CIERRE] doc ${documentId} (${pdfRel}): ${conTraza} trazabilidad(es) de ${tocan} esperadas`);
+            } else {
+                console.log(`   ✅ [CIERRE] doc ${documentId} (${pdfRel}): ${doc.numPages} paginas, ${conTraza} trazabilidad(es) para ${tocan} firmante(s) validado(s)`);
+            }
+        }
+    } catch (e) {
+        // Comprobar no puede romper un sellado que ya termino.
+        console.warn(`[CIERRE] No se pudo comprobar el pagare ${documentId}: ${e.message}`);
+    }
+}
+
 // =============================================
 // ✅ FUNCIONES AUXILIARES PARA PAGARÉS
 // =============================================
@@ -1318,6 +1444,11 @@ async function sealPagaresWithoutFinalSigner(documentId) {
             [documentId]
         );
         console.log(`\n✅ [SIN-FINAL] Todos los pagarés sellados para documento ${documentId}`);
+
+        // Antes de darlo por bueno, abrir el PDF y comprobar que lleva las
+        // trazabilidades. Este es justo el camino que el 22-09 sello cuatro
+        // pagares con 11 paginas y sin ninguna traza.
+        await comprobarPagareCompleto(documentId);
 
     } catch (error) {
         console.error('❌ Error en sealPagaresWithoutFinalSigner:', error);
@@ -2916,7 +3047,7 @@ app.get('/api/registros', requireAuth, async (req, res) => {
         }
 
         const {
-            usuario, equipo, documento,      // los tres filtros pedidos
+            usuario, equipo, documento, correo,   // los filtros de la pantalla
             tipo,                            // 'errores' | 'movimientos' | vacio
             desde, hasta,
             buscar,
@@ -2930,17 +3061,40 @@ app.get('/api/registros', requireAuth, async (req, res) => {
 
         if (usuario)   { condiciones.push('user_id = ?');     valores.push(usuario); }
         if (equipo)    { condiciones.push('team_id = ?');     valores.push(equipo); }
-        if (documento) { condiciones.push('document_id = ?'); valores.push(documento); }
-        if (tipo === 'errores')     condiciones.push('es_error = 1');
-        if (tipo === 'movimientos') condiciones.push('es_error = 0');
+        // Por documento se pregunta de las dos formas: en signature_events es
+        // una columna, y en activity_log vive en entity_id. Preguntar por
+        // entity_id ademas de document_id es lo que permite entrar por el
+        // indice idx_al_entidad en vez de recorrer la tabla (migracion 005).
+        if (documento) {
+            condiciones.push(`(document_id = ? OR (entity_type = 'document' AND entity_id = ?))`);
+            valores.push(documento, documento);
+        }
         if (desde) { condiciones.push('fecha >= ?'); valores.push(desde + ' 00:00:00'); }
         if (hasta) { condiciones.push('fecha <= ?'); valores.push(hasta + ' 23:59:59'); }
+        // Por correo: el de un firmante vive dentro de `datos`, no en una
+        // columna. Se busca ahi y tambien entre los destinatarios del
+        // documento, para que salga todo lo relacionado con esa persona.
+        if (correo) {
+            condiciones.push(`(datos LIKE ? OR document_id IN (
+                SELECT document_id FROM document_recipients WHERE LOWER(email) = LOWER(?)
+            ))`);
+            valores.push(`%${correo}%`, correo);
+        }
         if (buscar) {
             condiciones.push('(accion LIKE ? OR datos LIKE ?)');
             valores.push(`%${buscar}%`, `%${buscar}%`);
         }
 
-        const donde = condiciones.length ? 'WHERE ' + condiciones.join(' AND ') : '';
+        // El filtro de tipo se aplica al listado pero NO a los totales: si al
+        // pedir "solo errores" los totales tambien se filtraran, la tarjeta de
+        // Movimientos marcaria cero y ya no serviria para volver.
+        const condicionTipo = tipo === 'errores' ? 'es_error = 1'
+                            : tipo === 'movimientos' ? 'es_error = 0'
+                            : null;
+
+        const cond = condicionTipo ? [...condiciones, condicionTipo] : condiciones;
+        const donde = cond.length ? 'WHERE ' + cond.join(' AND ') : '';
+        const dondeTotales = condiciones.length ? 'WHERE ' + condiciones.join(' AND ') : '';
         const limite = Math.min(parseInt(por_pagina, 10) || 50, 200);
         const salto = (Math.max(parseInt(pagina, 10) || 1, 1) - 1) * limite;
 
@@ -2955,6 +3109,20 @@ app.get('/api/registros', requireAuth, async (req, res) => {
 
         const [[conteo]] = await db.promise().query(
             `SELECT COUNT(*) AS total FROM v_registros ${donde}`, valores
+        );
+
+        // Los totales de las tarjetas. Van en una sola consulta: pedir siete
+        // conteos por separado obligaria a recorrer la vista siete veces.
+        const [[totales]] = await db.promise().query(
+            `SELECT
+               COUNT(*) AS todo,
+               SUM(es_error = 1) AS errores,
+               SUM(es_error = 0) AS movimientos,
+               COUNT(DISTINCT document_id) AS documentos,
+               COUNT(DISTINCT user_id) AS usuarios,
+               SUM(accion = 'document_signed') AS firmas,
+               SUM(accion = 'vi_validated') AS validaciones
+             FROM v_registros ${dondeTotales}`, valores
         );
 
         // Los nombres se resuelven aparte y en bloque: meter los JOIN en la
@@ -2986,6 +3154,7 @@ app.get('/api/registros', requireAuth, async (req, res) => {
             success: true,
             registros: filas,
             nombres,
+            totales,
             total: conteo.total,
             pagina: parseInt(pagina, 10) || 1,
             por_pagina: limite
@@ -7855,6 +8024,11 @@ app.post('/api/public/sign/:token', async (req, res) => {
                             },
                             req
                         });
+
+                        // Y se comprueba abriendo el PDF, no fiandose de la
+                        // cuenta de arriba: lo que importa es lo que quedo
+                        // dentro del documento.
+                        await comprobarPagareCompleto(recipient.document_id, recipient.viewer_group_id || null);
 
                         // Actualizar signed_file_path con el PDF final
                         await new Promise((resolve, reject) => {
