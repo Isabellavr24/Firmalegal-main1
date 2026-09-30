@@ -1720,19 +1720,39 @@
       } catch (_) { /* los filtros son opcionales */ }
     }
 
+    // La seccion se muestra con la clase `is-visible`, no con style.display:
+    // asi lo hace showSection() en settings.js. Mirar el display era mirar algo
+    // que nunca cambia, y la carga acababa dependiendo de que ganara la carrera
+    // con el setTimeout. De ahi que unas veces saliera y otras se quedara en
+    // "Cargando registros..." hasta cambiar de seccion y volver.
+    //
+    // Se vigila la clase con un MutationObserver, igual que Mis Plantillas. Asi
+    // funciona tambien al entrar directo por #registros, donde no hay ningun
+    // clic en el menu que disparar.
     let cargado = false;
+    let filtrosCargados = false;
     function abrirSiTocaN() {
       const sec = document.getElementById('sec-registros');
-      if (!sec || sec.style.display === 'none' || cargado) return;
+      if (!sec || !sec.classList.contains('is-visible') || cargado) return;
       cargado = true;
-      cargarFiltros();
+      // Los desplegables se piden una sola vez: no cambian al pasear por el menu.
+      if (!filtrosCargados) { filtrosCargados = true; cargarFiltros(); }
       cargar();
     }
+
+    const secRegistros = document.getElementById('sec-registros');
+    if (secRegistros) {
+      new MutationObserver(abrirSiTocaN).observe(secRegistros, {
+        attributes: true, attributeFilter: ['class']
+      });
+    }
+    // Por si ya esta abierta al cargar la pagina (entrada directa por #registros).
+    abrirSiTocaN();
 
     document.getElementById('navRegistros')?.addEventListener('click', () => {
       regPagina = 1;
       cargado = false;
-      setTimeout(abrirSiTocaN, 60);
+      abrirSiTocaN();
     });
     document.getElementById('regBtnBuscar')?.addEventListener('click', () => { regPagina = 1; cargar(); });
     document.getElementById('regBuscar')?.addEventListener('keydown', e => {
