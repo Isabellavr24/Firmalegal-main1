@@ -5445,10 +5445,22 @@ app.get('/api/public/document/:token', async (req, res) => {
         //
         // Se omite cuando el PDF ya lleva las trazas dentro (un pre_traza, o un
         // documento ya sellado), para no duplicarlas.
-        const yaIncorporaTrazas = /pre_traza|final_|pagare_completo_/.test(sourcePath) ||
-                                  pdfType === 'COMPLETO CON FIRMAS' ||
-                                  pdfType === 'PERSONALIZADO SELLADO (CSV)' ||
-                                  pdfType === 'COMPARTIDO SELLADO';
+        // Se decide por el NOMBRE del archivo, no por la etiqueta del tipo.
+        //
+        // Antes tambien se excluia por `pdfType`, y ahi estaba el fallo que se
+        // veia al firmar: en cuanto alguien firma, su estado pasa a
+        // `completed` y su `custom_pdf_path` apunta al *interim*, que se genera
+        // A PROPOSITO sin las trazas (si las llevara, el sellado final las
+        // anadiria otra vez y saldrian duplicadas). Pero ese caso se etiquetaba
+        // como 'PERSONALIZADO SELLADO (CSV)', que estaba en esta lista, asi que
+        // la fusion se saltaba y el documento aparecia con la firma y sin
+        // ninguna trazabilidad. Al validar el siguiente firmante se reconstruia
+        // con trazas y reaparecian: de ahi el ir y venir que se veia al
+        // seguir un envio paso a paso.
+        //
+        // Los nombres si dicen la verdad sobre el contenido: `pre_traza`,
+        // `final_` y `pagare_completo_` llevan las trazas dentro; `interim_` no.
+        const yaIncorporaTrazas = /pre_traza|final_|pagare_completo_/.test(sourcePath);
         if (!yaIncorporaTrazas) {
             try {
                 // La traza puede estar en DOS sitios y hay que mirar los dos:
@@ -5475,6 +5487,30 @@ app.get('/api/public/document/:token', async (req, res) => {
                     const { PDFDocument: PDFDocVista } = require('pdf-lib');
                     const baseAbs = resolveFromRoot(sourcePath.replace(/^\/+/, ''));
                     if (fs.existsSync(baseAbs)) {
+                        // Segunda red: se LEE el PDF para ver si ya lleva las
+                        // trazas dentro, en vez de fiarse solo del nombre. Si un
+                        // archivo sellado llegara aqui con otro nombre, esto
+                        // evita que se le anadan por segunda vez.
+                        let yaLasLleva = false;
+                        try {
+                            const pdfjsVista = require('pdfjs-dist/legacy/build/pdf.js');
+                            const docLeer = await pdfjsVista.getDocument({
+                                data: new Uint8Array(fs.readFileSync(baseAbs)), useSystemFonts: true
+                            }).promise;
+                            for (let i = 1; i <= docLeer.numPages && !yaLasLleva; i++) {
+                                const pg = await docLeer.getPage(i);
+                                const texto = (await pg.getTextContent()).items.map(x => x.str).join(' ');
+                                if (/TRAZABILIDAD/i.test(texto)) yaLasLleva = true;
+                                pg.cleanup();
+                            }
+                            await docLeer.destroy();
+                        } catch (_) { /* si no se puede leer, se sigue por el nombre */ }
+
+                        if (yaLasLleva) {
+                            console.log('   [VISTA] El PDF ya lleva la trazabilidad dentro: no se fusiona');
+                            throw { saltar: true };
+                        }
+
                         const vistaPdf = await PDFDocVista.load(fs.readFileSync(baseAbs));
                         let anexadas = 0;
                         for (const t of trazasDoc) {
@@ -5497,9 +5533,13 @@ app.get('/api/public/document/:token', async (req, res) => {
                     }
                 }
             } catch (eVista) {
-                // Si falla, se sirve el PDF tal cual: es preferible mostrar el
-                // documento sin trazas que no mostrar nada.
-                console.warn(`   ⚠️ [VISTA] No se pudieron fusionar las trazas: ${eVista.message}`);
+                // `saltar` no es un fallo: es la salida limpia cuando el PDF ya
+                // trae la trazabilidad y no hay que anadirle nada.
+                if (!eVista || !eVista.saltar) {
+                    // Si falla de verdad, se sirve el PDF tal cual: es preferible
+                    // mostrar el documento sin trazas que no mostrar nada.
+                    console.warn(`   ⚠️ [VISTA] No se pudieron fusionar las trazas: ${eVista && eVista.message}`);
+                }
             }
         }
 
