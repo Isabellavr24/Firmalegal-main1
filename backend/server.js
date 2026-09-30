@@ -3188,6 +3188,66 @@ app.get('/api/registros', requireAuth, async (req, res) => {
     }
 });
 
+// POST /api/registros/csv-rechazado — un CSV que no paso la validacion.
+//
+// La validacion del CSV corre ENTERA en el navegador, asi que el servidor no
+// se enteraba de nada: el operador veia el error en pantalla y en los registros
+// no aparecia absolutamente nada. Para saber que a alguien se le rechazo un
+// archivo habia que estar mirandole la pantalla.
+//
+// Esto no valida nada ni decide nada: solo deja constancia de lo que el
+// navegador ya rechazo. Por eso no importa que el cliente sea quien lo cuenta.
+app.post('/api/registros/csv-rechazado', requireAuth, async (req, res) => {
+    try {
+        const { documento_id, archivo, errores, total_filas } = req.body || {};
+
+        // Se guardan los primeros errores, no todos: un CSV de 1.200 filas mal
+        // hecho puede traer miles y no aportan nada nuevo a partir de unos
+        // pocos. El total si se guarda entero.
+        const lista = Array.isArray(errores) ? errores : [];
+        const muestra = lista.slice(0, 10).map(e => ({
+            fila: e.row ?? null,
+            campo: String(e.field || '').slice(0, 120),
+            problema: String(e.message || '').slice(0, 300)
+        }));
+
+        const datos = {
+            archivo: String(archivo || 'sin nombre').slice(0, 200),
+            errores_en_total: lista.length,
+            filas_del_archivo: total_filas ?? null,
+            primeros_errores: muestra
+        };
+
+        // Si se sabe a que documento iba, el evento se cuelga de el y sale al
+        // filtrar por ese pagare. Si no, queda como incidencia suelta.
+        const idDoc = parseInt(documento_id, 10);
+        if (Number.isInteger(idDoc) && idDoc > 0) {
+            await registrarError({
+                documentId: idDoc,
+                userId: req.userId || null,
+                donde: 'carga del CSV',
+                mensaje: `Se rechazo el CSV "${datos.archivo}": ${lista.length} error(es)`,
+                datos,
+                req
+            });
+        } else {
+            await registrarIncidencia({
+                donde: 'carga del CSV',
+                mensaje: `Se rechazo el CSV "${datos.archivo}": ${lista.length} error(es)`,
+                datos: { ...datos, usuario: req.userId || null },
+                req
+            });
+        }
+
+        res.json({ success: true });
+    } catch (e) {
+        // Que no se pueda dejar constancia no puede romperle la pantalla a
+        // nadie: el error ya se le mostro, esto es solo el registro.
+        console.warn('[REGISTROS] No se pudo anotar el CSV rechazado:', e.message);
+        res.json({ success: false });
+    }
+});
+
 // GET /api/registros/filtros — lo que se ofrece en los desplegables.
 app.get('/api/registros/filtros', requireAuth, async (req, res) => {
     try {

@@ -1573,7 +1573,16 @@
                                    : `Se envio un correo${persona ? ' a ' + persona : ''}${doc ? ' por ' + doc : ''}`,
         otp_sent:            () => `Se envio el codigo de verificacion${d.phone ? ' al ' + d.phone : ''}`,
         otp_verified:        () => `Codigo de verificacion confirmado`,
-        error:               () => `${d.mensaje || 'Ocurrio un error'}${d.donde ? ' — al ' + d.donde : ''}`,
+        error:               () => {
+                               // El CSV rechazado se cuenta aparte: interesa cuantas
+                               // filas fallaron y en que documento se intentaba.
+                               if (d.donde === 'carga del CSV') {
+                                 return `${quien || 'Un usuario'} intento subir el archivo ${d.archivo || 'CSV'}` +
+                                        (doc ? ` a ${doc}` : '') +
+                                        ` y se rechazo por ${d.errores_en_total || 0} error(es)`;
+                               }
+                               return `${d.mensaje || 'Ocurrio un error'}${d.donde ? ' — al ' + d.donde : ''}`;
+                             },
         // los de activity_log
         login:               () => `${quien || 'Un usuario'} inicio sesion`,
         view_document:       () => `${quien || 'Un usuario'} consulto ${d.title || doc || 'un documento'}`,

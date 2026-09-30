@@ -1185,6 +1185,29 @@
       // ENVIAR pueda negarse. Los avisos no cuentan: solo lo que impide enviar.
       window._csvHasErrors = errors.length > 0;
 
+      // Y se avisa al servidor para que salga en los registros. La validacion
+      // corre entera aqui, en el navegador, asi que sin esto el rechazo no
+      // dejaba ningun rastro: el operador veia el error y en Configuracion ->
+      // Registros no aparecia nada. No se espera la respuesta ni se comprueba:
+      // es solo constancia, y no puede estorbar a quien esta corrigiendo su
+      // archivo.
+      if (errors.length > 0) {
+        try {
+          const idDoc = new URLSearchParams(location.search).get('id');
+          fetch('/api/registros/csv-rechazado', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              documento_id: idDoc || null,
+              archivo: filename || null,
+              total_filas: result.total_rows || null,
+              errores: errors
+            })
+          }).catch(function () { /* si no se puede anotar, da igual */ });
+        } catch (_) { /* nunca estorbar al informe */ }
+      }
+
       // Construir HTML del informe
       let errorsHtml = '';
       if (errors.length > 0) {
@@ -2398,6 +2421,6 @@
   <script src="/public/Main/auth-helper.js"></script>
   <script src="/public/Main/permissions.js"></script>
   <!-- Luego el script de tracking -->
-  <script src="/public/Main/tracking.js?v=20260929a"></script>
+  <script src="/public/Main/tracking.js?v=20260929b"></script>
 </body>
 </html>
