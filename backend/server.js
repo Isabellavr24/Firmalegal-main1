@@ -3133,9 +3133,18 @@ app.get('/api/registros', requireAuth, async (req, res) => {
         // El filtro de tipo se aplica al listado pero NO a los totales: si al
         // pedir "solo errores" los totales tambien se filtraran, la tarjeta de
         // Movimientos marcaria cero y ya no serviria para volver.
+        // Ademas de errores/movimientos, se puede pedir un tipo concreto de
+        // suceso. Es lo que hace pulsable la tarjeta de Firmas o la de
+        // Validaciones: antes decian cuantas habia pero no dejaban verlas.
+        const PORSUCESO = {
+            firmas:       "accion = 'document_signed'",
+            validaciones: "accion = 'vi_validated'",
+            codigos:      "accion = 'otp_sent'",
+            completados:  "accion = 'document_completed'"
+        };
         const condicionTipo = tipo === 'errores' ? 'es_error = 1'
                             : tipo === 'movimientos' ? 'es_error = 0'
-                            : null;
+                            : PORSUCESO[tipo] || null;
 
         const cond = condicionTipo ? [...condiciones, condicionTipo] : condiciones;
         const donde = cond.length ? 'WHERE ' + cond.join(' AND ') : '';
