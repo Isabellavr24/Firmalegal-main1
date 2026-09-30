@@ -407,9 +407,26 @@ async function comprobarPagareCompleto(documentId, viewerGroupId = null) {
             });
         }
 
+        // TOPE. En produccion hay envios con 175 PDF distintos en un solo
+        // documento (el 1206, con 260 firmantes). A ~700 ms cada uno serian mas
+        // de dos minutos abriendo PDF dentro del sellado, y eso puede disparar
+        // tiempos de espera justo cuando alguien acaba de firmar.
+        //
+        // Comprobar es una RED DE SEGURIDAD, no el trabajo principal: si de una
+        // muestra amplia sale todo bien, un fallo sistematico (que es lo que
+        // pasa cuando falla: fallan todos, no uno suelto) ya habria aparecido.
+        // Cuando se llama por grupo —el caso normal, al firmar— son 1 o 2
+        // archivos y se revisan enteros.
+        const MAX_PDFS = 25;
+        const archivos = [...porArchivo.entries()];
+        const revisar = archivos.slice(0, MAX_PDFS);
+        if (archivos.length > MAX_PDFS) {
+            console.log(`   [CIERRE] doc ${documentId}: ${archivos.length} PDF distintos, se comprueban los ${MAX_PDFS} primeros`);
+        }
+
         const pdfjs = require('pdfjs-dist/legacy/build/pdf.js');
 
-        for (const [pdfRel, suyos] of porArchivo) {
+        for (const [pdfRel, suyos] of revisar) {
             const abs = resolveFromRoot(String(pdfRel).replace(/^\/+/, ''));
             if (!fs.existsSync(abs)) {
                 await registrarError({
