@@ -424,30 +424,44 @@ async function comprobarPagareCompleto(documentId, viewerGroupId = null) {
                 continue;
             }
 
-            // Se cuentan las paginas de trazabilidad leyendo el PDF, no la ruta.
-            const doc = await pdfjs.getDocument({
-                data: new Uint8Array(fs.readFileSync(abs)), useSystemFonts: true
-            }).promise;
-
-            let conTraza = 0;
-            for (let i = 1; i <= doc.numPages; i++) {
-                const texto = (await (await doc.getPage(i)).getTextContent()).items.map(x => x.str).join(' ');
-                if (/TRAZABILIDAD/i.test(texto)) conTraza++;
-            }
-
             // Cuantas trazas toca en ESTE archivo. Si el PDF es de una persona
             // sola, la suya; si lo comparten, la de todos los que validaron.
+            // Se decide ANTES de abrir el PDF: si no toca ninguna, no hay que
+            // leer nada y se ahorra el trabajo entero.
             const tocan = (porArchivo.size > 1)
                 ? suyos.filter(f => f.traza).length
                 : esperadas;
             if (!tocan) continue;
+
+            // Se cuentan las paginas de trazabilidad leyendo el PDF, no la ruta.
+            // Hay que liberarlo SIEMPRE: cada lectura retiene unos 17 MB, y en
+            // este servidor el kernel ya mato procesos por memoria (de ahi el
+            // swap del 21-09). Sin el destroy, una tanda de firmas seguidas
+            // deja esos megas colgando hasta que pase el recolector.
+            let doc = null;
+            let conTraza = 0;
+            let paginas = 0;
+            try {
+                doc = await pdfjs.getDocument({
+                    data: new Uint8Array(fs.readFileSync(abs)), useSystemFonts: true
+                }).promise;
+                paginas = doc.numPages;
+                for (let i = 1; i <= doc.numPages; i++) {
+                    const pagina = await doc.getPage(i);
+                    const texto = (await pagina.getTextContent()).items.map(x => x.str).join(' ');
+                    if (/TRAZABILIDAD/i.test(texto)) conTraza++;
+                    pagina.cleanup();
+                }
+            } finally {
+                if (doc) { try { await doc.destroy(); } catch (_) {} }
+            }
 
             if (conTraza < tocan) {
                 await registrarError({
                     documentId, donde: 'cierre del pagare',
                     mensaje: `El pagare se cerro con ${conTraza} trazabilidad(es) y se esperaban al menos ${tocan}`,
                     datos: {
-                        paginas_del_pdf: doc.numPages,
+                        paginas_del_pdf: paginas,
                         trazas_encontradas: conTraza,
                         firmantes_validados: tocan,
                         correos: suyos.filter(f => f.traza).map(f => f.email),
@@ -457,7 +471,7 @@ async function comprobarPagareCompleto(documentId, viewerGroupId = null) {
                 });
                 console.warn(`   ⚠️ [CIERRE] doc ${documentId} (${pdfRel}): ${conTraza} trazabilidad(es) de ${tocan} esperadas`);
             } else {
-                console.log(`   ✅ [CIERRE] doc ${documentId} (${pdfRel}): ${doc.numPages} paginas, ${conTraza} trazabilidad(es) para ${tocan} firmante(s) validado(s)`);
+                console.log(`   ✅ [CIERRE] doc ${documentId} (${pdfRel}): ${paginas} paginas, ${conTraza} trazabilidad(es) para ${tocan} firmante(s) validado(s)`);
             }
         }
     } catch (e) {
