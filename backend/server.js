@@ -340,6 +340,12 @@ const registrarEvento = (evento) => _registrarEvento(db, evento);
 const registrarError = (evento) => _registrarError(db, evento);
 const registrarIncidencia = (evento) => _registrarIncidencia(db, evento);
 
+// Donde vive la trazabilidad de cada persona. Ver `lib/trazas.js`: la traza
+// esta en DOS tablas y este modulo es el unico sitio que sabe mirarlas las dos.
+const _trazas = require('./lib/trazas');
+const trazasDeGrupo = (vgId, opciones) => _trazas.trazasDeGrupo(db, vgId, opciones);
+const trazaDeCorreo = (email) => _trazas.trazaDeCorreo(db, email);
+
 /**
  * Comprueba que un pagare cerrado tenga de verdad su documento completo.
  *
@@ -494,6 +500,132 @@ async function comprobarPagareCompleto(documentId, viewerGroupId = null) {
     } catch (e) {
         // Comprobar no puede romper un sellado que ya termino.
         console.warn(`[CIERRE] No se pudo comprobar el pagare ${documentId}: ${e.message}`);
+    }
+}
+
+/**
+ * Cuenta cuantas paginas de trazabilidad lleva un PDF de verdad, leyendolo.
+ * Devuelve -1 si no se pudo leer, para distinguirlo de "lleva cero".
+ */
+async function contarTrazasEnPdf(rutaAbsoluta) {
+    let doc = null;
+    try {
+        if (!fs.existsSync(rutaAbsoluta)) return -1;
+        const pdfjs = require('pdfjs-dist/legacy/build/pdf.js');
+        doc = await pdfjs.getDocument({
+            data: new Uint8Array(fs.readFileSync(rutaAbsoluta)), useSystemFonts: true
+        }).promise;
+        let n = 0;
+        for (let i = 1; i <= doc.numPages; i++) {
+            const pagina = await doc.getPage(i);
+            const texto = (await pagina.getTextContent()).items.map(x => x.str).join(' ');
+            if (/TRAZABILIDAD/i.test(texto)) n++;
+            pagina.cleanup();
+        }
+        return n;
+    } catch (_) {
+        return -1;
+    } finally {
+        if (doc) { try { await doc.destroy(); } catch (_) {} }
+    }
+}
+
+/**
+ * Comprueba el PAGARE COMPLETO de un grupo —el PDF consolidado que vale como
+ * documento legal— y lo REGENERA si le falta trazabilidad.
+ *
+ * Por que regenerar y no solo avisar: el 30-09 se descubrio que cuatro pagares
+ * quedaron sellados con cero trazabilidades porque la traza de sus firmantes
+ * estaba en `vi_verified_emails` y el generador solo miraba la fila del envio.
+ * Avisar en los registros no arregla el documento; hay que rehacerlo. Y como el
+ * PDF se sirve desde cache, sin borrarlo antes se seguiria entregando el malo.
+ *
+ * No lanza nunca: si algo falla, queda el aviso y el pagare sigue como estaba.
+ *
+ * @param {number} documentId
+ * @param {number} viewerGroupId
+ * @param {string} [docTitle]
+ */
+async function comprobarYRepararPagareCompleto(documentId, viewerGroupId, docTitle = null) {
+    try {
+        if (!viewerGroupId) return;
+
+        // Cuantas trazas TOCAN: las de los firmantes de ESTE pagare que
+        // validaron, mas la del firmante definitivo si lo hay. Ni una mas: son
+        // las de este pagare, no las de los otros 50 del mismo envio.
+        const participantes = await trazasDeGrupo(viewerGroupId, {
+            incluirDefinitivo: true, documentId
+        });
+        const tocan = participantes.filter(p => p.vi_traza_path).length;
+        if (!tocan) return;   // nadie valido: no hay nada que exigir
+
+        const [vgRows] = await db.promise().query(
+            'SELECT complete_pdf_path FROM pagare_viewer_groups WHERE viewer_group_id = ?',
+            [viewerGroupId]
+        );
+        const rel = vgRows[0]?.complete_pdf_path;
+        if (!rel) return;   // todavia no se ha generado: no es este el momento
+
+        const abs = resolveFromRoot(String(rel).replace(/^\/+/, ''));
+        const tiene = await contarTrazasEnPdf(abs);
+
+        if (tiene >= tocan) {
+            console.log(`   ✅ [PAGARE-COMPLETO] vg ${viewerGroupId}: ${tiene} trazabilidad(es) para ${tocan} firmante(s)`);
+            return;
+        }
+
+        console.warn(`   ⚠️ [PAGARE-COMPLETO] vg ${viewerGroupId}: lleva ${tiene} trazabilidad(es) y le tocan ${tocan}. Se regenera.`);
+
+        // Se borra el cacheado ANTES de regenerar: si no, la ruta de descarga
+        // seguiria sirviendo el viejo aunque el nuevo estuviera bien.
+        try { if (fs.existsSync(abs)) fs.unlinkSync(abs); } catch (_) {}
+        await db.promise().query(
+            'UPDATE pagare_viewer_groups SET complete_pdf_path = NULL WHERE viewer_group_id = ?',
+            [viewerGroupId]
+        );
+
+        const titulo = docTitle || `Documento_${documentId}`;
+        await generateAndCacheCompletePagare(documentId, viewerGroupId, titulo);
+
+        // Y se vuelve a leer, porque regenerar tampoco garantiza que salga bien.
+        const [vgNuevo] = await db.promise().query(
+            'SELECT complete_pdf_path FROM pagare_viewer_groups WHERE viewer_group_id = ?',
+            [viewerGroupId]
+        );
+        const relNuevo = vgNuevo[0]?.complete_pdf_path;
+        const tieneAhora = relNuevo
+            ? await contarTrazasEnPdf(resolveFromRoot(String(relNuevo).replace(/^\/+/, '')))
+            : -1;
+
+        if (tieneAhora >= tocan) {
+            console.log(`   ✅ [PAGARE-COMPLETO] vg ${viewerGroupId} regenerado con ${tieneAhora} trazabilidad(es)`);
+            await registrarEvento({
+                tipo: 'document_completed',
+                documentId,
+                datos: {
+                    viewer_group_id: viewerGroupId,
+                    nota: 'El pagare completo se regenero porque le faltaba la trazabilidad',
+                    trazas_antes: tiene,
+                    trazas_ahora: tieneAhora,
+                    esperadas: tocan
+                }
+            });
+        } else {
+            // Si ni regenerando sale bien, esto tiene que verse: es un pagare
+            // cerrado sin la validacion de identidad de sus firmantes.
+            await registrarError({
+                documentId,
+                donde: 'pagare completo',
+                mensaje: `El pagare completo sigue sin su trazabilidad despues de regenerarlo (${tieneAhora} de ${tocan})`,
+                datos: {
+                    viewer_group_id: viewerGroupId,
+                    correos: participantes.filter(p => p.vi_traza_path).map(p => p.email)
+                }
+            });
+            console.error(`   ❌ [PAGARE-COMPLETO] vg ${viewerGroupId} sigue mal tras regenerar: ${tieneAhora} de ${tocan}`);
+        }
+    } catch (e) {
+        console.warn(`[PAGARE-COMPLETO] No se pudo comprobar/reparar vg ${viewerGroupId}: ${e.message}`);
     }
 }
 
@@ -1482,6 +1614,26 @@ async function sealPagaresWithoutFinalSigner(documentId) {
         // trazabilidades. Este es justo el camino que el 22-09 sello cuatro
         // pagares con 11 paginas y sin ninguna traza.
         await comprobarPagareCompleto(documentId);
+
+        // Y el pagare completo de CADA grupo: se lee el PDF y, si le falta
+        // trazabilidad, se regenera solo. Aqui no hay firmante definitivo, asi
+        // que cada pagare lleva las trazas de su deudor y su codeudor, ni una
+        // mas. En un envio de 50 pagares son 2 por pagare, no 100.
+        try {
+            const [gruposDoc] = await db.promise().query(
+                `SELECT viewer_group_id FROM pagare_viewer_groups WHERE document_id = ?`,
+                [documentId]
+            );
+            const [tituloRow] = await db.promise().query(
+                'SELECT title FROM documents WHERE document_id = ?', [documentId]
+            );
+            const tituloDoc = tituloRow[0]?.title || `Pagare_${documentId}`;
+            for (const g of gruposDoc) {
+                await comprobarYRepararPagareCompleto(documentId, g.viewer_group_id, tituloDoc);
+            }
+        } catch (eComp) {
+            console.warn(`[SIN-FINAL] No se pudieron comprobar los pagares completos: ${eComp.message}`);
+        }
 
     } catch (error) {
         console.error('❌ Error en sealPagaresWithoutFinalSigner:', error);
@@ -7960,6 +8112,13 @@ app.post('/api/public/sign/:token', async (req, res) => {
                     } catch (genErr) {
                         console.warn(`   ⚠️ No se pudo pre-generar PDF completo vg=${vg.viewer_group_id}: ${genErr.message}`);
                     }
+                    // Y se comprueba LEYENDO el PDF que acaba de salir. Si le
+                    // falta trazabilidad se regenera solo: generar sin mirar es
+                    // lo que dejo cuatro pagares cerrados con cero trazas el
+                    // 30-09, y nadie se entero hasta que se abrio el archivo.
+                    await comprobarYRepararPagareCompleto(
+                        recipient.document_id, vg.viewer_group_id, docTitleForPdf
+                    );
                 }
 
                 // Retornar respuesta exitosa para firmante definitivo
