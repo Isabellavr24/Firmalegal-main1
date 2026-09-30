@@ -332,11 +332,13 @@ app.locals.db = db;
 //
 // REGLA QUE NO SE ROMPE: registrar NUNCA lanza excepcion. Un fallo al dejar
 // constancia no puede tumbar una firma ni un envio.
-const { registrarEvento: _registrarEvento, registrarError: _registrarError } = require('./lib/registro-eventos');
+const { registrarEvento: _registrarEvento, registrarError: _registrarError,
+        registrarIncidencia: _registrarIncidencia } = require('./lib/registro-eventos');
 
 // Envoltorios para no tener que pasar `db` en cada llamada.
 const registrarEvento = (evento) => _registrarEvento(db, evento);
 const registrarError = (evento) => _registrarError(db, evento);
+const registrarIncidencia = (evento) => _registrarIncidencia(db, evento);
 
 /**
  * Comprueba que un pagare cerrado tenga de verdad su documento completo.
@@ -4181,7 +4183,34 @@ app.post('/api/public/vi-callback', async (req, res) => {
     // Responder inmediatamente a VI (fire-and-forget — no bloquear)
     res.json({ ok: true });
 
-    if (!vi_ok) return;
+    // Validacion NO superada. Hay que dejar constancia: antes se salia en
+    // silencio y los intentos fallidos no aparecian en ninguna parte, asi que
+    // para saber por que alguien no podia validarse habia que pedirselo al
+    // equipo de VI. El documento se busca por el token, porque aqui todavia no
+    // se ha consultado nada.
+    if (!vi_ok) {
+        try {
+            const [quien] = await db.promise().query(
+                `SELECT recipient_id, document_id, email FROM document_recipients WHERE token = ?`,
+                [token]
+            );
+            if (quien[0]) {
+                await registrarError({
+                    documentId: quien[0].document_id,
+                    recipientId: quien[0].recipient_id,
+                    donde: 'validacion de identidad',
+                    mensaje: 'La validacion de identidad no se supero',
+                    datos: {
+                        correo: quien[0].email,
+                        validacion_id: validacion_id || null,
+                        motivo: (req.body && (req.body.motivo || req.body.razon)) || null
+                    },
+                    req
+                });
+            }
+        } catch (_) { /* registrar no puede tumbar el callback */ }
+        return;
+    }
 
     try {
         // 1. Obtener datos del recipient y documento
@@ -4202,6 +4231,19 @@ app.post('/api/public/vi-callback', async (req, res) => {
 
         if (!rows || rows.length === 0) {
             console.warn(`⚠️ [VI-CALLBACK] Token no encontrado: ${token.substring(0, 8)}...`);
+            // Pasa cuando se recrean los destinatarios: VI guardo el token
+            // viejo, y la validacion de esa persona se pierde sin que nadie se
+            // entere. No hay documento al que colgarlo, asi que va como
+            // incidencia del sistema.
+            await registrarIncidencia({
+                donde: 'validacion de identidad',
+                mensaje: 'Llego una validacion con un token que ya no existe: se perdio',
+                datos: {
+                    token_parcial: token.substring(0, 12),
+                    validacion_id: validacion_id || null
+                },
+                req
+            });
             return;
         }
 
@@ -4243,6 +4285,21 @@ app.post('/api/public/vi-callback', async (req, res) => {
 
         if (recipient.vi_traza_path) {
             console.log(`⚠️ [VI-CALLBACK] Trazabilidad ya existe para ${recipient.email} — callback duplicado, ignorando (vi_traza_path: ${recipient.vi_traza_path})`);
+            // No es un fallo: pasa cuando un intento entra solo y el operador
+            // ademas lo aprueba a mano. Se registra como movimiento, no como
+            // error, para que no ensucie el filtro de errores.
+            await registrarEvento({
+                tipo: 'vi_validated',
+                documentId: recipient.document_id,
+                recipientId: recipient.recipient_id,
+                datos: {
+                    correo: recipient.email,
+                    validacion_id: validacion_id || null,
+                    repetido: true,
+                    nota: 'El aviso llego dos veces; la trazabilidad ya estaba puesta y no se toco'
+                },
+                req
+            });
         } else if (validacion_id) {
             const fs = require('fs');
             const path = require('path');
@@ -4296,7 +4353,7 @@ app.post('/api/public/vi-callback', async (req, res) => {
                         method: 'GET',
                         headers: { 'X-Internal-Api-Key': VI_API_KEY }
                     }, (resp) => {
-                        if (resp.statusCode !== 200) { reject(new Error(`VI traza HTTP ${resp.statusCode}`)); return; }
+                        if (resp.statusCode !== 200) { reject(new Error(`VI traza HTTP ${resp.statusCode}`)); return; }  // queda registrado en el catch de abajo
                         resp.on('data', d => chunks.push(d));
                         resp.on('end', () => resolve(Buffer.concat(chunks)));
                     });
@@ -4401,6 +4458,21 @@ app.post('/api/public/vi-callback', async (req, res) => {
                         // grupo ya tiene firmas y no se debe reconstruir.
                         if (!e || !e.saltar) {
                             console.error(`   [VI-CALLBACK] No se pudo incorporar la traza al PDF: ${e && e.message}`);
+                            // Esto acaba en un pagare sin trazabilidad, que es
+                            // justo lo que mas ha costado detectar. Tiene que
+                            // verse en los registros, no solo en Docker.
+                            await registrarError({
+                                documentId: recipient.document_id,
+                                recipientId: recipient.recipient_id,
+                                donde: 'validacion de identidad',
+                                mensaje: `La trazabilidad se guardo pero no se pudo meter en el PDF: ${e && e.message}`,
+                                datos: {
+                                    correo: recipient.email,
+                                    viewer_group_id: recipient.viewer_group_id || null,
+                                    traza: trazaRelPathGuardada || null
+                                },
+                                req
+                            });
                         }
                     }
                 } else {
@@ -4500,6 +4572,20 @@ app.post('/api/public/vi-callback', async (req, res) => {
 
             } catch (e) {
                 console.error('⚠️ [VI-CALLBACK] Error procesando trazabilidad VI (no crítico):', e.message);
+                // "No critico" para el callback, pero la persona se queda sin
+                // su trazabilidad. Aqui caen tambien los fallos al descargarla
+                // de VI (los HTTP y los ECONNABORTED).
+                await registrarError({
+                    documentId: recipient.document_id,
+                    recipientId: recipient.recipient_id,
+                    donde: 'validacion de identidad',
+                    mensaje: `No se pudo procesar la trazabilidad: ${e.message}`,
+                    datos: {
+                        correo: recipient.email,
+                        validacion_id: validacion_id || null
+                    },
+                    req
+                });
             }
         }
 
@@ -4523,6 +4609,17 @@ app.post('/api/public/vi-callback', async (req, res) => {
 
     } catch (error) {
         console.error('❌ [VI-CALLBACK POST] Error:', error.message);
+        // Ya se respondio ok a VI, asi que sin esto el fallo no se veria en
+        // ningun sitio y VI no lo reintenta.
+        await registrarIncidencia({
+            donde: 'validacion de identidad',
+            mensaje: `El aviso de validacion se recibio pero no se pudo procesar: ${error.message}`,
+            datos: {
+                token_parcial: token ? token.substring(0, 12) : null,
+                validacion_id: validacion_id || null
+            },
+            req
+        });
     }
 });
 

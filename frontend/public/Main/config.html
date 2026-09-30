@@ -1561,7 +1561,10 @@
       const frases = {
         document_signed:     () => `${persona || 'Un firmante'} firmo ${doc || 'un documento'}` +
                                    (d.identidad_validada === false ? ' (sin validacion de identidad)' : ''),
-        vi_validated:        () => `${persona || 'Un firmante'} valido su identidad` + (doc ? ` para ${doc}` : ''),
+        vi_validated:        () => d.repetido
+                                   ? `Llego otra vez el aviso de la validacion de ${persona || 'un firmante'}` +
+                                     (doc ? ` en ${doc}` : '') + ' — ya estaba puesta, no se toco'
+                                   : `${persona || 'Un firmante'} valido su identidad` + (doc ? ` para ${doc}` : ''),
         document_completed:  () => `Se completo y sello ${doc || 'un documento'}` +
                                    (d.trazas_incluidas != null ? ` con ${d.trazas_incluidas} trazabilidad(es)` : ''),
         document_opened:     () => `${persona || 'Un firmante'} abrio ${doc || 'el documento'}`,
@@ -1583,7 +1586,10 @@
                                    (d.field_count ? ` (${d.field_count})` : ''),
         bulk_send_documents: () => `${quien || 'Un usuario'} hizo un envio masivo`,
         create_folder:       () => `${quien || 'Un usuario'} creo la carpeta ${d.name || ''}`.trim(),
-        list_folders:        () => `${quien || 'Un usuario'} consulto sus carpetas`
+        list_folders:        () => `${quien || 'Un usuario'} consulto sus carpetas`,
+        // Fallos que no tienen documento al que colgarse, como un aviso de
+        // validacion cuyo token ya no existe.
+        system_error:        () => `${d.mensaje || 'Fallo del sistema'}${d.donde ? ' — al ' + d.donde : ''}`
       };
 
       if (frases[r.accion]) return frases[r.accion]();

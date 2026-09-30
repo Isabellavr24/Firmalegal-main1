@@ -113,4 +113,52 @@ async function registrarError(db, { documentId, recipientId = null, userId = nul
     });
 }
 
-module.exports = { registrarEvento, registrarError };
+/**
+ * Para lo que falla SIN documento al que colgarlo.
+ *
+ * El caso que lo pide: un callback de Validacion de Identidad llega con un
+ * token que ya no existe. Eso pasa cuando se recrean los destinatarios — VI
+ * guardo el token viejo — y la validacion de esa persona se pierde sin que
+ * nadie se entere. Como no hay destinatario, tampoco hay `document_id`, y
+ * `signature_events` lo exige.
+ *
+ * Va entonces a `activity_log`, que admite filas sin usuario y sin entidad, y
+ * la vista `v_registros` lo recoge igual. Se marca como error por el nombre de
+ * la accion: la vista clasifica con `action LIKE '%error%'`.
+ *
+ * @param {object} db      pool de mysql2
+ * @param {object} evento
+ * @param {string} evento.donde     en que parte del sistema
+ * @param {string} evento.mensaje   que ha pasado
+ * @param {object} [evento.datos]   lo que se sepa
+ * @param {object} [evento.req]     para la IP
+ * @returns {Promise<boolean>} nunca lanza
+ */
+async function registrarIncidencia(db, { donde, mensaje, datos = null, req = null }) {
+    try {
+        if (!db || !mensaje) return false;
+
+        const ip = req ? (req.ip || req.connection?.remoteAddress || null) : null;
+        const navegador = req && typeof req.get === 'function' ? (req.get('user-agent') || null) : null;
+
+        // `details` tiene un CHECK de json_valid, asi que siempre va un JSON
+        // valido, nunca una cadena suelta ni NULL a medias.
+        const cuerpo = JSON.stringify({
+            donde: donde || null,
+            mensaje: String(mensaje).slice(0, 500),
+            ...(datos || {})
+        });
+
+        await db.promise().query(
+            `INSERT INTO activity_log (user_id, action, entity_type, entity_id, details, ip_address, user_agent)
+             VALUES (NULL, 'system_error', NULL, NULL, ?, ?, ?)`,
+            [cuerpo, ip, navegador]
+        );
+        return true;
+    } catch (e) {
+        console.warn(`[EVENTOS] No se pudo registrar la incidencia "${donde}": ${e.message}`);
+        return false;
+    }
+}
+
+module.exports = { registrarEvento, registrarError, registrarIncidencia };
