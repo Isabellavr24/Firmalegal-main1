@@ -1709,9 +1709,15 @@
         if (v) p.set(clave, v);
       }
 
+      // Rastro en la consola del navegador: deja ver que se pidio y que se
+      // recibio. Si los filtros no responden, aqui se ve si el problema esta
+      // en lo que se manda o en lo que llega.
+      console.log('[REGISTROS] pido:', p.toString());
+
       try {
         const resp = await fetch('/api/registros?' + p.toString(), { credentials: 'include' });
         const datos = await resp.json();
+        console.log('[REGISTROS] recibo total=' + datos.total + ' turno=' + miTurno + '/' + regUltimaPeticion);
         // Si mientras llegaba esta respuesta se pidio otra cosa, esta ya no
         // vale: se descarta en vez de pintarla encima de la buena.
         if (miTurno !== regUltimaPeticion) return;
