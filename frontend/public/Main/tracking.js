@@ -2245,6 +2245,17 @@ async function sendPagaresBulk() {
       return;
     }
 
+    // Segunda red, por si algun camino de error dejara datos viejos en pie: no
+    // se envia nada mientras el ultimo archivo revisado tenga fallos. Enviar
+    // aqui mandaria al servidor el CSV ANTERIOR, que es lo peor que puede
+    // pasar: parece que salio bien y va otra cosa.
+    if (window._csvHasErrors) {
+      ToastManager.error('El archivo tiene errores',
+        'Corrigelos y vuelve a subirlo. Puedes ver cuales en el informe de validacion.');
+      restoreBtn();
+      return;
+    }
+
     // Bloquear si hay firmantes con VI pero sin celular OTP
     if (window._pagareCsvSinCelular && window._pagareCsvSinCelular.length > 0) {
       restoreBtn();
@@ -3606,6 +3617,18 @@ function handlePagareCsvUpload(file) {
   window._csvReportData = null;
   var prevBtn = document.getElementById('csvErrorsBtn');
   if (prevBtn) prevBtn.remove();
+
+  // Y SOBRE TODO: olvidar los datos del CSV anterior antes de mirar el nuevo.
+  //
+  // Los datos solo se asignaban al terminar bien, pero ninguna de las salidas
+  // por error los borraba. Al cambiar un CSV valido por uno con fallos, el
+  // resumen verde y la tabla de firmantes seguian siendo los del bueno, y
+  // `window.pagareCsvData` —que es justo lo que se manda al servidor al pulsar
+  // ENVIAR— tambien. Parecia que ibas a enviar un archivo y en realidad ibas a
+  // enviar el otro.
+  window.pagareCsvData = null;
+  const previo = document.getElementById('pagareCsvPreview');
+  if (previo) previo.style.display = 'none';
 
   if (!file.name.endsWith('.csv')) {
     ToastManager.error('Error', 'Solo se permiten archivos CSV');
@@ -5017,21 +5040,15 @@ async function _loadCamposMapeados(container, docId, groupId, groupRecipients, c
         const ctx = canvas.getContext('2d');
         await pdfPage.render({ canvasContext: ctx, viewport }).promise;
 
-        // Coordenadas en DB: puntos PDF reales (Y=0 arriba). Solo escalar al tamaño de miniatura.
-        ctx.save();
-        textFields.forEach(f => {
-          const fx = f.x * scale;
-          const fy = f.y * scale;
-          const fw = f.width * scale;
-          const fh = f.height * scale;
-          const roleColor = f.color || '#6b7280';
-          ctx.strokeStyle = roleColor;
-          ctx.lineWidth = 1.5;
-          ctx.strokeRect(fx, fy, fw, fh);
-          ctx.fillStyle = roleColor + '22';
-          ctx.fillRect(fx, fy, fw, fh);
-        });
-        ctx.restore();
+        // La miniatura se deja tal cual sale del PDF, con los datos ya escritos
+        // dentro. Antes se pintaba encima un recuadro de color por campo, y ese
+        // relleno tapaba justo lo que interesa leer: se veia donde caia cada
+        // campo pero no lo que decia.
+        //
+        // El PDF que llega aqui es el personalizado del firmante
+        // (custom_pdf_path) cuando existe, asi que ya trae los datos del CSV.
+        // Para ubicar los campos esta la tabla de al lado, que los lista por
+        // pagina, y la ampliacion al pulsar.
 
         // Convertir a imagen PNG para que sobreviva manipulaciones del DOM
         const img = document.createElement('img');

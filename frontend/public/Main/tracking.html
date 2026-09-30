@@ -1181,6 +1181,10 @@
       const warnings = result.warnings || result.validation_warnings || [];
       const totalRows = result.total_rows || '?';
 
+      // Queda constancia de que este archivo trae fallos, para que el boton de
+      // ENVIAR pueda negarse. Los avisos no cuentan: solo lo que impide enviar.
+      window._csvHasErrors = errors.length > 0;
+
       // Construir HTML del informe
       let errorsHtml = '';
       if (errors.length > 0) {
@@ -2394,6 +2398,6 @@
   <script src="/public/Main/auth-helper.js"></script>
   <script src="/public/Main/permissions.js"></script>
   <!-- Luego el script de tracking -->
-  <script src="/public/Main/tracking.js?v=20260928f"></script>
+  <script src="/public/Main/tracking.js?v=20260929a"></script>
 </body>
 </html>
