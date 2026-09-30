@@ -9329,11 +9329,27 @@ async function generateAndCacheCompletePagare(docId, viewerGroupId, docTitle) {
     console.log(`\n📄 [GEN-PAGARE] Generando PDF completo doc=${docId} vg=${viewerGroupId}...`);
 
     // Obtener recipients del viewer_group
+    // La traza puede estar en DOS sitios y hay que mirar los dos: la fila del
+    // envio donde se valido, o `vi_verified_emails`, que guarda la validacion
+    // de la persona y sobrevive a que se recreen los destinatarios.
+    //
+    // Mirando solo la fila, el pagare completo salia SIN trazabilidad para
+    // quien se habia validado en un envio anterior: su `vi_traza_path` estaba
+    // en NULL aunque la traza existiera. Comprobado el 30-09 en el envio 1257,
+    // donde los cuatro firmantes tenian NULL en su fila y traza en la tabla
+    // global — los dos pagares sellados salieron con 0 trazabilidades.
+    //
+    // Es el mismo fallo que ya se corrigio en el sellado sin firmante
+    // definitivo y en la vista; faltaba este camino.
     const [vgRecipients] = await db.promise().query(
-        `SELECT recipient_id, email, name, status, personal_pdf_path, custom_pdf_path, vi_traza_path
-         FROM document_recipients
-         WHERE viewer_group_id = ? AND is_final_signer = 0
-         ORDER BY completed_at ASC`,
+        `SELECT dr.recipient_id, dr.email, dr.name, dr.status,
+                dr.personal_pdf_path, dr.custom_pdf_path,
+                COALESCE(dr.vi_traza_path, v.vi_traza_path) AS vi_traza_path
+         FROM document_recipients dr
+         LEFT JOIN vi_verified_emails v
+           ON LOWER(v.email) COLLATE utf8mb4_unicode_ci = LOWER(dr.email) COLLATE utf8mb4_unicode_ci
+         WHERE dr.viewer_group_id = ? AND dr.is_final_signer = 0
+         ORDER BY dr.completed_at ASC`,
         [viewerGroupId]
     );
     if (!vgRecipients.length) throw new Error('No se encontraron recipients del viewer_group');
