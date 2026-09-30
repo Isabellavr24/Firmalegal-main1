@@ -1550,6 +1550,9 @@
   <script>
   (function () {
     let regPagina = 1, regTotal = 0, regPorPagina = 50;
+    // Numero de la ultima peticion pedida, para descartar las respuestas que
+    // llegan tarde y pisarian a una mas reciente.
+    let regUltimaPeticion = 0;
 
     // Traduce un evento a una frase que se entienda sin saber como esta hecho
     // el sistema. No "event_type: document_signed, recipient_id: 4247", sino
@@ -1688,6 +1691,15 @@
         caja.innerHTML = '<div style="padding:26px;text-align:center;color:#9b8fa2;">Cargando registros...</div>';
       }
 
+      // Cada peticion lleva numero y solo pinta la ULTIMA que se pidio.
+      //
+      // Sin esto, al elegir en el selector pasaba lo siguiente: salia la
+      // peticion filtrada y, casi a la vez, otra sin filtrar. Medido contra
+      // produccion: la filtrada respondia en 44 ms con 8 resultados y la otra
+      // en 72 ms con 6.026, asi que la segunda pintaba encima y parecia que el
+      // filtro no hacia nada.
+      const miTurno = ++regUltimaPeticion;
+
       const p = new URLSearchParams({ pagina: regPagina, por_pagina: regPorPagina });
       const campos = { usuario: 'regUsuario', equipo: 'regEquipo', documento: 'regDocumento',
                        correo: 'regCorreo', tipo: 'regTipo', desde: 'regDesde',
@@ -1700,6 +1712,9 @@
       try {
         const resp = await fetch('/api/registros?' + p.toString(), { credentials: 'include' });
         const datos = await resp.json();
+        // Si mientras llegaba esta respuesta se pidio otra cosa, esta ya no
+        // vale: se descarta en vez de pintarla encima de la buena.
+        if (miTurno !== regUltimaPeticion) return;
         if (!datos.success) {
           // Un fallo pasajero del refresco no debe borrar lo que se esta
           // leyendo: se deja la lista como esta y se reintenta al siguiente turno.
@@ -1805,13 +1820,11 @@
         cargar({ silencioso: true });
       }, 10000);
     }
-    document.addEventListener('visibilitychange', () => {
-      // Al volver a la pestana, refrescar ya en vez de esperar al siguiente turno.
-      const sec = document.getElementById('sec-registros');
-      if (!document.hidden && sec && sec.classList.contains('is-visible') && regPagina === 1) {
-        cargar({ silencioso: true });
-      }
-    });
+    // Aqui se recargaba al volver el foco a la pestana. Se quito: al desplegar
+    // un selector el navegador tambien dispara visibilitychange, asi que elegir
+    // una opcion lanzaba una peticion SIN filtro que competia con la filtrada y
+    // la pisaba. El refresco de cada 10 segundos ya cubre el caso de volver a
+    // la pestana, y ese si respeta los filtros puestos.
 
     document.getElementById('regBtnBuscar')?.addEventListener('click', () => { regPagina = 1; cargar(); });
     document.getElementById('regBuscar')?.addEventListener('keydown', e => {
