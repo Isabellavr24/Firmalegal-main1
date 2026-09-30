@@ -5472,6 +5472,20 @@ app.get('/api/public/document/:token', async (req, res) => {
                 //
                 // El COLLATE es necesario: las dos tablas lo tienen distinto y
                 // el JOIN falla sin el.
+                // SOLO las trazas que le corresponden a quien mira.
+                //
+                // En un pagare, un mismo `document_id` agrupa VARIOS pagares
+                // independientes, cada uno con su deudor y su codeudor, y cada
+                // uno separado por `viewer_group_id`. Filtrar solo por
+                // documento metia en la vista de un deudor las validaciones de
+                // otro: en la prueba del 30-09 el pagare #1 mostraba cuatro
+                // trazabilidades cuando solo le tocaban dos, incluyendo las de
+                // personas de otro pagare. Eso es una fuga de datos entre
+                // deudores, no una molestia visual.
+                //
+                // En un documento normal no hay grupos y todos los firmantes
+                // comparten el mismo documento: ahi se siguen mostrando todas.
+                const vgVista = recipient.viewer_group_id || null;
                 const [trazasDoc] = await db.promise().query(
                     `SELECT dr.email,
                             COALESCE(dr.vi_traza_path, v.vi_traza_path) AS vi_traza_path
@@ -5479,9 +5493,10 @@ app.get('/api/public/document/:token', async (req, res) => {
                      LEFT JOIN vi_verified_emails v
                        ON LOWER(v.email) COLLATE utf8mb4_unicode_ci = LOWER(dr.email) COLLATE utf8mb4_unicode_ci
                      WHERE dr.document_id = ?
+                       ${vgVista ? 'AND dr.viewer_group_id = ?' : ''}
                        AND COALESCE(dr.vi_traza_path, v.vi_traza_path) IS NOT NULL
                      ORDER BY dr.signing_order, dr.recipient_id`,
-                    [recipient.document_id]
+                    vgVista ? [recipient.document_id, vgVista] : [recipient.document_id]
                 );
                 if (trazasDoc.length) {
                     const { PDFDocument: PDFDocVista } = require('pdf-lib');
