@@ -1553,6 +1553,13 @@
     // Numero de la ultima peticion pedida, para descartar las respuestas que
     // llegan tarde y pisarian a una mas reciente.
     let regUltimaPeticion = 0;
+    // El temporizador del refresco. Se declara AQUI, antes que nada, porque
+    // abrirSiTocaN() llama a pararRefresco() bastante mas arriba de donde
+    // estaba declarado: con `let` eso lanza "Cannot access before
+    // initialization", el script entero moria en esa linea y los listeners de
+    // los filtros —que se registran despues— no llegaban a engancharse nunca.
+    // De ahi que ningun filtro respondiera.
+    let regTemporizador = null;
 
     // Traduce un evento a una frase que se entienda sin saber como esta hecho
     // el sistema. No "event_type: document_signed, recipient_id: 4247", sino
@@ -1709,15 +1716,9 @@
         if (v) p.set(clave, v);
       }
 
-      // Rastro en la consola del navegador: deja ver que se pidio y que se
-      // recibio. Si los filtros no responden, aqui se ve si el problema esta
-      // en lo que se manda o en lo que llega.
-      console.log('[REGISTROS] pido:', p.toString());
-
       try {
         const resp = await fetch('/api/registros?' + p.toString(), { credentials: 'include' });
         const datos = await resp.json();
-        console.log('[REGISTROS] recibo total=' + datos.total + ' turno=' + miTurno + '/' + regUltimaPeticion);
         // Si mientras llegaba esta respuesta se pidio otra cosa, esta ya no
         // vale: se descarta en vez de pintarla encima de la buena.
         if (miTurno !== regUltimaPeticion) return;
@@ -1812,7 +1813,6 @@
     // cambiar de seccion, al cambiar de pestana del navegador y al pasar de la
     // primera pagina (si alguien esta leyendo la pagina 3, refrescar le
     // moveria las filas bajo los ojos).
-    let regTemporizador = null;
     function pararRefresco() {
       if (regTemporizador) { clearInterval(regTemporizador); regTemporizador = null; }
     }
