@@ -3101,6 +3101,18 @@ app.get('/api/registros', requireAuth, async (req, res) => {
             valores.push(`%${buscar}%`, `%${buscar}%`);
         }
 
+        // Ruido que no le dice nada a nadie. "Consulto sus carpetas" se
+        // escribe cada vez que alguien abre la pantalla de documentos: en DEV
+        // son 77 de 224 filas, un tercio de la pantalla, y tapan lo que si
+        // importa. No se borran de la base —siguen ahi por si hiciera falta
+        // auditarlas—, solo se dejan fuera del listado salvo que se pidan
+        // expresamente buscandolas.
+        const RUIDO = ['list_folders'];
+        if (!buscar) {
+            condiciones.push(`accion NOT IN (${RUIDO.map(() => '?').join(',')})`);
+            valores.push(...RUIDO);
+        }
+
         // El filtro de tipo se aplica al listado pero NO a los totales: si al
         // pedir "solo errores" los totales tambien se filtraran, la tarjeta de
         // Movimientos marcaria cero y ya no serviria para volver.
