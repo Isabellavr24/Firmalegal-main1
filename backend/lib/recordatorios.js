@@ -40,6 +40,10 @@ async function estadoDocumento(db, documentId, userId) {
         `SELECT dr.recipient_id, dr.email, dr.name, dr.status,
                 dr.vi_validated_at, dr.viewer_group_id, dr.is_final_signer,
                 dr.completed_at,
+                -- El codigo con el que se creo su validacion. Vive solo en
+                -- vi_verified_emails, y sirve para ir a buscar a VI con que
+                -- datos se hizo y cuando vence.
+                v.validacion_codigo AS validacion_codigo,
                 (SELECT MAX(r.created_at) FROM recordatorios_enviados r
                   WHERE r.recipient_id = dr.recipient_id
                     AND r.user_id <=> ?
@@ -49,6 +53,8 @@ async function estadoDocumento(db, documentId, userId) {
                     AND NOT (r.user_id <=> ?)
                     AND r.resultado = 'enviado') AS ultimo_de_otro
          FROM document_recipients dr
+         LEFT JOIN vi_verified_emails v
+           ON LOWER(v.email) COLLATE utf8mb4_unicode_ci = LOWER(dr.email) COLLATE utf8mb4_unicode_ci
          WHERE dr.document_id = ?
          ORDER BY dr.viewer_group_id, dr.signing_order`,
         [userId, userId, documentId]
@@ -80,7 +86,10 @@ async function estadoDocumento(db, documentId, userId) {
             ultimo_recordatorio: f.ultimo_mio,
             puede_reenviarse: puede,
             dias_para_poder: faltan,
-            aviso_otro_usuario: !!otroReciente
+            aviso_otro_usuario: !!otroReciente,
+            // Los datos con los que se creo su validacion, para poder
+            // revisarlos antes de reenviar: cedula, nombre y vigencia.
+            validacion: f.validacion_codigo ? { codigo: f.validacion_codigo } : null
         };
 
         if (f.status === 'completed') {
@@ -109,6 +118,133 @@ async function estadoDocumento(db, documentId, userId) {
         sin_firmar: sinFirmar,
         firmados
     };
+}
+
+/**
+ * Pregunta a VI por un lote de codigos de validacion.
+ *
+ * VI vive en otro contenedor con su propia base. No se consulta esa base
+ * directamente: se le pide por su endpoint interno, que es de solo lectura y
+ * no devuelve ni el token ni la url de redireccion (con esos dos datos
+ * cualquiera podria completar la validacion de otra persona).
+ *
+ * @param {string[]} codigos  maximo 200 por peticion, es el limite de VI
+ * @returns {Promise<object[]>}  las validaciones que VI reconocio
+ */
+function pedirValidacionesAVI(codigos) {
+    const VI_URL = process.env.VI_URL || 'http://validacion-identidad-app-1:3000';
+    const VI_API_KEY = process.env.INTERNAL_API_KEY || '';
+    const url = new URL(`${VI_URL}/validacion/api/firmalegal/validaciones/consultar`);
+    const transport = url.protocol === 'https:' ? require('https') : require('http');
+    const cuerpo = JSON.stringify({ codigos });
+
+    return new Promise((resolver, rechazar) => {
+        const peticion = transport.request({
+            hostname: url.hostname,
+            port: url.port || (url.protocol === 'https:' ? 443 : 80),
+            path: url.pathname,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Internal-Api-Key': VI_API_KEY,
+                'Content-Length': Buffer.byteLength(cuerpo)
+            }
+        }, (respuesta) => {
+            let datos = '';
+            respuesta.on('data', (trozo) => { datos += trozo; });
+            respuesta.on('end', () => {
+                if (respuesta.statusCode !== 200) {
+                    return rechazar(new Error(`VI respondio ${respuesta.statusCode}`));
+                }
+                // VI ha devuelto 200 con cuerpo vacio en otras rutas, asi que
+                // el estado por si solo no basta: hay que mirar el contenido.
+                try {
+                    const json = JSON.parse(datos || '{}');
+                    const lista = json.validaciones || json.data || json;
+                    resolver(Array.isArray(lista) ? lista : []);
+                } catch (e) {
+                    rechazar(new Error(`VI devolvio algo que no es JSON: ${String(datos).slice(0, 120)}`));
+                }
+            });
+        });
+        peticion.on('error', rechazar);
+        // Si VI no contesta, el panel no se queda colgado esperandola.
+        peticion.setTimeout(8000, () => { peticion.destroy(new Error('VI no respondio en 8 segundos')); });
+        peticion.write(cuerpo);
+        peticion.end();
+    });
+}
+
+/**
+ * Completa cada persona con los datos de SU validacion: con que nombre y
+ * cedula se creo, en que estado esta y cuando vence.
+ *
+ * Si VI no responde, las personas se devuelven igual pero sin ese detalle, y
+ * marcadas con `vi_sin_respuesta`. El panel tiene que seguir sirviendo: saber
+ * a quien le falta validar no depende de VI, eso esta en nuestra base.
+ */
+async function conDatosDeValidacion(personas) {
+    const codigos = [...new Set(personas.map(p => p.validacion?.codigo).filter(Boolean))];
+    if (!codigos.length) return personas;
+
+    const porCodigo = {};
+    let fallo = null;
+
+    // VI acepta 200 codigos por peticion. En la universidad un envio puede
+    // tener mas, asi que va por tandas.
+    for (let i = 0; i < codigos.length; i += 200) {
+        const tanda = codigos.slice(i, i + 200);
+        try {
+            for (const v of await pedirValidacionesAVI(tanda)) {
+                if (v && v.codigo) porCodigo[v.codigo] = v;
+            }
+        } catch (e) {
+            fallo = e.message;
+            console.warn(`[RECORDATORIOS] No se pudieron leer las validaciones de VI: ${e.message}`);
+            break;
+        }
+    }
+
+    const ahora = Date.now();
+    for (const p of personas) {
+        if (!p.validacion) continue;
+        const v = porCodigo[p.validacion.codigo];
+
+        if (!v) {
+            // O VI no contesto, o ese codigo ya no existe alli. Son dos cosas
+            // distintas y la pantalla las dice de forma distinta.
+            p.validacion.vi_sin_respuesta = !!fallo;
+            p.validacion.no_encontrada = !fallo;
+            continue;
+        }
+
+        const vence = v.expira_at ? new Date(v.expira_at).getTime() : null;
+        const diasRestantes = vence
+            ? Math.ceil((vence - ahora) / (24 * 60 * 60 * 1000)) : null;
+
+        p.validacion = {
+            codigo: v.codigo,
+            nombre: v.nombre_completo || null,
+            documento: v.documento || null,
+            tipo_documento: v.tipo_documento || null,
+            estado: v.estado,
+            creada_el: v.created_at || null,
+            expira_at: v.expira_at || null,
+            dias_restantes: diasRestantes,
+            // Una validacion caducada NO se reenvia: hay que crearla de
+            // nuevo. Se marca para que la pantalla lo diga claro.
+            caducada: diasRestantes !== null && diasRestantes <= 0,
+            // Sin cedula la validacion no sirve: el firmante no puede
+            // compararse con su documento. Ya paso una vez.
+            sin_cedula: !v.documento,
+            // El correo con el que VI la creo. Si no coincide con el nuestro,
+            // el padre nunca va a recibirla.
+            email_vi: v.email_firmante || null
+        };
+    }
+
+    if (fallo) personas.vi_error = fallo;
+    return personas;
 }
 
 /**
@@ -203,5 +339,6 @@ async function esperaIndividual(db, recipientId, userId) {
 
 module.exports = {
     estadoDocumento, registrar, sePuedeEnviar, esperaIndividual,
+    conDatosDeValidacion,
     DIAS_ENTRE_RECORDATORIOS, ESPERA_INDIVIDUAL_MIN
 };

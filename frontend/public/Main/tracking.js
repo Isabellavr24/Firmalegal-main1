@@ -2162,8 +2162,250 @@ function pintarPanelRecordatorios(d) {
     ?.addEventListener('click', () => confirmarReenvio('firma'));
 }
 
-// Antes de mandar nada se pregunta, con el numero delante. Un clic no puede
-// sacar decenas de correos a padres reales sin vuelta atras.
+// =====================================================================
+// INFORME DE REENVIO
+// =====================================================================
+//
+// Antes de que salga un solo correo se abre este informe. No es un aviso de
+// "se enviaran 40": es el desglose de quien, con que validacion, con que
+// cedula y cuanto le queda de vigencia.
+//
+// Existe porque mandar a ciegas ya salio mal: se crearon validaciones sin
+// cedula y nadie lo vio hasta que el padre no pudo validarse. Aqui eso se ve
+// antes de pulsar, marcado en rojo.
+
+// Dos dias de margen para avisar de que una validacion esta por caducar: si
+// vence antes de que el padre la abra, reenviarla no sirve de nada.
+const DIAS_AVISO_CADUCIDAD = 2;
+
+function fechaCorta(iso) {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleDateString('es-CO',
+      { day: '2-digit', month: 'short', year: 'numeric' });
+  } catch (e) { return '—'; }
+}
+
+function escInf(t) {
+  return String(t == null ? '' : t).replace(/[&<>"']/g,
+    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Lo que hay que mirar de cada persona antes de reenviarle. Devuelve la
+// etiqueta y el color, o null si no hay nada que avisar.
+function reparoDeValidacion(v) {
+  if (!v)                 return { texto: 'Sin validacion creada', color: '#b91c1c' };
+  if (v.vi_sin_respuesta) return { texto: 'VI no respondio', color: '#8b7d93' };
+  if (v.no_encontrada)    return { texto: 'No existe en VI', color: '#b91c1c' };
+  if (v.caducada)         return { texto: 'Caducada: hay que crearla de nuevo', color: '#b91c1c' };
+  if (v.sin_cedula)       return { texto: 'Sin cedula', color: '#b91c1c' };
+  if (v.dias_restantes !== null && v.dias_restantes !== undefined &&
+      v.dias_restantes <= DIAS_AVISO_CADUCIDAD)
+    return { texto: 'Vence en ' + v.dias_restantes + ' dia(s)', color: '#92400e' };
+  return null;
+}
+
+// Una fila del informe. `tipo` decide que columnas importan: en validacion se
+// mira la vigencia y la cedula; en firma, cuando valido.
+function filaInforme(p, tipo) {
+  const v = p.validacion;
+  const reparo = tipo === 'validacion' ? reparoDeValidacion(v) : null;
+
+  // El nombre con el que se creo la validacion puede no ser el del CSV. Si
+  // difieren se muestran los dos: es el aviso de que hay dos personas con el
+  // mismo correo, que ya nos paso.
+  const nombreVI = v && v.nombre &&
+      v.nombre.trim().toLowerCase() !== String(p.nombre).trim().toLowerCase()
+    ? '<div style="font-size:11px;color:#92400e;margin-top:2px;">En VI: ' +
+      escInf(v.nombre) + '</div>' : '';
+
+  const correoVI = v && v.email_vi &&
+      v.email_vi.toLowerCase() !== String(p.email).toLowerCase()
+    ? '<div style="font-size:11px;color:#b91c1c;margin-top:2px;">VI lo mandaria a ' +
+      escInf(v.email_vi) + '</div>' : '';
+
+  const cedula = v && v.documento
+    ? escInf(v.tipo_documento || 'CC') + ' ' + escInf(v.documento)
+    : (tipo === 'validacion' ? '<span style="color:#b91c1c;">falta</span>' : '—');
+
+  let vigencia;
+  if (tipo === 'validacion') {
+    if (v && v.expira_at) {
+      const dias = (v.dias_restantes !== null && v.dias_restantes !== undefined && v.dias_restantes > 0)
+        ? ' <span style="color:#8b7d93;">(' + v.dias_restantes + 'd)</span>' : '';
+      vigencia = fechaCorta(v.expira_at) + dias;
+    } else {
+      vigencia = '—';
+    }
+  } else {
+    vigencia = fechaCorta(p.validado_el);
+  }
+
+  // Por que no se le puede escribir, cuando no se puede.
+  const estado = !p.puede_reenviarse
+    ? '<span style="color:#8b7d93;">Espera ' + p.dias_para_poder + 'd</span>'
+    : p.aviso_otro_usuario
+      ? '<span style="color:#92400e;">Otro usuario le escribio</span>'
+      : '<span style="color:#166534;">Se envia</span>';
+
+  const fondo = !p.puede_reenviarse ? '#faf9fb' : (reparo ? '#fffbf7' : '#fff');
+
+  return '' +
+    '<tr style="background:' + fondo + ';border-bottom:1px solid #f0ecf2;">' +
+      '<td style="padding:10px 12px;vertical-align:top;">' +
+        '<div style="font-weight:600;font-size:13px;color:#2a0d31;">' + escInf(p.nombre) + '</div>' +
+        '<div style="font-size:11px;color:#8b7d93;margin-top:2px;">' + escInf(p.email) + '</div>' +
+        nombreVI + correoVI +
+      '</td>' +
+      '<td style="padding:10px 12px;vertical-align:top;font-size:12px;color:#5c5063;">' + cedula + '</td>' +
+      '<td style="padding:10px 12px;vertical-align:top;font-size:12px;color:#5c5063;">' + vigencia + '</td>' +
+      '<td style="padding:10px 12px;vertical-align:top;font-size:12px;">' + estado +
+        (reparo ? '<div style="font-size:11px;color:' + reparo.color +
+                  ';margin-top:3px;">' + escInf(reparo.texto) + '</div>' : '') +
+      '</td>' +
+      '<td style="padding:10px 12px;vertical-align:top;font-size:12px;color:#8b7d93;">' +
+        (p.ultimo_recordatorio ? fechaCorta(p.ultimo_recordatorio) : 'Nunca') +
+      '</td>' +
+      '<td style="padding:10px 12px;vertical-align:top;text-align:right;">' +
+        '<button type="button" data-rid="' + p.recipient_id + '" data-tipo="' + tipo + '" ' +
+          'class="btnReenvioFila" ' +
+          'style="padding:5px 11px;border-radius:7px;font-size:11px;font-family:inherit;' +
+                 'border:1px solid #e5e0e8;background:#fff;color:#5c5063;cursor:pointer;' +
+                 'white-space:nowrap;">Solo a este</button>' +
+      '</td>' +
+    '</tr>';
+}
+
+/**
+ * Abre el informe y espera. Devuelve true si el operador confirma el envio.
+ *
+ * @param {string} tipo       'validacion' | 'firma'
+ * @param {object[]} personas la lista completa, incluidas las que estan en espera
+ * @param {object} prev       lo que devolvio el servidor al preguntar sin confirmar
+ */
+function informeDeReenvio(tipo, personas, prev) {
+  return new Promise((resolver) => {
+    const que = tipo === 'validacion' ? 'validaciones de identidad' : 'enlaces de firma';
+
+    // Primero los que se van a enviar; los que esperan, al final.
+    const orden = personas.slice().sort((a, b) =>
+      (b.puede_reenviarse ? 1 : 0) - (a.puede_reenviarse ? 1 : 0));
+
+    const conReparo = tipo === 'validacion'
+      ? orden.filter(p => p.puede_reenviarse && reparoDeValidacion(p.validacion)).length : 0;
+
+    const avisos = [];
+    if (prev.en_espera) {
+      avisos.push(prev.en_espera + ' no entran: recibieron un recordatorio hace menos de ' +
+                  (prev.dias_entre_recordatorios || 3) + ' dias.');
+    }
+    if (conReparo) {
+      avisos.push(conReparo + ' tienen algo que revisar (sin cedula, caducada o a punto ' +
+                  'de caducar). Salen marcadas abajo.');
+    }
+    if (prev.vi_error) {
+      avisos.push('No se pudo consultar VI, asi que no se ve la vigencia ni la cedula: ' +
+                  escInf(prev.vi_error));
+    }
+
+    const cabeceras = ['Persona', 'Documento',
+                       tipo === 'validacion' ? 'Vence' : 'Valido el',
+                       'Estado', 'Ultimo envio', ''];
+
+    const fondo = document.createElement('div');
+    fondo.style.cssText =
+      'position:fixed;inset:0;background:rgba(42,13,49,.45);z-index:10000;' +
+      'display:flex;align-items:center;justify-content:center;padding:24px;';
+
+    fondo.innerHTML = '' +
+      '<div role="dialog" aria-modal="true" aria-label="Informe de reenvio" ' +
+           'style="background:#fff;border-radius:16px;max-width:900px;width:100%;' +
+                  'max-height:88vh;display:flex;flex-direction:column;' +
+                  'box-shadow:0 20px 60px rgba(0,0,0,.25);">' +
+
+        '<div style="padding:22px 28px 16px;border-bottom:1px solid #ece7ee;">' +
+          '<div style="font-size:17px;font-weight:700;color:#2a0d31;">Reenviar ' + que + '</div>' +
+          '<div style="font-size:13px;color:#8b7d93;margin-top:6px;">' +
+            'Se enviaran <strong style="color:#2a0d31;">' + prev.se_enviarian + '</strong> de ' +
+            personas.length + ' ' + (personas.length === 1 ? 'persona' : 'personas') + '.' +
+          '</div>' +
+          (avisos.length
+            ? '<div style="margin-top:14px;padding:12px 14px;background:#fffbf7;' +
+                   'border:1px solid #f5e6d3;border-radius:10px;">' +
+              avisos.map(a => '<div style="font-size:12px;color:#92400e;line-height:1.6;">' +
+                              a + '</div>').join('') +
+              '</div>'
+            : '') +
+        '</div>' +
+
+        '<div style="overflow:auto;flex:1;">' +
+          '<table style="width:100%;border-collapse:collapse;">' +
+            '<thead><tr style="background:#faf9fb;position:sticky;top:0;">' +
+              cabeceras.map(h =>
+                '<th style="padding:10px 12px;text-align:' + (h === '' ? 'right' : 'left') + ';' +
+                            'font-size:11px;font-weight:600;color:#8b7d93;' +
+                            'text-transform:uppercase;letter-spacing:.04em;' +
+                            'border-bottom:1px solid #ece7ee;white-space:nowrap;">' + h + '</th>').join('') +
+            '</tr></thead>' +
+            '<tbody>' + orden.map(p => filaInforme(p, tipo)).join('') + '</tbody>' +
+          '</table>' +
+        '</div>' +
+
+        '<div style="padding:16px 28px;border-top:1px solid #ece7ee;display:flex;' +
+                    'gap:10px;justify-content:flex-end;align-items:center;">' +
+          '<div style="flex:1;font-size:11px;color:#b0a6b8;">' +
+            'Entre correo y correo se deja una pausa para no caer en spam.' +
+          '</div>' +
+          '<button type="button" id="infCancelar" ' +
+            'style="padding:10px 18px;border-radius:10px;font-size:13px;font-weight:600;' +
+                   'font-family:inherit;border:1px solid #e5e0e8;background:#fff;' +
+                   'color:#5c5063;cursor:pointer;">Cancelar</button>' +
+          '<button type="button" id="infEnviar" ' + (prev.se_enviarian ? '' : 'disabled') + ' ' +
+            'style="padding:10px 18px;border-radius:10px;font-size:13px;font-weight:600;' +
+                   'font-family:inherit;cursor:' + (prev.se_enviarian ? 'pointer' : 'not-allowed') + ';' +
+                   'border:1px solid ' + (prev.se_enviarian ? '#2a0d31' : '#e5e0e8') + ';' +
+                   'background:' + (prev.se_enviarian ? '#2a0d31' : '#faf9fb') + ';' +
+                   'color:' + (prev.se_enviarian ? '#fff' : '#b0a6b8') + ';">' +
+            'Enviar ' + prev.se_enviarian +
+          '</button>' +
+        '</div>' +
+      '</div>';
+
+    document.body.appendChild(fondo);
+    document.body.style.overflow = 'hidden';
+
+    let resuelto = false;
+    function alPulsarTecla(e) { if (e.key === 'Escape') cerrar(false); }
+    function cerrar(valor) {
+      if (resuelto) return;
+      resuelto = true;
+      document.removeEventListener('keydown', alPulsarTecla);
+      document.body.style.overflow = '';
+      fondo.remove();
+      resolver(valor);
+    }
+
+    document.addEventListener('keydown', alPulsarTecla);
+    fondo.querySelector('#infCancelar').addEventListener('click', function () { cerrar(false); });
+    fondo.querySelector('#infEnviar').addEventListener('click', function () { cerrar(true); });
+    // Clic fuera de la tarjeta = cancelar. Nunca enviar.
+    fondo.addEventListener('click', function (e) { if (e.target === fondo) cerrar(false); });
+
+    // "Solo a este": manda a uno sin cerrar el informe, para el caso del padre
+    // que llama por telefono. El informe queda abierto para seguir mirando.
+    fondo.querySelectorAll('.btnReenvioFila').forEach(function (b) {
+      b.addEventListener('click', function () {
+        reenviarIndividual(parseInt(b.dataset.rid, 10), b.dataset.tipo, b);
+      });
+    });
+
+    fondo.querySelector('#infEnviar').focus();
+  });
+}
+
+// Antes de mandar nada se abre el informe, con el desglose delante. Un clic no
+// puede sacar decenas de correos a padres reales sin vuelta atras, y menos sin
+// que se vea con que cedula y con que vigencia se creo cada validacion.
 async function confirmarReenvio(tipo) {
   const docId = new URLSearchParams(window.location.search).get('id');
   if (!docId) return;
@@ -2180,26 +2422,25 @@ async function confirmarReenvio(tipo) {
       credentials: 'include', body: JSON.stringify({ tipo, confirmar: false })
     }).then(r => r.json());
 
-    if (!prev.success || !prev.se_enviarian) {
-      alert('No hay a quien reenviar ahora mismo.');
+    if (!prev.success) {
+      alert(prev.message || 'No se pudo comprobar a quien hay que reenviar.');
       return;
     }
 
-    const que = tipo === 'validacion' ? 'solicitudes de validacion de identidad'
-                                      : 'enlaces de firma';
-    let texto = `Se enviaran ${prev.se_enviarian} ${que}.\n\n`;
-    if (prev.en_espera) {
-      texto += `${prev.en_espera} quedan fuera por haber recibido uno hace poco.\n\n`;
+    // El informe se abre incluso si no hay a quien enviar ahora: saber POR QUE
+    // no se puede (todos en espera, o una validacion caducada) es justo lo que
+    // hace falta ver. Antes salia un "no hay a quien reenviar" y ahi se acababa.
+    const personas = prev.personas || [];
+    if (!personas.length) {
+      alert('No hay a quien reenviar en este documento.');
+      return;
     }
-    if (prev.avisos?.length) {
-      texto += `Aviso: ${prev.avisos.length} de estas personas recibieron un correo ` +
-               `de otro usuario en las ultimas 24 horas.\n\n`;
-    }
-    texto += 'Continuar?';
 
-    if (!confirm(texto)) return;
+    if (btn) { btn.disabled = false; btn.textContent = textoOriginal; }
+    const seguir = await informeDeReenvio(tipo, personas, prev);
+    if (!seguir) return;
 
-    if (btn) btn.textContent = 'Enviando...';
+    if (btn) { btn.disabled = true; btn.textContent = 'Enviando...'; }
 
     const res = await fetch(`/api/documentos/${docId}/recordatorios`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

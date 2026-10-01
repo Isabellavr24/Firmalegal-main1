@@ -3610,10 +3610,22 @@ app.get('/api/documentos/:docId/recordatorios', requireAuth, async (req, res) =>
         if (!doc.length) return res.status(404).json({ success: false, message: 'Documento no encontrado' });
 
         const estado = await _recordatorios.estadoDocumento(db, docId, req.userId);
+
+        // Los datos de cada validacion (nombre, cedula, vigencia) viven en VI,
+        // no aqui. Se piden solo para quien falta por validar, que son los
+        // unicos a los que se les va a reenviar la validacion.
+        //
+        // Si VI no contesta el panel sigue sirviendo: cuantos faltan y a quien
+        // se puede escribir sale de nuestra base. Lo que falta es el detalle,
+        // y la pantalla avisa de que falta en vez de inventarlo.
+        await _recordatorios.conDatosDeValidacion(estado.sin_validar);
+        const viError = estado.sin_validar.vi_error || null;
+
         res.json({
             success: true,
             documento: { id: doc[0].document_id, titulo: doc[0].title, tipo: doc[0].document_type },
             dias_entre_recordatorios: _recordatorios.DIAS_ENTRE_RECORDATORIOS,
+            vi_error: viError,
             ...estado
         });
     } catch (e) {
@@ -3662,17 +3674,34 @@ app.post('/api/documentos/:docId/recordatorios', requireAuth, async (req, res) =
         const enEspera = candidatos.filter(p => !p.puede_reenviarse);
         const conAviso = enviables.filter(p => p.aviso_otro_usuario);
 
-        // Sin confirmar: solo se cuenta, no se manda nada.
+        // Sin confirmar: no se manda nada, se devuelve el desglose completo.
+        //
+        // Va la lista entera de candidatos, no solo un numero: el operador
+        // tiene que poder ver con que cedula y con que vigencia se creo cada
+        // validacion ANTES de que salga el correo. Mandar a ciegas ya nos
+        // costo validaciones creadas sin cedula que nadie vio hasta que el
+        // padre no pudo validarse.
+        //
+        // Y van los CANDIDATOS, no `estado.sin_validar`: aqui ya se quito al
+        // firmante definitivo, asi que la pantalla ensena exactamente a
+        // quien se le va a escribir.
         if (!confirmar) {
+            if (tipo === 'validacion') {
+                await _recordatorios.conDatosDeValidacion(candidatos);
+            }
             return res.json({
                 success: true,
                 simulacion: true,
                 se_enviarian: enviables.length,
                 en_espera: enEspera.length,
+                dias_entre_recordatorios: _recordatorios.DIAS_ENTRE_RECORDATORIOS,
+                vi_error: candidatos.vi_error || null,
                 avisos: conAviso.map(p => ({
                     nombre: p.nombre, email: p.email,
                     nota: 'Otro usuario le escribio en las ultimas 24 horas'
                 })),
+                // El desglose que pinta el informe
+                personas: candidatos,
                 destinatarios: enviables.map(p => ({ nombre: p.nombre, email: p.email }))
             });
         }
