@@ -23,6 +23,7 @@ validatePaths();
 // =============================================
 const foldersController = require('./controllers/folders-controller');
 const documentsController = require('./controllers/documents-controller');
+const _datosFirmante = require('./lib/datos-del-firmante');
 const signaturesController = require('./controllers/signatures-controller');
 const certificatesController = require('./controllers/certificates-controller');
 const { requestLogger } = require('./middleware/auth');
@@ -2818,9 +2819,40 @@ app.post('/api/integration/vi-iniciar', async (req, res) => {
         return res.status(401).json({ success: false, message: 'Sesión no encontrada' });
     }
 
-    const { signer_email, signer_name, document_title, firma_token } = req.body;
+    const { signer_email, signer_name, document_title, firma_token,
+            signer_documento, signer_tipo_documento } = req.body;
     if (!signer_email || !firma_token) {
         return res.status(400).json({ success: false, message: 'Faltan campos requeridos' });
+    }
+
+    // La cedula. Si el navegador no la manda, se saca de los campos del
+    // pagare emparejando por el correo del firmante.
+    //
+    // Antes esta ruta no la mandaba NUNCA, asi que a VI le llegaba el
+    // documento vacio y el padre abria una validacion sin nada contra que
+    // comparar. Es el fallo que ya costo rehacer validaciones a mano.
+    let cedula = signer_documento || null;
+    let nombreParaVI = signer_name;
+    if (!cedula) {
+        try {
+            const [dest] = await db.promise().query(
+                'SELECT recipient_id FROM document_recipients WHERE token = ? LIMIT 1',
+                [firma_token]);
+            if (dest.length) {
+                const d = await _datosFirmante.datosDeFirmanteDesdeBD(
+                    db, dest[0].recipient_id, signer_email);
+                if (d.documento) {
+                    cedula = d.documento;
+                    if (d.nombre) nombreParaVI = d.nombre;
+                } else {
+                    console.warn(`[VI-INICIAR] Sin cedula para ${signer_email}: ${d.motivo}`);
+                }
+            }
+        } catch (e) {
+            // Que falle la busqueda no puede tumbar el envio: se sigue sin
+            // cedula, como se hacia antes, y queda el aviso en el log.
+            console.warn(`[VI-INICIAR] No se pudo buscar la cedula de ${signer_email}: ${e.message}`);
+        }
     }
 
     const VI_URL = process.env.VI_URL || 'http://validacion-identidad-app-1:3000';
@@ -2830,7 +2862,10 @@ app.post('/api/integration/vi-iniciar', async (req, res) => {
     try {
         const viUrlParsed = new URL(`${VI_URL}/validacion/api/firmalegal/iniciar-validacion`);
         const transport = viUrlParsed.protocol === 'https:' ? require('https') : require('http');
-        const body = JSON.stringify({ owner_firmalegal_user_id, signer_email, signer_name, document_title, firma_token });
+        const body = JSON.stringify({ owner_firmalegal_user_id, signer_email,
+            signer_name: nombreParaVI, document_title, firma_token,
+            signer_documento: cedula || undefined,
+            signer_tipo_documento: cedula ? (signer_tipo_documento || 'CC') : undefined });
 
         const viResp = await new Promise((resolve) => {
             const r = transport.request({
@@ -3451,7 +3486,6 @@ app.post('/api/registros/csv-rechazado', requireAuth, async (req, res) => {
 // mandar cientos de correos a padres reales sin vuelta atras.
 
 const _recordatorios = require('./lib/recordatorios');
-const _datosFirmante = require('./lib/datos-del-firmante');
 
 /**
  * Envia los recordatorios uno a uno, con pausa entre ellos.
