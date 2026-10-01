@@ -3438,6 +3438,259 @@ app.post('/api/registros/csv-rechazado', requireAuth, async (req, res) => {
     }
 });
 
+// =====================================================================
+// RECORDATORIOS — reenviar validaciones y enlaces de firma
+// =====================================================================
+//
+// Automatiza lo que se hacia a mano cada lunes. Dos rutas:
+//   GET  /api/documentos/:id/recordatorios  — el estado: quien falta
+//   POST /api/documentos/:id/recordatorios  — enviar
+//
+// El POST con `confirmar: false` NO envia nada: devuelve lo que haria, para
+// que el operador lo vea antes. Sin esa confirmacion explicita, un clic podria
+// mandar cientos de correos a padres reales sin vuelta atras.
+
+const _recordatorios = require('./lib/recordatorios');
+
+/**
+ * Envia los recordatorios uno a uno, con pausa entre ellos.
+ *
+ * La pausa no es un adorno: mandar cientos de correos de golpe desde el mismo
+ * remitente es lo que hace que los proveedores empiecen a marcarlos como spam.
+ * Hasta ahora los lunes se enviaban a mano, poco a poco, y nunca cayeron en
+ * spam; este ritmo imita eso.
+ *
+ * Cada envio comprueba OTRA VEZ el limite de dias justo antes de salir: entre
+ * que el operador abre el panel y pulsa el boton pueden pasar minutos.
+ *
+ * No lanza: si uno falla, se anota y se sigue con los demas.
+ */
+async function enviarRecordatorios(personas, tipo, docId, docTitle, req) {
+    const sendgrid = require('./lib/email/sendgrid');
+    const plantillaFirma = require('./lib/email/templates/signature-request-bulk');
+
+    // Remitente unico de FirmaLegal, el mismo de siempre.
+    const [cfg] = await db.promise().query(
+        `SELECT ec.email_from, ec.email_from_name, ec.sendgrid_api_key,
+                u.first_name, u.last_name, u.email AS owner_email
+         FROM users u LEFT JOIN email_config ec ON ec.user_id = 1
+         WHERE u.user_id = 1`);
+    if (!cfg.length || !cfg[0].sendgrid_api_key) {
+        return { enviados: 0, fallidos: personas.length, error: 'No hay SendGrid configurado' };
+    }
+    const c = cfg[0];
+    const senderName = c.email_from_name || `${c.first_name} ${c.last_name}`;
+    const fromEmail = c.email_from || c.owner_email;
+    sendgrid.configureSendGrid(c.sendgrid_api_key);
+
+    const appUrl = 'https://firmalegalonline.com';
+    let enviados = 0, fallidos = 0, saltados = 0;
+    const errores = [];
+
+    for (const p of personas) {
+        // Se vuelve a comprobar el limite: la pantalla pudo abrirse hace rato.
+        if (!(await _recordatorios.sePuedeEnviar(db, p.recipient_id, req.userId))) {
+            saltados++;
+            continue;
+        }
+
+        try {
+            if (tipo === 'validacion') {
+                // La validacion la crea el sistema de VI, que ademas manda su
+                // propio correo. Se reutiliza la misma ruta que usa el boton.
+                await crearValidacionVI(p, docId, docTitle, req);
+            } else {
+                const [rec] = await db.promise().query(
+                    'SELECT token FROM document_recipients WHERE recipient_id = ?', [p.recipient_id]);
+                if (!rec.length || !rec[0].token) throw new Error('El destinatario no tiene enlace');
+
+                const html = plantillaFirma({
+                    recipientName: p.nombre,
+                    documentTitle: docTitle || 'Documento',
+                    senderName,
+                    signatureUrl: `${appUrl}/public-sign.html?token=${rec[0].token}`,
+                    appUrl
+                });
+                const r = await sendgrid.sendEmail({
+                    to: p.email, from: fromEmail, fromName: senderName,
+                    subject: `Recordatorio de firma: ${docTitle}`, html
+                });
+                if (!r || !r.success) throw new Error(r?.error || 'SendGrid no confirmo el envio');
+            }
+
+            enviados++;
+            await _recordatorios.registrar(db, {
+                recipientId: p.recipient_id, documentId: docId, userId: req.userId,
+                tipo, email: p.email, resultado: 'enviado'
+            });
+
+        } catch (e) {
+            fallidos++;
+            errores.push({ email: p.email, motivo: e.message });
+            await _recordatorios.registrar(db, {
+                recipientId: p.recipient_id, documentId: docId, userId: req.userId,
+                tipo, email: p.email, resultado: 'fallido', detalle: e.message
+            });
+            await registrarError({
+                documentId: docId, recipientId: p.recipient_id, userId: req.userId,
+                donde: 'recordatorio',
+                mensaje: `No se pudo reenviar el ${tipo} a ${p.email}: ${e.message}`,
+                req
+            });
+        }
+
+        // Pausa entre correos. Un segundo es suficiente para no parecer una
+        // rafaga y no hace la tanda inmanejable: 150 correos son 2 minutos y
+        // medio, que es menos de lo que se tardaba a mano.
+        await new Promise(r => setTimeout(r, 1000));
+    }
+
+    console.log(`[RECORDATORIOS] doc ${docId} (${tipo}): ${enviados} enviados, ${fallidos} fallidos, ${saltados} saltados por el limite`);
+
+    await registrarEvento({
+        tipo: 'email_sent', documentId: docId, userId: req.userId,
+        datos: { accion: 'recordatorio_masivo', tipo_recordatorio: tipo,
+                 enviados, fallidos, saltados },
+        req
+    });
+
+    return { enviados, fallidos, saltados, errores: errores.slice(0, 10) };
+}
+
+/**
+ * Crea la validacion de identidad en VI, que manda su propio correo.
+ *
+ * OJO: la ruta de VI devuelve el cuerpo vacio aunque la validacion se cree
+ * bien, asi que un 400 no significa que haya fallado. Se comprueba el
+ * resultado consultando VI, no por el codigo HTTP.
+ */
+async function crearValidacionVI(persona, docId, docTitle, req) {
+    const [rec] = await db.promise().query(
+        'SELECT token FROM document_recipients WHERE recipient_id = ?', [persona.recipient_id]);
+    if (!rec.length || !rec[0].token) throw new Error('El destinatario no tiene enlace');
+
+    const VI_URL = process.env.VI_URL || 'http://validacion-identidad-app-1:3000';
+    const cuerpo = JSON.stringify({
+        owner_firmalegal_user_id: req.userId,
+        signer_email: persona.email,
+        signer_name: persona.nombre,
+        document_title: docTitle || 'Documento',
+        firma_token: rec[0].token
+    });
+
+    const url = new URL(`${VI_URL}/validacion/api/firmalegal/iniciar-validacion`);
+    const transporte = url.protocol === 'https:' ? require('https') : require('http');
+
+    await new Promise((resolve, reject) => {
+        const r = transporte.request({
+            hostname: url.hostname, port: url.port || 80, path: url.pathname, method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Internal-Api-Key': process.env.INTERNAL_API_KEY || '',
+                'Content-Length': Buffer.byteLength(cuerpo)
+            }
+        }, resp => { resp.resume(); resp.on('end', resolve); });
+        r.on('error', reject);
+        r.write(cuerpo);
+        r.end();
+    });
+}
+
+// GET — cuantos faltan por validar, cuantos por firmar, a quien se puede
+// escribir hoy y a quien no (y por que).
+app.get('/api/documentos/:docId/recordatorios', requireAuth, async (req, res) => {
+    try {
+        const docId = parseInt(req.params.docId, 10);
+        if (!docId) return res.status(400).json({ success: false, message: 'Documento no valido' });
+
+        const [doc] = await db.promise().query(
+            'SELECT document_id, title, document_type, owner_id FROM documents WHERE document_id = ?',
+            [docId]
+        );
+        if (!doc.length) return res.status(404).json({ success: false, message: 'Documento no encontrado' });
+
+        const estado = await _recordatorios.estadoDocumento(db, docId, req.userId);
+        res.json({
+            success: true,
+            documento: { id: doc[0].document_id, titulo: doc[0].title, tipo: doc[0].document_type },
+            dias_entre_recordatorios: _recordatorios.DIAS_ENTRE_RECORDATORIOS,
+            ...estado
+        });
+    } catch (e) {
+        console.error('[RECORDATORIOS] Error al consultar el estado:', e.message);
+        res.status(500).json({ success: false, message: 'No se pudo consultar el estado del documento' });
+    }
+});
+
+// POST — enviar los recordatorios.
+//
+// body: { tipo: 'validacion'|'firma', confirmar: true, recipients?: [ids] }
+//
+// Sin `confirmar: true` solo devuelve el resumen de lo que haria.
+// Con `recipients` se manda solo a esos; sin ellos, a todos los que toque.
+app.post('/api/documentos/:docId/recordatorios', requireAuth, async (req, res) => {
+    try {
+        const docId = parseInt(req.params.docId, 10);
+        const { tipo, confirmar = false, recipients = null } = req.body || {};
+
+        if (!docId) return res.status(400).json({ success: false, message: 'Documento no valido' });
+        if (!['validacion', 'firma'].includes(tipo)) {
+            return res.status(400).json({ success: false, message: 'El tipo debe ser validacion o firma' });
+        }
+
+        const [doc] = await db.promise().query(
+            'SELECT document_id, title FROM documents WHERE document_id = ?', [docId]);
+        if (!doc.length) return res.status(404).json({ success: false, message: 'Documento no encontrado' });
+
+        const estado = await _recordatorios.estadoDocumento(db, docId, req.userId);
+
+        // A quien le toca segun el tipo. Los de firma salen de `sin_firmar`,
+        // que por construccion ya valido su identidad: nunca se manda el
+        // enlace de firma a quien no ha validado.
+        let candidatos = tipo === 'validacion' ? estado.sin_validar : estado.sin_firmar;
+
+        // El firmante definitivo no entra en los reenvios masivos: su correo
+        // sale solo cuando todos los demas han firmado.
+        candidatos = candidatos.filter(p => !p.es_firmante_definitivo);
+
+        if (Array.isArray(recipients) && recipients.length) {
+            const pedidos = new Set(recipients.map(Number));
+            candidatos = candidatos.filter(p => pedidos.has(p.recipient_id));
+        }
+
+        const enviables = candidatos.filter(p => p.puede_reenviarse);
+        const enEspera = candidatos.filter(p => !p.puede_reenviarse);
+        const conAviso = enviables.filter(p => p.aviso_otro_usuario);
+
+        // Sin confirmar: solo se cuenta, no se manda nada.
+        if (!confirmar) {
+            return res.json({
+                success: true,
+                simulacion: true,
+                se_enviarian: enviables.length,
+                en_espera: enEspera.length,
+                avisos: conAviso.map(p => ({
+                    nombre: p.nombre, email: p.email,
+                    nota: 'Otro usuario le escribio en las ultimas 24 horas'
+                })),
+                destinatarios: enviables.map(p => ({ nombre: p.nombre, email: p.email }))
+            });
+        }
+
+        if (!enviables.length) {
+            return res.json({ success: true, enviados: 0, fallidos: 0,
+                mensaje: 'No hay a quien reenviar ahora mismo' });
+        }
+
+        const resultado = await enviarRecordatorios(enviables, tipo, docId, doc[0].title, req);
+        res.json({ success: true, ...resultado, en_espera: enEspera.length });
+
+    } catch (e) {
+        console.error('[RECORDATORIOS] Error al enviar:', e.message);
+        res.status(500).json({ success: false, message: 'No se pudieron enviar los recordatorios' });
+    }
+});
+
 // GET /api/registros/filtros — lo que se ofrece en los desplegables.
 app.get('/api/registros/filtros', requireAuth, async (req, res) => {
     try {
