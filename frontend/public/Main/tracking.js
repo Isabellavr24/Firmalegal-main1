@@ -2128,8 +2128,9 @@ function pintarPanelRecordatorios(d) {
 
   const espera = r.en_espera
     ? `<div style="font-size:12px;color:#8b7d93;margin-top:14px;line-height:1.5;">
-         ${r.en_espera} ${r.en_espera === 1 ? 'persona recibio' : 'personas recibieron'}
-         un recordatorio hace menos de ${d.dias_entre_recordatorios} dias: no se les reenvia todavia.
+         ${r.en_espera} ${r.en_espera === 1 ? 'persona ya recibio' : 'personas ya recibieron'}
+         sus ${d.envios_por_dia || 2} recordatorios de hoy: no se les reenvia hasta
+         que pasen 24 horas del primero.
        </div>` : '';
 
   caja.innerHTML = `
@@ -2177,6 +2178,17 @@ function pintarPanelRecordatorios(d) {
 // Dos dias de margen para avisar de que una validacion esta por caducar: si
 // vence antes de que el padre la abra, reenviarla no sirve de nada.
 const DIAS_AVISO_CADUCIDAD = 2;
+
+// La espera, en palabras. Son segundos, pero decir "en 61200 segundos" no le
+// sirve a nadie: se redondea a la unidad que se entiende de un vistazo.
+function esperaEnPalabras(segundos) {
+  const s = Math.max(0, Number(segundos) || 0);
+  if (s < 60) return 'menos de 1 min';
+  const min = Math.ceil(s / 60);
+  if (min < 60) return min + ' min';
+  const horas = Math.round(s / 3600);
+  return horas + (horas === 1 ? ' hora' : ' horas');
+}
 
 function fechaCorta(iso) {
   if (!iso) return '—';
@@ -2268,7 +2280,7 @@ function filaInforme(p, tipo) {
   const estado = p.bloqueo
     ? '<span style="color:#b91c1c;">No se envia</span>'
     : !p.puede_reenviarse
-    ? '<span style="color:#8b7d93;">Espera ' + p.dias_para_poder + 'd</span>'
+    ? '<span style="color:#8b7d93;">Espera ' + esperaEnPalabras(p.faltan_segundos) + '</span>'
     : p.aviso_otro_usuario
       ? '<span style="color:#92400e;">Otro usuario le escribio</span>'
       : '<span style="color:#166534;">Se envia</span>';
@@ -2321,8 +2333,8 @@ function informeDeReenvio(tipo, personas, prev) {
 
     const avisos = [];
     if (prev.en_espera) {
-      avisos.push(prev.en_espera + ' no entran: recibieron un recordatorio hace menos de ' +
-                  (prev.dias_entre_recordatorios || 3) + ' dias.');
+      avisos.push(prev.en_espera + ' no entran: ya recibieron sus ' +
+                  (prev.envios_por_dia || 2) + ' recordatorios de las ultimas 24 horas.');
     }
     if (conReparo) {
       avisos.push(conReparo + ' tienen algo que revisar (sin cedula, caducada o a punto ' +

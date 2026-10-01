@@ -3677,7 +3677,7 @@ app.get('/api/documentos/:docId/recordatorios', requireAuth, async (req, res) =>
         res.json({
             success: true,
             documento: { id: doc[0].document_id, titulo: doc[0].title, tipo: doc[0].document_type },
-            dias_entre_recordatorios: _recordatorios.DIAS_ENTRE_RECORDATORIOS,
+            envios_por_dia: _recordatorios.ENVIOS_POR_DIA,
             vi_error: viError,
             ...estado
         });
@@ -3765,7 +3765,7 @@ app.post('/api/documentos/:docId/recordatorios', requireAuth, async (req, res) =
                 simulacion: true,
                 se_enviarian: enviables.length,
                 en_espera: enEspera.length,
-                dias_entre_recordatorios: _recordatorios.DIAS_ENTRE_RECORDATORIOS,
+                envios_por_dia: _recordatorios.ENVIOS_POR_DIA,
                 vi_error: candidatos.vi_error || null,
                 avisos: conAviso.map(p => ({
                     nombre: p.nombre, email: p.email,

@@ -12,10 +12,20 @@
 //    porque otro, sin relacion con el, le escribio a esa persona hace dos dias.
 //    Si otro usuario escribio hace poco, se AVISA pero se deja enviar.
 
-// El limite de dias es SOLO para el reenvio MASIVO. Ahi salen decenas de
-// correos de golpe desde el mismo remitente —40 pagares son 80 correos— y eso
-// es lo que dispara los filtros de spam.
-const DIAS_ENTRE_RECORDATORIOS = 3;
+// El limite del reenvio MASIVO: cuantos correos puede recibir UNA persona al
+// dia. Ahi salen decenas de golpe desde el mismo remitente -40 pagares son 80
+// correos- y eso es lo que dispara los filtros de spam.
+//
+// Se cuenta POR PERSONA, no por documento: lo que molesta a un padre es
+// recibir cuatro correos suyos, no que el operador haga varias tandas. Asi el
+// operador puede lanzar una segunda tanda el mismo dia para alcanzar a quien
+// quedo fuera, sin repetirsela a quien ya la recibio dos veces.
+const ENVIOS_POR_DIA = 2;
+
+// Y se mira en una ventana MOVIL de 24 horas, no en el dia de calendario. Con
+// el dia natural se podrian mandar 2 a las 23:00 y otros 2 a las 00:30: cuatro
+// correos en hora y media, que es justo lo que se quiere evitar.
+const VENTANA_HORAS = 24;
 
 // El reenvio INDIVIDUAL no tiene limite de dias: si un padre llama diciendo
 // que no le llego, hay que poder mandarselo ahora. Lo que tiene es una espera
@@ -48,6 +58,19 @@ async function estadoDocumento(db, documentId, userId) {
                   WHERE r.recipient_id = dr.recipient_id
                     AND r.user_id <=> ?
                     AND r.resultado = 'enviado') AS ultimo_mio,
+                -- Cuantos lleva en las ultimas 24 horas, que es el limite.
+                (SELECT COUNT(*) FROM recordatorios_enviados r
+                  WHERE r.recipient_id = dr.recipient_id
+                    AND r.user_id <=> ?
+                    AND r.resultado = 'enviado'
+                    AND r.created_at >= NOW() - INTERVAL ? HOUR) AS envios_hoy,
+                -- Cuando caduca el mas viejo de esos: el momento en que
+                -- vuelve a tener hueco.
+                (SELECT MIN(r.created_at) FROM recordatorios_enviados r
+                  WHERE r.recipient_id = dr.recipient_id
+                    AND r.user_id <=> ?
+                    AND r.resultado = 'enviado'
+                    AND r.created_at >= NOW() - INTERVAL ? HOUR) AS mas_viejo_mio,
                 (SELECT MAX(r.created_at) FROM recordatorios_enviados r
                   WHERE r.recipient_id = dr.recipient_id
                     AND NOT (r.user_id <=> ?)
@@ -57,21 +80,26 @@ async function estadoDocumento(db, documentId, userId) {
            ON LOWER(v.email) COLLATE utf8mb4_unicode_ci = LOWER(dr.email) COLLATE utf8mb4_unicode_ci
          WHERE dr.document_id = ?
          ORDER BY dr.viewer_group_id, dr.signing_order`,
-        [userId, userId, documentId]
+        [userId, userId, VENTANA_HORAS, userId, VENTANA_HORAS, userId, documentId]
     );
 
     const ahora = Date.now();
-    const margen = DIAS_ENTRE_RECORDATORIOS * 24 * 60 * 60 * 1000;
+    const ventana = VENTANA_HORAS * 60 * 60 * 1000;
 
     const sinValidar = [], sinFirmar = [], firmados = [];
 
     for (const f of filas) {
-        const desdeElMio = f.ultimo_mio ? ahora - new Date(f.ultimo_mio).getTime() : null;
-        const puede = desdeElMio === null || desdeElMio >= margen;
+        // Puede recibir otro si lleva menos de ENVIOS_POR_DIA en la ventana.
+        const llevaHoy = Number(f.envios_hoy) || 0;
+        const puede = llevaHoy < ENVIOS_POR_DIA;
 
-        // Dias que faltan para poder reenviarle, si esta en espera
-        const faltan = puede ? 0
-            : Math.ceil((margen - desdeElMio) / (24 * 60 * 60 * 1000));
+        // Cuando vuelve a tener hueco: al caducar el mas viejo de los que
+        // ocupan la ventana. Como es movil, no hay que esperar a medianoche.
+        let faltanSegundos = 0;
+        if (!puede && f.mas_viejo_mio) {
+            const caduca = new Date(f.mas_viejo_mio).getTime() + ventana;
+            faltanSegundos = Math.max(0, Math.ceil((caduca - ahora) / 1000));
+        }
 
         // Aviso blando: otro usuario le escribio en las ultimas 24 horas
         const otroReciente = f.ultimo_de_otro &&
@@ -85,7 +113,10 @@ async function estadoDocumento(db, documentId, userId) {
             es_firmante_definitivo: !!f.is_final_signer,
             ultimo_recordatorio: f.ultimo_mio,
             puede_reenviarse: puede,
-            dias_para_poder: faltan,
+            envios_hoy: llevaHoy,
+            // Lo que falta para volver a tener hueco, en segundos. La
+            // pantalla lo convierte a horas o minutos segun cuanto sea.
+            faltan_segundos: faltanSegundos,
             aviso_otro_usuario: !!otroReciente,
             // Los datos con los que se creo su validacion, para poder
             // revisarlos antes de reenviar: cedula, nombre y vigencia.
@@ -276,15 +307,13 @@ async function registrar(db, { recipientId, documentId, userId, tipo, email, res
 async function sePuedeEnviar(db, recipientId, userId) {
     try {
         const [filas] = await db.promise().query(
-            `SELECT MAX(created_at) AS ultimo
+            `SELECT COUNT(*) AS llevan
              FROM recordatorios_enviados
-             WHERE recipient_id = ? AND user_id <=> ? AND resultado = 'enviado'`,
-            [recipientId, userId || null]
+             WHERE recipient_id = ? AND user_id <=> ? AND resultado = 'enviado'
+               AND created_at >= NOW() - INTERVAL ? HOUR`,
+            [recipientId, userId || null, VENTANA_HORAS]
         );
-        const ultimo = filas[0]?.ultimo;
-        if (!ultimo) return true;
-        const pasado = Date.now() - new Date(ultimo).getTime();
-        return pasado >= DIAS_ENTRE_RECORDATORIOS * 24 * 60 * 60 * 1000;
+        return (Number(filas[0]?.llevan) || 0) < ENVIOS_POR_DIA;
     } catch (e) {
         // Ante la duda, NO enviar: es peor repetirle a un padre que saltarse uno.
         console.warn(`[RECORDATORIOS] No se pudo comprobar el limite de ${recipientId}: ${e.message}`);
@@ -340,5 +369,5 @@ async function esperaIndividual(db, recipientId, userId) {
 module.exports = {
     estadoDocumento, registrar, sePuedeEnviar, esperaIndividual,
     conDatosDeValidacion,
-    DIAS_ENTRE_RECORDATORIOS, ESPERA_INDIVIDUAL_MIN
+    ENVIOS_POR_DIA, VENTANA_HORAS, ESPERA_INDIVIDUAL_MIN
 };
