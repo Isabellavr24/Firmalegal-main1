@@ -2104,46 +2104,55 @@ function pintarPanelRecordatorios(d) {
   const r = d.resumen;
   const enviados = r.total - r.sin_validar;   // a quien ya le llego algo del proceso
 
-  // Cuatro numeros, sin adornos: lo que hace falta saber de un vistazo.
+  // Mismo lenguaje visual que el resto de la pagina: tarjeta blanca, radio 16,
+  // el borde y la sombra de las variables, y el padding de .section-header.
   const dato = (n, etiqueta, color) =>
-    `<div style="flex:1;min-width:110px;padding:12px 16px;">
-       <div style="font-size:22px;font-weight:700;color:${color};line-height:1.1;">${n}</div>
-       <div style="font-size:11px;color:#8b7d93;margin-top:3px;">${etiqueta}</div>
+    `<div style="flex:1 1 140px;min-width:0;">
+       <div style="font-size:26px;font-weight:700;color:${color};line-height:1;">${n}</div>
+       <div style="font-size:12px;color:#8b7d93;margin-top:6px;">${etiqueta}</div>
      </div>`;
 
-  // Los botones solo aparecen si hay a quien escribir. Un boton que no hace
-  // nada confunde mas que ayuda.
+  // Los botones solo salen si hay a quien escribir: uno que no hace nada
+  // confunde mas que ayuda.
   const btn = (id, texto, n, activo) => !n ? '' :
     `<button id="${id}" type="button" ${activo ? '' : 'disabled'}
-       style="padding:8px 16px;border-radius:8px;font-size:12px;font-weight:600;
+       style="padding:10px 18px;border-radius:10px;font-size:13px;font-weight:600;
               font-family:inherit;cursor:${activo ? 'pointer' : 'not-allowed'};
-              border:1px solid ${activo ? '#2a0d31' : '#ddd'};
-              background:${activo ? '#2a0d31' : '#f5f5f5'};
-              color:${activo ? '#fff' : '#999'};">${texto}</button>`;
+              border:1px solid ${activo ? 'var(--brand-color, #2a0d31)' : '#e5e0e8'};
+              background:${activo ? 'var(--brand-color, #2a0d31)' : '#faf9fb'};
+              color:${activo ? '#fff' : '#b0a6b8'};transition:opacity .15s;"
+       ${activo ? 'onmouseover="this.style.opacity=0.85" onmouseout="this.style.opacity=1"' : ''}
+       >${texto}</button>`;
+
+  const hayBotones = r.sin_validar || r.validados_sin_firmar;
 
   const espera = r.en_espera
-    ? `<div style="font-size:11px;color:#8b7d93;margin-top:8px;">
+    ? `<div style="font-size:12px;color:#8b7d93;margin-top:14px;line-height:1.5;">
          ${r.en_espera} ${r.en_espera === 1 ? 'persona recibio' : 'personas recibieron'}
          un recordatorio hace menos de ${d.dias_entre_recordatorios} dias: no se les reenvia todavia.
        </div>` : '';
 
   caja.innerHTML = `
-    <div style="background:#fbfafc;border:1px solid #ece7ee;border-radius:12px;padding:6px 6px 14px;">
-      <div style="display:flex;flex-wrap:wrap;align-items:center;">
-        ${dato(enviados, 'Correos enviados', '#2a0d31')}
+    <div style="background:#fff;border:1px solid var(--border-color, #ece7ee);
+                border-radius:16px;box-shadow:var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.04));
+                padding:24px 32px;margin-bottom:32px;">
+      <div style="display:flex;flex-wrap:wrap;gap:20px;">
+        ${dato(enviados, 'Correos enviados', 'var(--brand-color, #2a0d31)')}
         ${dato(r.validados_sin_firmar, 'Firmas pendientes', '#92400e')}
         ${dato(r.sin_validar, 'Validaciones pendientes', '#b91c1c')}
         ${dato(r.firmados, 'Firmas completadas', '#166534')}
       </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;padding:0 16px;">
+      ${hayBotones ? `
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:22px;
+                  padding-top:20px;border-top:1px solid var(--border-color, #ece7ee);">
         ${btn('btnReenviarValidaciones',
               `Reenviar validaciones (${r.validaciones_enviables})`,
               r.sin_validar, r.validaciones_enviables > 0)}
         ${btn('btnReenviarFirmas',
               `Reenviar enlaces de firma (${r.firmas_enviables})`,
               r.validados_sin_firmar, r.firmas_enviables > 0)}
-      </div>
-      <div style="padding:0 16px;">${espera}</div>
+      </div>` : ''}
+      ${espera}
     </div>`;
   caja.style.display = 'block';
 

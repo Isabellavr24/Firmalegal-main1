@@ -252,6 +252,14 @@
       </div>
     </div>
 
+    <!-- Resumen del envio: correos enviados, firmas y validaciones pendientes
+         y firmas completadas, con los botones de reenvio.
+
+         Va AQUI, como tarjeta propia entre la cabecera y Envios, no dentro de
+         la seccion de envios: ahi dentro quedaba metido con calzador y dejaba
+         un hueco entre los contadores y la primera tarjeta de pagare. -->
+    <div id="panelRecordatorios" style="display:none;"></div>
+
     <!-- Tracking Section -->
     <section class="tracking-section" id="trackingSection">
       <div class="section-header">
@@ -273,12 +281,6 @@
           </button>
         </div>
       </div>
-
-      <!-- Resumen del envio: cuantos correos salieron, cuantas firmas y
-           validaciones faltan, y cuantas estan hechas. Se pinta desde
-           tracking.js con /api/documentos/:id/recordatorios. Oculto hasta que
-           haya datos, para no dejar un hueco vacio. -->
-      <div id="panelRecordatorios" style="display:none;margin:0 0 20px;"></div>
 
       <!-- Recipients List -->
       <div class="recipients-container" id="recipientsContainer">
@@ -2443,6 +2445,6 @@
   <script src="/public/Main/auth-helper.js"></script>
   <script src="/public/Main/permissions.js"></script>
   <!-- Luego el script de tracking -->
-  <script src="/public/Main/tracking.js?v=20261001a"></script>
+  <script src="/public/Main/tracking.js?v=20261001b"></script>
 </body>
 </html>
