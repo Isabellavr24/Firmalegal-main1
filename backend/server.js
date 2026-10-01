@@ -3451,6 +3451,7 @@ app.post('/api/registros/csv-rechazado', requireAuth, async (req, res) => {
 // mandar cientos de correos a padres reales sin vuelta atras.
 
 const _recordatorios = require('./lib/recordatorios');
+const _datosFirmante = require('./lib/datos-del-firmante');
 
 /**
  * Envia los recordatorios uno a uno, con pausa entre ellos.
@@ -3569,11 +3570,29 @@ async function crearValidacionVI(persona, docId, docTitle, req) {
         'SELECT token FROM document_recipients WHERE recipient_id = ?', [persona.recipient_id]);
     if (!rec.length || !rec[0].token) throw new Error('El destinatario no tiene enlace');
 
+    // La cedula, sacada de los campos del pagare emparejando por su correo.
+    //
+    // SIN CEDULA NO SE CREA LA VALIDACION. Antes se mandaba solo el correo y
+    // el nombre, y a VI le llegaba el documento vacio: el padre recibia el
+    // enlace, lo abria y no habia nada contra que comparar su cedula. Un
+    // correo que no sirve para nada y que ademas hay que explicarle.
+    //
+    // Es mejor no enviarselo y decir por que, para que alguien lo resuelva.
+    const datos = await _datosFirmante.datosDeFirmanteDesdeBD(
+        db, persona.recipient_id, persona.email);
+    if (!datos.documento) {
+        throw new Error(datos.motivo || 'No se pudo determinar su cedula');
+    }
+
     const VI_URL = process.env.VI_URL || 'http://validacion-identidad-app-1:3000';
     const cuerpo = JSON.stringify({
         owner_firmalegal_user_id: req.userId,
         signer_email: persona.email,
-        signer_name: persona.nombre,
+        // El nombre del pagare manda sobre el del destinatario: es el que
+        // esta junto a la cedula, asi que es el que concuerda con ella.
+        signer_name: datos.nombre || persona.nombre,
+        signer_documento: datos.documento,
+        signer_tipo_documento: 'CC',
         document_title: docTitle || 'Documento',
         firma_token: rec[0].token
     });
@@ -3668,6 +3687,24 @@ app.post('/api/documentos/:docId/recordatorios', requireAuth, async (req, res) =
         if (Array.isArray(recipients) && recipients.length) {
             const pedidos = new Set(recipients.map(Number));
             candidatos = candidatos.filter(p => pedidos.has(p.recipient_id));
+        }
+
+        // Para una validacion hace falta la cedula, y sale de los campos del
+        // pagare. Se comprueba AQUI, antes de contar a quien se le envia, para
+        // que el informe lo diga antes y no se descubra al fallar el envio.
+        if (tipo === 'validacion') {
+            for (const p of candidatos) {
+                const d = await _datosFirmante.datosDeFirmanteDesdeBD(
+                    db, p.recipient_id, p.email);
+                p.cedula_del_pagare = d.documento;
+                p.nombre_del_pagare = d.nombre;
+                // Sin cedula no se le puede crear la validacion: queda fuera
+                // del envio y el informe dice por que.
+                if (!d.documento) {
+                    p.puede_reenviarse = false;
+                    p.bloqueo = d.motivo;
+                }
+            }
         }
 
         const enviables = candidatos.filter(p => p.puede_reenviarse);

@@ -2193,7 +2193,9 @@ function escInf(t) {
 
 // Lo que hay que mirar de cada persona antes de reenviarle. Devuelve la
 // etiqueta y el color, o null si no hay nada que avisar.
-function reparoDeValidacion(v) {
+function reparoDeValidacion(v, p) {
+  // El bloqueo va primero: es el motivo por el que NO se le va a escribir.
+  if (p && p.bloqueo)     return { texto: p.bloqueo, color: '#b91c1c' };
   if (!v)                 return { texto: 'Sin validacion creada', color: '#b91c1c' };
   if (v.vi_sin_respuesta) return { texto: 'VI no respondio', color: '#8b7d93' };
   if (v.no_encontrada)    return { texto: 'No existe en VI', color: '#b91c1c' };
@@ -2209,11 +2211,17 @@ function reparoDeValidacion(v) {
 // mira la vigencia y la cedula; en firma, cuando valido.
 function filaInforme(p, tipo) {
   const v = p.validacion;
-  const reparo = tipo === 'validacion' ? reparoDeValidacion(v) : null;
+  const reparo = tipo === 'validacion' ? reparoDeValidacion(v, p) : null;
 
   // El nombre con el que se creo la validacion puede no ser el del CSV. Si
   // difieren se muestran los dos: es el aviso de que hay dos personas con el
   // mismo correo, que ya nos paso.
+  // El nombre que se va a mandar sale del pagare, junto a la cedula.
+  const nombrePagare = p.nombre_del_pagare &&
+      p.nombre_del_pagare.trim().toLowerCase() !== String(p.nombre).trim().toLowerCase()
+    ? '<div style="font-size:11px;color:#92400e;margin-top:2px;">Se enviara como: ' +
+      escInf(p.nombre_del_pagare) + '</div>' : '';
+
   const nombreVI = v && v.nombre &&
       v.nombre.trim().toLowerCase() !== String(p.nombre).trim().toLowerCase()
     ? '<div style="font-size:11px;color:#92400e;margin-top:2px;">En VI: ' +
@@ -2224,9 +2232,24 @@ function filaInforme(p, tipo) {
     ? '<div style="font-size:11px;color:#b91c1c;margin-top:2px;">VI lo mandaria a ' +
       escInf(v.email_vi) + '</div>' : '';
 
-  const cedula = v && v.documento
-    ? escInf(v.tipo_documento || 'CC') + ' ' + escInf(v.documento)
-    : (tipo === 'validacion' ? '<span style="color:#b91c1c;">falta</span>' : '—');
+  // Para una validacion, la cedula que se va a MANDAR sale del pagare. Para
+  // una firma, la que ya tiene su validacion en VI.
+  let cedula;
+  if (tipo === 'validacion') {
+    cedula = p.cedula_del_pagare
+      ? 'CC ' + escInf(p.cedula_del_pagare)
+      : '<span style="color:#b91c1c;">falta</span>';
+    // Si VI ya tiene una cedula distinta de la del pagare, se avisa: alguna
+    // de las dos esta mal y hay que mirarlo antes de reenviar.
+    if (p.cedula_del_pagare && v && v.documento && v.documento !== p.cedula_del_pagare) {
+      cedula += '<div style="font-size:11px;color:#b91c1c;margin-top:2px;">' +
+                'En VI: ' + escInf(v.documento) + '</div>';
+    }
+  } else {
+    cedula = v && v.documento
+      ? escInf(v.tipo_documento || 'CC') + ' ' + escInf(v.documento)
+      : '—';
+  }
 
   let vigencia;
   if (tipo === 'validacion') {
@@ -2242,7 +2265,9 @@ function filaInforme(p, tipo) {
   }
 
   // Por que no se le puede escribir, cuando no se puede.
-  const estado = !p.puede_reenviarse
+  const estado = p.bloqueo
+    ? '<span style="color:#b91c1c;">No se envia</span>'
+    : !p.puede_reenviarse
     ? '<span style="color:#8b7d93;">Espera ' + p.dias_para_poder + 'd</span>'
     : p.aviso_otro_usuario
       ? '<span style="color:#92400e;">Otro usuario le escribio</span>'
@@ -2255,7 +2280,7 @@ function filaInforme(p, tipo) {
       '<td style="padding:10px 12px;vertical-align:top;">' +
         '<div style="font-weight:600;font-size:13px;color:#2a0d31;">' + escInf(p.nombre) + '</div>' +
         '<div style="font-size:11px;color:#8b7d93;margin-top:2px;">' + escInf(p.email) + '</div>' +
-        nombreVI + correoVI +
+        nombrePagare + nombreVI + correoVI +
       '</td>' +
       '<td style="padding:10px 12px;vertical-align:top;font-size:12px;color:#5c5063;">' + cedula + '</td>' +
       '<td style="padding:10px 12px;vertical-align:top;font-size:12px;color:#5c5063;">' + vigencia + '</td>' +
@@ -2292,7 +2317,7 @@ function informeDeReenvio(tipo, personas, prev) {
       (b.puede_reenviarse ? 1 : 0) - (a.puede_reenviarse ? 1 : 0));
 
     const conReparo = tipo === 'validacion'
-      ? orden.filter(p => p.puede_reenviarse && reparoDeValidacion(p.validacion)).length : 0;
+      ? orden.filter(p => reparoDeValidacion(p.validacion, p)).length : 0;
 
     const avisos = [];
     if (prev.en_espera) {
