@@ -2208,7 +2208,10 @@ function escInf(t) {
 function reparoDeValidacion(v, p) {
   // El bloqueo va primero: es el motivo por el que NO se le va a escribir.
   if (p && p.bloqueo)     return { texto: p.bloqueo, color: '#b91c1c' };
-  if (!v)                 return { texto: 'Sin validacion creada', color: '#b91c1c' };
+  // Quien no tiene validacion NO es un problema: se le crea una nueva, que
+  // es justo lo que hace falta. Se dice en la columna de estado, no aqui,
+  // para que no cuente como 'algo que revisar'.
+  if (!v)                 return null;
   if (v.vi_sin_respuesta) return { texto: 'VI no respondio', color: '#8b7d93' };
   if (v.no_encontrada)    return { texto: 'No existe en VI', color: '#b91c1c' };
   if (v.caducada)         return { texto: 'Caducada: hay que crearla de nuevo', color: '#b91c1c' };
@@ -2277,13 +2280,19 @@ function filaInforme(p, tipo) {
   }
 
   // Por que no se le puede escribir, cuando no se puede.
+  // Si no tiene validacion, no se le reenvia: se le CREA una. Decirlo
+  // cambia lo que el operador espera que pase.
+  const seCrea = tipo === 'validacion' && !v;
+
   const estado = p.bloqueo
     ? '<span style="color:#b91c1c;">No se envia</span>'
     : !p.puede_reenviarse
     ? '<span style="color:#8b7d93;">Espera ' + esperaEnPalabras(p.faltan_segundos) + '</span>'
     : p.aviso_otro_usuario
       ? '<span style="color:#92400e;">Otro usuario le escribio</span>'
-      : '<span style="color:#166534;">Se envia</span>';
+      : seCrea
+        ? '<span style="color:#166534;">Se crea nueva</span>'
+        : '<span style="color:#166534;">Se reenvia</span>';
 
   const fondo = !p.puede_reenviarse ? '#faf9fb' : (reparo ? '#fffbf7' : '#fff');
 
@@ -2331,14 +2340,30 @@ function informeDeReenvio(tipo, personas, prev) {
     const conReparo = tipo === 'validacion'
       ? orden.filter(p => reparoDeValidacion(p.validacion, p)).length : 0;
 
+    // Las que no existen se CREAN; las que existen se reenvian. Son dos
+    // cosas distintas y el operador tiene que saber cual va a pasar: una
+    // validacion nueva llega con otro codigo y otra fecha de vencimiento.
+    const seCrean = tipo === 'validacion'
+      ? orden.filter(p => p.puede_reenviarse && !p.bloqueo && !p.validacion).length : 0;
+
+    // Y cuantas se reenvian de verdad: las que ya existen.
+    const seReenvian = tipo === 'validacion'
+      ? orden.filter(p => p.puede_reenviarse && !p.bloqueo && p.validacion).length
+      : orden.filter(p => p.puede_reenviarse && !p.bloqueo).length;
+
     const avisos = [];
+    if (seCrean) {
+      avisos.push(seCrean === 1
+        ? '1 no tiene validacion todavia: se le va a CREAR una nueva, no reenviar.'
+        : seCrean + ' no tienen validacion todavia: se les va a CREAR una nueva, no reenviar.');
+    }
     if (prev.en_espera) {
       avisos.push(prev.en_espera + ' no entran: ya recibieron sus ' +
                   (prev.envios_por_dia || 2) + ' recordatorios de las ultimas 24 horas.');
     }
     if (conReparo) {
-      avisos.push(conReparo + ' tienen algo que revisar (sin cedula, caducada o a punto ' +
-                  'de caducar). Salen marcadas abajo.');
+      avisos.push(conReparo + (conReparo === 1 ? ' tiene' : ' tienen') +
+                  ' algo que revisar. Sale marcado abajo, en rojo.');
     }
     if (prev.vi_error) {
       avisos.push('No se pudo consultar VI, asi que no se ve la vigencia ni la cedula: ' +
@@ -2361,10 +2386,13 @@ function informeDeReenvio(tipo, personas, prev) {
                   'box-shadow:0 20px 60px rgba(0,0,0,.25);">' +
 
         '<div style="padding:22px 28px 16px;border-bottom:1px solid #ece7ee;">' +
-          '<div style="font-size:17px;font-weight:700;color:#2a0d31;">Reenviar ' + que + '</div>' +
+          '<div style="font-size:17px;font-weight:700;color:#2a0d31;">' +
+            (tipo === 'validacion' && seCrean && !seReenvian ? 'Crear ' : 'Reenviar ') +
+            que + '</div>' +
           '<div style="font-size:13px;color:#8b7d93;margin-top:6px;">' +
-            'Se enviaran <strong style="color:#2a0d31;">' + prev.se_enviarian + '</strong> de ' +
-            personas.length + ' ' + (personas.length === 1 ? 'persona' : 'personas') + '.' +
+            'Saldra correo a <strong style="color:#2a0d31;">' + prev.se_enviarian +
+            '</strong> de ' + personas.length + ' ' +
+            (personas.length === 1 ? 'persona' : 'personas') + '.' +
           '</div>' +
           (avisos.length
             ? '<div style="margin-top:14px;padding:12px 14px;background:#fffbf7;' +
@@ -2403,7 +2431,11 @@ function informeDeReenvio(tipo, personas, prev) {
                    'border:1px solid ' + (prev.se_enviarian ? '#2a0d31' : '#e5e0e8') + ';' +
                    'background:' + (prev.se_enviarian ? '#2a0d31' : '#faf9fb') + ';' +
                    'color:' + (prev.se_enviarian ? '#fff' : '#b0a6b8') + ';">' +
-            'Enviar ' + prev.se_enviarian +
+            (tipo === 'validacion' && seCrean && seReenvian
+              ? 'Crear ' + seCrean + ' y reenviar ' + seReenvian
+              : tipo === 'validacion' && seCrean
+                ? 'Crear ' + seCrean
+                : 'Enviar ' + prev.se_enviarian) +
           '</button>' +
         '</div>' +
       '</div>';
