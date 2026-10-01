@@ -3691,6 +3691,74 @@ app.post('/api/documentos/:docId/recordatorios', requireAuth, async (req, res) =
     }
 });
 
+// POST /api/recordatorios/individual — reenviar a UNA persona.
+//
+// body: { recipient_id, tipo: 'validacion'|'firma' }
+//
+// A diferencia del masivo, este NO tiene limite de dias: si un padre llama
+// diciendo que no le llego, hay que poder mandarselo ahora mismo. Lo que lleva
+// es una espera que crece (1 min, 10, 30, 60) para que nadie lo fuerce a base
+// de clics, igual que el codigo OTP.
+app.post('/api/recordatorios/individual', requireAuth, async (req, res) => {
+    try {
+        const { recipient_id, tipo } = req.body || {};
+        const recipientId = parseInt(recipient_id, 10);
+
+        if (!recipientId) return res.status(400).json({ success: false, message: 'Destinatario no valido' });
+        if (!['validacion', 'firma'].includes(tipo)) {
+            return res.status(400).json({ success: false, message: 'El tipo debe ser validacion o firma' });
+        }
+
+        const [filas] = await db.promise().query(
+            `SELECT dr.recipient_id, dr.email, dr.name, dr.status, dr.vi_validated_at,
+                    dr.document_id, d.title
+             FROM document_recipients dr
+             JOIN documents d ON d.document_id = dr.document_id
+             WHERE dr.recipient_id = ?`,
+            [recipientId]
+        );
+        if (!filas.length) return res.status(404).json({ success: false, message: 'Destinatario no encontrado' });
+        const p = filas[0];
+
+        if (p.status === 'completed') {
+            return res.json({ success: false, message: 'Esa persona ya firmo' });
+        }
+        // La regla de siempre: el enlace de firma solo a quien ya valido.
+        if (tipo === 'firma' && !p.vi_validated_at) {
+            return res.json({ success: false,
+                message: 'Todavia no ha validado su identidad. Reenviale la validacion primero.' });
+        }
+
+        const espera = await _recordatorios.esperaIndividual(db, recipientId, req.userId);
+        if (!espera.puede) {
+            const m = Math.ceil(espera.faltan_segundos / 60);
+            return res.json({
+                success: false, en_espera: true, faltan_segundos: espera.faltan_segundos,
+                message: m <= 1
+                    ? 'Se acaba de enviar. Espera un minuto antes de volver a intentarlo.'
+                    : `Se envio hace poco. Espera ${m} minutos antes de volver a intentarlo.`
+            });
+        }
+
+        const persona = {
+            recipient_id: p.recipient_id, email: p.email,
+            nombre: p.name || p.email, es_firmante_definitivo: false
+        };
+        const r = await enviarRecordatorios([persona], tipo, p.document_id, p.title, req);
+
+        if (r.enviados) {
+            return res.json({ success: true,
+                message: `Correo de ${tipo === 'firma' ? 'firma' : 'validacion'} reenviado a ${p.email}` });
+        }
+        res.json({ success: false,
+            message: r.errores?.[0]?.motivo || 'No se pudo reenviar el correo' });
+
+    } catch (e) {
+        console.error('[RECORDATORIOS] Error en el reenvio individual:', e.message);
+        res.status(500).json({ success: false, message: 'No se pudo reenviar el correo' });
+    }
+});
+
 // GET /api/registros/filtros — lo que se ofrece en los desplegables.
 app.get('/api/registros/filtros', requireAuth, async (req, res) => {
     try {

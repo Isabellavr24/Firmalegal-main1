@@ -12,7 +12,19 @@
 //    porque otro, sin relacion con el, le escribio a esa persona hace dos dias.
 //    Si otro usuario escribio hace poco, se AVISA pero se deja enviar.
 
+// El limite de dias es SOLO para el reenvio MASIVO. Ahi salen decenas de
+// correos de golpe desde el mismo remitente —40 pagares son 80 correos— y eso
+// es lo que dispara los filtros de spam.
 const DIAS_ENTRE_RECORDATORIOS = 3;
+
+// El reenvio INDIVIDUAL no tiene limite de dias: si un padre llama diciendo
+// que no le llego, hay que poder mandarselo ahora. Lo que tiene es una espera
+// que va creciendo, como el codigo OTP, para que nadie pueda forzarlo a
+// base de clics repetidos.
+//
+// Minutos antes del reenvio numero n: el primero es inmediato, el segundo al
+// minuto, luego 10, 30 y 60. A partir del quinto se queda en una hora.
+const ESPERA_INDIVIDUAL_MIN = [0, 1, 10, 30, 60];
 
 /**
  * El estado de un documento: quien falta por validar, quien por firmar, y a
@@ -144,4 +156,52 @@ async function sePuedeEnviar(db, recipientId, userId) {
     }
 }
 
-module.exports = { estadoDocumento, registrar, sePuedeEnviar, DIAS_ENTRE_RECORDATORIOS };
+/**
+ * El reenvio INDIVIDUAL: siempre se puede, pero con una espera que crece.
+ *
+ * No lleva limite de dias a proposito. Si un padre llama diciendo que no le
+ * llego el correo, el operador tiene que poder reenviarselo en ese momento,
+ * aunque se lo haya mandado ayer. Lo que se evita es el multiclick: que a
+ * fuerza de pulsar el boton salgan cinco correos seguidos a la misma persona.
+ *
+ * La escalera es la misma idea que el codigo OTP: inmediato, 1 min, 10, 30, 60.
+ * Se cuentan los reenvios de las ultimas 24 horas de ESE usuario a ESA persona.
+ *
+ * @returns {Promise<{puede:boolean, faltan_segundos:number, intentos:number}>}
+ */
+async function esperaIndividual(db, recipientId, userId) {
+    try {
+        const [filas] = await db.promise().query(
+            `SELECT COUNT(*) AS intentos, MAX(created_at) AS ultimo
+             FROM recordatorios_enviados
+             WHERE recipient_id = ? AND user_id <=> ?
+               AND resultado = 'enviado'
+               AND created_at >= NOW() - INTERVAL 24 HOUR`,
+            [recipientId, userId || null]
+        );
+
+        const intentos = filas[0]?.intentos || 0;
+        const ultimo = filas[0]?.ultimo;
+        if (!intentos || !ultimo) return { puede: true, faltan_segundos: 0, intentos: 0 };
+
+        // El minuto de espera que toca segun cuantos van
+        const minutos = ESPERA_INDIVIDUAL_MIN[
+            Math.min(intentos, ESPERA_INDIVIDUAL_MIN.length - 1)
+        ];
+        const transcurrido = Math.floor((Date.now() - new Date(ultimo).getTime()) / 1000);
+        const espera = minutos * 60;
+
+        if (transcurrido >= espera) return { puede: true, faltan_segundos: 0, intentos };
+        return { puede: false, faltan_segundos: espera - transcurrido, intentos };
+
+    } catch (e) {
+        // Ante la duda no se envia: es peor repetirle a un padre que saltarse uno.
+        console.warn(`[RECORDATORIOS] No se pudo calcular la espera de ${recipientId}: ${e.message}`);
+        return { puede: false, faltan_segundos: 60, intentos: 0 };
+    }
+}
+
+module.exports = {
+    estadoDocumento, registrar, sePuedeEnviar, esperaIndividual,
+    DIAS_ENTRE_RECORDATORIOS, ESPERA_INDIVIDUAL_MIN
+};
