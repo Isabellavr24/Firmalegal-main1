@@ -2833,6 +2833,7 @@ app.post('/api/integration/vi-iniciar', async (req, res) => {
     // comparar. Es el fallo que ya costo rehacer validaciones a mano.
     let cedula = signer_documento || null;
     let nombreParaVI = signer_name;
+    let celular = req.body.signer_celular || null;
     if (!cedula) {
         try {
             const [dest] = await db.promise().query(
@@ -2841,6 +2842,7 @@ app.post('/api/integration/vi-iniciar', async (req, res) => {
             if (dest.length) {
                 const d = await _datosFirmante.datosDeFirmanteDesdeBD(
                     db, dest[0].recipient_id, signer_email);
+                if (d.celular && !celular) celular = d.celular;
                 if (d.documento) {
                     cedula = d.documento;
                     if (d.nombre) nombreParaVI = d.nombre;
@@ -2865,7 +2867,8 @@ app.post('/api/integration/vi-iniciar', async (req, res) => {
         const body = JSON.stringify({ owner_firmalegal_user_id, signer_email,
             signer_name: nombreParaVI, document_title, firma_token,
             signer_documento: cedula || undefined,
-            signer_tipo_documento: cedula ? (signer_tipo_documento || 'CC') : undefined });
+            signer_tipo_documento: cedula ? (signer_tipo_documento || 'CC') : undefined,
+            signer_celular: celular || undefined });
 
         const viResp = await new Promise((resolve) => {
             const r = transport.request({
@@ -3627,6 +3630,10 @@ async function crearValidacionVI(persona, docId, docTitle, req) {
         signer_name: datos.nombre || persona.nombre,
         signer_documento: datos.documento,
         signer_tipo_documento: 'CC',
+        // Sin celular no le llega el codigo OTP y no puede completar la
+        // validacion. Va si el pagare lo trae; si no, la validacion se crea
+        // igual y el informe avisa de que el OTP no le va a llegar.
+        signer_celular: datos.celular || undefined,
         document_title: docTitle || 'Documento',
         firma_token: rec[0].token
     });
@@ -3732,6 +3739,8 @@ app.post('/api/documentos/:docId/recordatorios', requireAuth, async (req, res) =
                     db, p.recipient_id, p.email);
                 p.cedula_del_pagare = d.documento;
                 p.nombre_del_pagare = d.nombre;
+                p.celular_del_pagare = d.celular;
+                p.celulares_distintos = !!d.celulares_distintos;
                 // Sin cedula no se le puede crear la validacion: queda fuera
                 // del envio y el informe dice por que.
                 if (!d.documento) {

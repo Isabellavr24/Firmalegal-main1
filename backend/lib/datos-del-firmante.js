@@ -68,6 +68,25 @@ const ES_CEDULA = (etiqueta) => {
 const ES_CORREO = (etiqueta) => SIN_ACENTOS(etiqueta).includes('correo') ||
                                 SIN_ACENTOS(etiqueta).includes('email');
 
+const ES_CELULAR = (etiqueta) => {
+    const e = SIN_ACENTOS(etiqueta);
+    return e.includes('celular') || e.includes('telefono') || e.includes('movil');
+};
+
+// El celular, como lo quiere VI: +57 y diez digitos. Sin el, el firmante no
+// recibe el codigo OTP y no puede completar la validacion, asi que vale la
+// pena ser estricto: si el numero no es un movil colombiano valido, mejor no
+// mandar nada que mandar algo que no va a recibir.
+//
+// Un movil colombiano son 10 digitos que empiezan por 3. Los fijos (7 digitos)
+// no sirven para el OTP.
+const NORMALIZAR_CELULAR = (v) => {
+    let d = String(v || '').replace(/[^0-9]/g, '');
+    if (d.startsWith('57') && d.length === 12) d = d.slice(2);   // ya traia el 57
+    if (d.length !== 10 || d[0] !== '3') return null;
+    return '+57' + d;
+};
+
 const ES_NOMBRE = (etiqueta) => {
     const e = SIN_ACENTOS(etiqueta);
     // "Nombre del alumno" NO: el pagare es del acudiente, no del estudiante
@@ -116,9 +135,9 @@ function porEtiqueta(campos) {
  *          pantalla tal cual, asi que esta escrito para leerlo.
  */
 function datosDeFirmante(campos, email) {
-    if (!email) return { nombre: null, documento: null, motivo: 'El destinatario no tiene correo' };
+    if (!email) return { nombre: null, documento: null, celular: null, motivo: 'El destinatario no tiene correo' };
     if (!Array.isArray(campos) || !campos.length) {
-        return { nombre: null, documento: null, motivo: 'El pagare no tiene campos mapeados' };
+        return { nombre: null, documento: null, celular: null, motivo: 'El pagare no tiene campos mapeados' };
     }
 
     const correoBuscado = String(email).trim().toLowerCase();
@@ -134,11 +153,11 @@ function datosDeFirmante(campos, email) {
         if (distintos.size > responsables) responsables = distintos.size;
     }
     if (responsables === 0) {
-        return { nombre: null, documento: null,
+        return { nombre: null, documento: null, celular: null,
                  motivo: 'El pagare no trae ningun campo de correo, no se puede emparejar su cedula' };
     }
     if (responsables > 2) {
-        return { nombre: null, documento: null,
+        return { nombre: null, documento: null, celular: null,
                  motivo: 'El pagare trae ' + responsables + ' personas distintas y no se puede emparejar con certeza, hay que revisarlo a mano' };
     }
 
@@ -153,20 +172,20 @@ function datosDeFirmante(campos, email) {
     }
 
     if (!paridades.size) {
-        return { nombre: null, documento: null,
+        return { nombre: null, documento: null, celular: null,
                  motivo: 'Su correo no aparece entre los campos del pagare, no se puede saber cual es su cedula' };
     }
     // Sale como primero en una pagina y como segundo en otra: el pagare se
     // contradice y no se puede emparejar con certeza.
     if (paridades.size > 1) {
-        return { nombre: null, documento: null,
+        return { nombre: null, documento: null, celular: null,
                  motivo: 'Su correo aparece unas veces como primer responsable y otras como segundo, hay que revisar el pagare a mano' };
     }
 
     const mia = [...paridades][0];
 
     // La cedula y el nombre que ocupan ESA misma paridad.
-    const cedulas = new Set(), nombres = new Set();
+    const cedulas = new Set(), nombres = new Set(), celulares = new Set();
     for (const g of grupos) {
         // "Responsable 1" / "Responsable 2": el numero de la etiqueta ya dice
         // de quien es. `mia` vale 0 para el primero y 1 para el segundo.
@@ -182,6 +201,10 @@ function datosDeFirmante(campos, email) {
         g.valores.forEach((v, i) => {
             if (!v || i % responsables !== mia) return;
             if (ES_CEDULA(g.etiqueta) && PARECE_CEDULA(v)) cedulas.add(LIMPIAR_CEDULA(v));
+            else if (ES_CELULAR(g.etiqueta)) {
+                const cel = NORMALIZAR_CELULAR(v);
+                if (cel) celulares.add(cel);
+            }
             else if (ES_NOMBRE(g.etiqueta) && !v.includes('@') && !PARECE_CEDULA(v)) {
                 nombres.add(v.toUpperCase());
             }
@@ -192,17 +215,22 @@ function datosDeFirmante(campos, email) {
     // contradice: no se elige una. Prefiero que un operador lo mire a que un
     // padre reciba la validacion con la cedula de otro.
     if (cedulas.size > 1) {
-        return { nombre: null, documento: null,
+        return { nombre: null, documento: null, celular: null,
                  motivo: 'El pagare trae ' + cedulas.size + ' cedulas distintas para esta persona, hay que revisarlo a mano' };
     }
     if (!cedulas.size) {
-        return { nombre: null, documento: null,
+        return { nombre: null, documento: null, celular: null,
                  motivo: 'El pagare no trae la cedula de esta persona' };
     }
 
     return {
         nombre: nombres.size === 1 ? [...nombres][0] : null,
         documento: [...cedulas][0],
+        // Si el pagare da varios celulares distintos para la misma persona no
+        // se elige uno: se manda sin celular y la pantalla lo avisa. Mandar el
+        // OTP al numero equivocado es peor que no mandarlo.
+        celular: celulares.size === 1 ? [...celulares][0] : null,
+        celulares_distintos: celulares.size > 1,
         motivo: null
     };
 }

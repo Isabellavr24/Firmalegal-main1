@@ -2163,6 +2163,22 @@ function pintarPanelRecordatorios(d) {
     ?.addEventListener('click', () => confirmarReenvio('firma'));
 }
 
+// Los avisos del panel van como toast, no como alert(): el alert del navegador
+// bloquea la pagina, se ve como un error del sistema y sale con la IP delante,
+// que no es lo que uno quiere ensenarle a un operador.
+//
+// La libreria expone window.toast. OJO: por aqui habia llamadas a
+// ToastManager, que NO existe en esta pagina, asi que esos avisos nunca se
+// vieron y siempre caian al alert de respaldo.
+function avisar(tipo, mensaje) {
+  if (window.toast && typeof window.toast[tipo] === 'function') {
+    window.toast[tipo](mensaje);
+  } else {
+    // Si la libreria no cargo, mejor un alert que perder el mensaje.
+    alert(mensaje);
+  }
+}
+
 // =====================================================================
 // INFORME DE REENVIO
 // =====================================================================
@@ -2208,6 +2224,12 @@ function escInf(t) {
 function reparoDeValidacion(v, p) {
   // El bloqueo va primero: es el motivo por el que NO se le va a escribir.
   if (p && p.bloqueo)     return { texto: p.bloqueo, color: '#b91c1c' };
+  // Sin celular no le llega el codigo OTP, asi que no puede completar la
+  // validacion aunque le llegue el correo. Se avisa antes de mandarla.
+  if (p && p.celulares_distintos)
+    return { texto: 'El pagare trae varios celulares suyos: el OTP no se enviara', color: '#b91c1c' };
+  if (p && p.cedula_del_pagare && !p.celular_del_pagare)
+    return { texto: 'Sin celular: no recibira el codigo OTP', color: '#b91c1c' };
   // Quien no tiene validacion NO es un problema: se le crea una nueva, que
   // es justo lo que hace falta. Se dice en la columna de estado, no aqui,
   // para que no cuente como 'algo que revisar'.
@@ -2254,6 +2276,11 @@ function filaInforme(p, tipo) {
     cedula = p.cedula_del_pagare
       ? 'CC ' + escInf(p.cedula_del_pagare)
       : '<span style="color:#b91c1c;">falta</span>';
+    // El celular va debajo: es lo que decide si le llega el OTP.
+    cedula += p.celular_del_pagare
+      ? '<div style="font-size:11px;color:#8b7d93;margin-top:2px;">' +
+        escInf(p.celular_del_pagare) + '</div>'
+      : '<div style="font-size:11px;color:#b91c1c;margin-top:2px;">sin celular</div>';
     // Si VI ya tiene una cedula distinta de la del pagare, se avisa: alguna
     // de las dos esta mal y hay que mirarlo antes de reenviar.
     if (p.cedula_del_pagare && v && v.documento && v.documento !== p.cedula_del_pagare) {
@@ -2492,7 +2519,7 @@ async function confirmarReenvio(tipo) {
     }).then(r => r.json());
 
     if (!prev.success) {
-      alert(prev.message || 'No se pudo comprobar a quien hay que reenviar.');
+      avisar('error', prev.message || 'No se pudo comprobar a quien hay que reenviar.');
       return;
     }
 
@@ -2501,7 +2528,7 @@ async function confirmarReenvio(tipo) {
     // hace falta ver. Antes salia un "no hay a quien reenviar" y ahi se acababa.
     const personas = prev.personas || [];
     if (!personas.length) {
-      alert('No hay a quien reenviar en este documento.');
+      avisar('info', 'No hay a quien reenviar en este documento.');
       return;
     }
 
@@ -2517,16 +2544,17 @@ async function confirmarReenvio(tipo) {
     }).then(r => r.json());
 
     if (res.success) {
-      let msg = `${res.enviados} correo(s) enviado(s).`;
-      if (res.fallidos) msg += `\n${res.fallidos} no se pudieron enviar.`;
-      if (res.saltados) msg += `\n${res.saltados} se saltaron por el limite de dias.`;
-      alert(msg);
+      const partes = [res.enviados + (res.enviados === 1 ? ' correo enviado' : ' correos enviados')];
+      if (res.fallidos) partes.push(res.fallidos + ' no se pudieron enviar');
+      if (res.saltados) partes.push(res.saltados + ' se saltaron por el limite diario');
+      // Si fallo alguno no es un exito limpio: se dice en amarillo.
+      avisar(res.fallidos ? 'warning' : 'success', partes.join('. ') + '.');
       cargarPanelRecordatorios(docId);
     } else {
-      alert(res.message || 'No se pudieron enviar los recordatorios.');
+      avisar('error', res.message || 'No se pudieron enviar los recordatorios.');
     }
   } catch (e) {
-    alert('Error de conexion al reenviar.');
+    avisar('error', 'Error de conexion al reenviar.');
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = textoOriginal; }
   }
@@ -2546,8 +2574,7 @@ async function reenviarIndividual(recipientId, tipo, boton) {
     }).then(r => r.json());
 
     if (res.success) {
-      if (window.ToastManager) ToastManager.success('Enviado', res.message);
-      else alert(res.message);
+      avisar('success', res.message);
       const docId = new URLSearchParams(window.location.search).get('id');
       if (docId) cargarPanelRecordatorios(docId);
     } else if (res.en_espera) {
@@ -2568,14 +2595,13 @@ async function reenviarIndividual(recipientId, tipo, boton) {
           }
         }, 1000);
       }
-      if (window.ToastManager) ToastManager.warning('Espera', res.message);
+      avisar('warning', res.message);
       return;   // el finally no debe restaurar el boton: lo lleva la cuenta atras
     } else {
-      if (window.ToastManager) ToastManager.error('No se envio', res.message);
-      else alert(res.message);
+      avisar('error', res.message);
     }
   } catch (e) {
-    alert('Error de conexion al reenviar.');
+    avisar('error', 'Error de conexion al reenviar.');
   }
 
   if (boton) { boton.disabled = false; boton.textContent = textoOriginal; }
