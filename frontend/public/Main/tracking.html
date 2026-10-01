@@ -274,6 +274,12 @@
         </div>
       </div>
 
+      <!-- Resumen del envio: cuantos correos salieron, cuantas firmas y
+           validaciones faltan, y cuantas estan hechas. Se pinta desde
+           tracking.js con /api/documentos/:id/recordatorios. Oculto hasta que
+           haya datos, para no dejar un hueco vacio. -->
+      <div id="panelRecordatorios" style="display:none;margin:0 0 20px;"></div>
+
       <!-- Recipients List -->
       <div class="recipients-container" id="recipientsContainer">
         <!-- Se llenará dinámicamente con JavaScript -->
@@ -2437,6 +2443,6 @@
   <script src="/public/Main/auth-helper.js"></script>
   <script src="/public/Main/permissions.js"></script>
   <!-- Luego el script de tracking -->
-  <script src="/public/Main/tracking.js?v=20260929d"></script>
+  <script src="/public/Main/tracking.js?v=20261001a"></script>
 </body>
 </html>

@@ -2072,9 +2072,203 @@ async function checkDocumentFields(docId, docName) {
 }
 
 // ====== CARGAR DESTINATARIOS DESDE EL BACKEND ======
+// =====================================================================
+// PANEL DE RECORDATORIOS
+// =====================================================================
+//
+// El resumen que se ve arriba de los envios: cuantos correos salieron, cuantas
+// firmas y validaciones faltan, y cuantas estan hechas. Y los botones para
+// reenviar, que es lo que se hacia a mano cada lunes.
+
+async function cargarPanelRecordatorios(docId) {
+  const caja = document.getElementById('panelRecordatorios');
+  if (!caja || !docId) return;
+
+  try {
+    const resp = await fetch(`/api/documentos/${docId}/recordatorios`, { credentials: 'include' });
+    const d = await resp.json();
+    if (!d.success) { caja.style.display = 'none'; return; }
+
+    window._recordatoriosEstado = d;
+    pintarPanelRecordatorios(d);
+  } catch (e) {
+    // El panel es informativo: si falla, la pantalla sigue funcionando igual.
+    caja.style.display = 'none';
+  }
+}
+
+function pintarPanelRecordatorios(d) {
+  const caja = document.getElementById('panelRecordatorios');
+  if (!caja) return;
+
+  const r = d.resumen;
+  const enviados = r.total - r.sin_validar;   // a quien ya le llego algo del proceso
+
+  // Cuatro numeros, sin adornos: lo que hace falta saber de un vistazo.
+  const dato = (n, etiqueta, color) =>
+    `<div style="flex:1;min-width:110px;padding:12px 16px;">
+       <div style="font-size:22px;font-weight:700;color:${color};line-height:1.1;">${n}</div>
+       <div style="font-size:11px;color:#8b7d93;margin-top:3px;">${etiqueta}</div>
+     </div>`;
+
+  // Los botones solo aparecen si hay a quien escribir. Un boton que no hace
+  // nada confunde mas que ayuda.
+  const btn = (id, texto, n, activo) => !n ? '' :
+    `<button id="${id}" type="button" ${activo ? '' : 'disabled'}
+       style="padding:8px 16px;border-radius:8px;font-size:12px;font-weight:600;
+              font-family:inherit;cursor:${activo ? 'pointer' : 'not-allowed'};
+              border:1px solid ${activo ? '#2a0d31' : '#ddd'};
+              background:${activo ? '#2a0d31' : '#f5f5f5'};
+              color:${activo ? '#fff' : '#999'};">${texto}</button>`;
+
+  const espera = r.en_espera
+    ? `<div style="font-size:11px;color:#8b7d93;margin-top:8px;">
+         ${r.en_espera} ${r.en_espera === 1 ? 'persona recibio' : 'personas recibieron'}
+         un recordatorio hace menos de ${d.dias_entre_recordatorios} dias: no se les reenvia todavia.
+       </div>` : '';
+
+  caja.innerHTML = `
+    <div style="background:#fbfafc;border:1px solid #ece7ee;border-radius:12px;padding:6px 6px 14px;">
+      <div style="display:flex;flex-wrap:wrap;align-items:center;">
+        ${dato(enviados, 'Correos enviados', '#2a0d31')}
+        ${dato(r.validados_sin_firmar, 'Firmas pendientes', '#92400e')}
+        ${dato(r.sin_validar, 'Validaciones pendientes', '#b91c1c')}
+        ${dato(r.firmados, 'Firmas completadas', '#166534')}
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;padding:0 16px;">
+        ${btn('btnReenviarValidaciones',
+              `Reenviar validaciones (${r.validaciones_enviables})`,
+              r.sin_validar, r.validaciones_enviables > 0)}
+        ${btn('btnReenviarFirmas',
+              `Reenviar enlaces de firma (${r.firmas_enviables})`,
+              r.validados_sin_firmar, r.firmas_enviables > 0)}
+      </div>
+      <div style="padding:0 16px;">${espera}</div>
+    </div>`;
+  caja.style.display = 'block';
+
+  document.getElementById('btnReenviarValidaciones')
+    ?.addEventListener('click', () => confirmarReenvio('validacion'));
+  document.getElementById('btnReenviarFirmas')
+    ?.addEventListener('click', () => confirmarReenvio('firma'));
+}
+
+// Antes de mandar nada se pregunta, con el numero delante. Un clic no puede
+// sacar decenas de correos a padres reales sin vuelta atras.
+async function confirmarReenvio(tipo) {
+  const docId = new URLSearchParams(window.location.search).get('id');
+  if (!docId) return;
+
+  const btn = document.getElementById(
+    tipo === 'validacion' ? 'btnReenviarValidaciones' : 'btnReenviarFirmas');
+  const textoOriginal = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Comprobando...'; }
+
+  try {
+    // Primero sin confirmar: solo devuelve lo que haria.
+    const prev = await fetch(`/api/documentos/${docId}/recordatorios`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      credentials: 'include', body: JSON.stringify({ tipo, confirmar: false })
+    }).then(r => r.json());
+
+    if (!prev.success || !prev.se_enviarian) {
+      alert('No hay a quien reenviar ahora mismo.');
+      return;
+    }
+
+    const que = tipo === 'validacion' ? 'solicitudes de validacion de identidad'
+                                      : 'enlaces de firma';
+    let texto = `Se enviaran ${prev.se_enviarian} ${que}.\n\n`;
+    if (prev.en_espera) {
+      texto += `${prev.en_espera} quedan fuera por haber recibido uno hace poco.\n\n`;
+    }
+    if (prev.avisos?.length) {
+      texto += `Aviso: ${prev.avisos.length} de estas personas recibieron un correo ` +
+               `de otro usuario en las ultimas 24 horas.\n\n`;
+    }
+    texto += 'Continuar?';
+
+    if (!confirm(texto)) return;
+
+    if (btn) btn.textContent = 'Enviando...';
+
+    const res = await fetch(`/api/documentos/${docId}/recordatorios`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      credentials: 'include', body: JSON.stringify({ tipo, confirmar: true })
+    }).then(r => r.json());
+
+    if (res.success) {
+      let msg = `${res.enviados} correo(s) enviado(s).`;
+      if (res.fallidos) msg += `\n${res.fallidos} no se pudieron enviar.`;
+      if (res.saltados) msg += `\n${res.saltados} se saltaron por el limite de dias.`;
+      alert(msg);
+      cargarPanelRecordatorios(docId);
+    } else {
+      alert(res.message || 'No se pudieron enviar los recordatorios.');
+    }
+  } catch (e) {
+    alert('Error de conexion al reenviar.');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = textoOriginal; }
+  }
+}
+
+// Reenvio a UNA persona. Sin limite de dias: si llama diciendo que no le llego,
+// hay que poder mandarselo. La espera que crece la pone el servidor.
+async function reenviarIndividual(recipientId, tipo, boton) {
+  const textoOriginal = boton ? boton.textContent : '';
+  if (boton) { boton.disabled = true; boton.textContent = 'Enviando...'; }
+
+  try {
+    const res = await fetch('/api/recordatorios/individual', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ recipient_id: recipientId, tipo })
+    }).then(r => r.json());
+
+    if (res.success) {
+      if (window.ToastManager) ToastManager.success('Enviado', res.message);
+      else alert(res.message);
+      const docId = new URLSearchParams(window.location.search).get('id');
+      if (docId) cargarPanelRecordatorios(docId);
+    } else if (res.en_espera) {
+      // La cuenta atras en el propio boton, en vez de un error seco.
+      if (boton) {
+        let faltan = res.faltan_segundos;
+        boton.disabled = true;
+        const tic = setInterval(() => {
+          faltan--;
+          if (faltan <= 0) {
+            clearInterval(tic);
+            boton.disabled = false;
+            boton.textContent = textoOriginal;
+          } else {
+            const m = Math.floor(faltan / 60), s = faltan % 60;
+            boton.textContent = m ? `Espera ${m}:${String(s).padStart(2, '0')}`
+                                  : `Espera ${s}s`;
+          }
+        }, 1000);
+      }
+      if (window.ToastManager) ToastManager.warning('Espera', res.message);
+      return;   // el finally no debe restaurar el boton: lo lleva la cuenta atras
+    } else {
+      if (window.ToastManager) ToastManager.error('No se envio', res.message);
+      else alert(res.message);
+    }
+  } catch (e) {
+    alert('Error de conexion al reenviar.');
+  }
+
+  if (boton) { boton.disabled = false; boton.textContent = textoOriginal; }
+}
+window.reenviarIndividual = reenviarIndividual;
+
 async function loadRecipients(docId) {
   try {
     console.log('👥 Cargando destinatarios del documento:', docId);
+    // El resumen de arriba se refresca con cada carga de destinatarios, asi
+    // que sigue el estado real segun la gente va firmando.
+    cargarPanelRecordatorios(docId);
     
     const userStr = localStorage.getItem('currentUser');
     if (!userStr) {
