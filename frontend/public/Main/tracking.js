@@ -929,10 +929,10 @@ function estadoValidacion(d) {
   if (!v) return '';
 
   if (v.vi_sin_respuesta) {
-    return `<div style="font-size:11px;color:#9ca3af;margin-top:2px;">No se pudo consultar el estado</div>`;
+    return `<div style="font-size:11px;color:#9ca3af;margin-top:2px;text-align:center;">No se pudo consultar el estado</div>`;
   }
   if (v.no_encontrada) {
-    return `<div style="font-size:11px;color:#b91c1c;margin-top:2px;">La validacion ya no existe</div>`;
+    return `<div style="font-size:11px;color:#b91c1c;margin-top:2px;text-align:center;">La validacion ya no existe</div>`;
   }
 
   const partes = [];
@@ -952,7 +952,7 @@ function estadoValidacion(d) {
   }
 
   if (!partes.length) return '';
-  return `<div style="font-size:11px;color:#6b7280;margin-top:2px;">${partes.join(' &middot; ')}</div>`;
+  return `<div style="font-size:11px;color:#6b7280;margin-top:2px;text-align:center;line-height:1.5;">${partes.join(' &middot; ')}</div>`;
 }
 
 // El boton, segun lo que de verdad va a pasar al pulsarlo.
@@ -983,7 +983,8 @@ function botonValidacion(d) {
       data-accion="${accion}" data-id="${d.id}"
       ${puede ? '' : 'disabled'}
       style="padding:13px 20px;border:none;border-radius:8px;font-size:13px;
-             font-weight:700;letter-spacing:.5px;width:100%;text-align:center;
+             font-weight:700;letter-spacing:.5px;width:100%;
+             display:flex;align-items:center;justify-content:center;
              background:${puede ? '#2a0d31' : '#e5e0e8'};
              color:${puede ? '#fff' : '#a39aaa'};
              cursor:${puede ? 'pointer' : 'not-allowed'};">
@@ -1002,7 +1003,8 @@ function botonValidacion(d) {
       ${debajo}
       <button class="vi-corregir-btn" data-id="${d.id}"
         style="background:none;border:none;color:#8b7d93;font-size:11px;
-               cursor:pointer;padding:0;text-decoration:underline;">
+               cursor:pointer;padding:0;text-decoration:underline;
+               width:100%;text-align:center;">
         Corregir informacion
       </button>
     </div>`;
