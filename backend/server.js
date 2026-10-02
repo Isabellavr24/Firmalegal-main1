@@ -3659,7 +3659,10 @@ async function crearValidacionVI(persona, docId, docTitle, req) {
     const url = new URL(`${VI_URL}/validacion/api/firmalegal/iniciar-validacion`);
     const transporte = url.protocol === 'https:' ? require('https') : require('http');
 
-    await new Promise((resolve, reject) => {
+    // Se LEE la respuesta, no se descarta: trae el codigo de la validacion
+    // recien creada, que es lo unico que permite despues preguntarle a VI por
+    // su estado y por los intentos de esa persona.
+    const respuesta = await new Promise((resolve, reject) => {
         const r = transporte.request({
             hostname: url.hostname, port: url.port || 80, path: url.pathname, method: 'POST',
             headers: {
@@ -3667,11 +3670,48 @@ async function crearValidacionVI(persona, docId, docTitle, req) {
                 'X-Internal-Api-Key': process.env.INTERNAL_API_KEY || '',
                 'Content-Length': Buffer.byteLength(cuerpo)
             }
-        }, resp => { resp.resume(); resp.on('end', resolve); });
+        }, resp => {
+            let datos = '';
+            resp.on('data', t => { datos += t; });
+            resp.on('end', () => {
+                // OJO: VI ha devuelto cuerpos vacios aunque la validacion se
+                // cree bien, asi que un cuerpo ilegible no significa que haya
+                // fallado. Se sigue adelante sin codigo.
+                try { resolve(JSON.parse(datos || '{}')); } catch (e) { resolve({}); }
+            });
+        });
         r.on('error', reject);
         r.write(cuerpo);
         r.end();
     });
+
+    // Guardar el codigo, para poder consultar despues su estado y sus intentos.
+    //
+    // Va en su propia tabla y no en `vi_verified_emails` porque esa tiene
+    // `vi_validated_at NOT NULL`: meter ahi una fila obligaria a poner una
+    // fecha de validacion falsa, y la pantalla diria que esta persona ya
+    // valido cuando acaba de recibir el correo.
+    if (respuesta.codigo) {
+        try {
+            await db.promise().query(
+                `INSERT INTO vi_validaciones_pendientes
+                   (email, validacion_codigo, recipient_id, document_id, owner_user_id)
+                 VALUES (?, ?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE
+                   validacion_codigo = VALUES(validacion_codigo),
+                   recipient_id = VALUES(recipient_id),
+                   created_at = CURRENT_TIMESTAMP`,
+                [String(persona.email).toLowerCase(), respuesta.codigo,
+                 persona.recipient_id, docId, req.userId || null]
+            );
+        } catch (e) {
+            // Que no se pueda guardar el codigo no invalida el envio: el correo
+            // ya salio. Se pierde la visibilidad, no la validacion.
+            console.warn(`[VI] No se pudo guardar el codigo de ${persona.email}: ${e.message}`);
+        }
+    } else {
+        console.warn(`[VI] La respuesta no traia codigo para ${persona.email}`);
+    }
 }
 
 // GET — cuantos faltan por validar, cuantos por firmar, a quien se puede

@@ -53,7 +53,10 @@ async function estadoDocumento(db, documentId, userId) {
                 -- El codigo con el que se creo su validacion. Vive solo en
                 -- vi_verified_emails, y sirve para ir a buscar a VI con que
                 -- datos se hizo y cuando vence.
-                v.validacion_codigo AS validacion_codigo,
+                -- El codigo esta en dos sitios: las pendientes (creadas y sin
+                -- completar) y las ya completadas. Manda la pendiente, que es
+                -- la ultima que se le creo.
+                COALESCE(vp.validacion_codigo, v.validacion_codigo) AS validacion_codigo,
                 (SELECT MAX(r.created_at) FROM recordatorios_enviados r
                   WHERE r.recipient_id = dr.recipient_id
                     AND r.user_id <=> ?
@@ -78,6 +81,8 @@ async function estadoDocumento(db, documentId, userId) {
          FROM document_recipients dr
          LEFT JOIN vi_verified_emails v
            ON LOWER(v.email) COLLATE utf8mb4_unicode_ci = LOWER(dr.email) COLLATE utf8mb4_unicode_ci
+         LEFT JOIN vi_validaciones_pendientes vp
+           ON LOWER(vp.email) COLLATE utf8mb4_unicode_ci = LOWER(dr.email) COLLATE utf8mb4_unicode_ci
          WHERE dr.document_id = ?
          ORDER BY dr.viewer_group_id, dr.signing_order`,
         [userId, userId, VENTANA_HORAS, userId, VENTANA_HORAS, userId, documentId]

@@ -78,11 +78,22 @@ async function conEstadoDeValidacion(db, destinatarios) {
     }
 
     // --- 2. El codigo de su validacion, si tiene una ---
+    //
+    // Esta en dos sitios, y hay que mirar los dos:
+    //
+    //   vi_validaciones_pendientes — las que se han creado y aun no se
+    //       completan. Es el periodo que importa para la pantalla.
+    //   vi_verified_emails        — las ya completadas, que el callback guarda.
+    //
+    // Si una persona aparece en las dos, manda la pendiente: es la ultima que
+    // se le creo.
     const correos = [...new Set(destinatarios.map(d => String(d.email || '').toLowerCase()))];
     const porCorreo = {};
     if (correos.length) {
+        const marcas = correos.map(() => '?').join(',');
+
+        // Primero las completadas, para que las pendientes las pisen despues
         try {
-            const marcas = correos.map(() => '?').join(',');
             const [filas] = await db.promise().query(
                 `SELECT LOWER(email) AS email, validacion_codigo
                  FROM vi_verified_emails
@@ -92,7 +103,21 @@ async function conEstadoDeValidacion(db, destinatarios) {
             );
             for (const f of filas) porCorreo[f.email] = f.validacion_codigo;
         } catch (e) {
-            console.warn(`[VALIDACION] No se pudieron leer los codigos: ${e.message}`);
+            console.warn(`[VALIDACION] No se pudieron leer los codigos completados: ${e.message}`);
+        }
+
+        try {
+            const [filas] = await db.promise().query(
+                `SELECT LOWER(email) AS email, validacion_codigo
+                 FROM vi_validaciones_pendientes
+                 WHERE LOWER(email) COLLATE utf8mb4_unicode_ci IN (${marcas})`,
+                correos
+            );
+            for (const f of filas) porCorreo[f.email] = f.validacion_codigo;
+        } catch (e) {
+            // Si la tabla no existe todavia (migracion sin aplicar), la pantalla
+            // sigue funcionando con lo que haya en vi_verified_emails.
+            console.warn(`[VALIDACION] No se pudieron leer los codigos pendientes: ${e.message}`);
         }
     }
 
