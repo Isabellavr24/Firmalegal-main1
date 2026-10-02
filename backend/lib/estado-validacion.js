@@ -77,84 +77,78 @@ async function conEstadoDeValidacion(db, destinatarios) {
         }
     }
 
-    // --- 2. El codigo de su validacion, si tiene una ---
+    // --- 2. El estado de su validacion, preguntandoselo a VI POR CORREO ---
     //
-    // Esta en dos sitios, y hay que mirar los dos:
+    // Se pregunta por el CORREO y no por el codigo a proposito: el operador
+    // puede crear la validacion desde el panel de VI, y en ese caso nosotros
+    // no tenemos su codigo guardado. Preguntando por el correo nos enteramos
+    // igual, se haya creado por donde se haya creado.
     //
-    //   vi_validaciones_pendientes — las que se han creado y aun no se
-    //       completan. Es el periodo que importa para la pantalla.
-    //   vi_verified_emails        — las ya completadas, que el callback guarda.
-    //
-    // Si una persona aparece en las dos, manda la pendiente: es la ultima que
-    // se le creo.
-    const correos = [...new Set(destinatarios.map(d => String(d.email || '').toLowerCase()))];
-    const porCorreo = {};
+    // El correo es ademas el ancla natural: es lo que identifica al firmante
+    // en los dos sistemas.
+    const correos = [...new Set(
+        destinatarios.map(d => String(d.email || '').toLowerCase()).filter(Boolean))];
+
+    for (const d of destinatarios) d.validacion = null;
+
     if (correos.length) {
-        const marcas = correos.map(() => '?').join(',');
-
-        // Primero las completadas, para que las pendientes las pisen despues
         try {
-            const [filas] = await db.promise().query(
-                `SELECT LOWER(email) AS email, validacion_codigo
-                 FROM vi_verified_emails
-                 WHERE LOWER(email) COLLATE utf8mb4_unicode_ci IN (${marcas})
-                   AND validacion_codigo IS NOT NULL`,
-                correos
-            );
-            for (const f of filas) porCorreo[f.email] = f.validacion_codigo;
-        } catch (e) {
-            console.warn(`[VALIDACION] No se pudieron leer los codigos completados: ${e.message}`);
-        }
+            const porCorreo = await _pedirAVI(correos);
+            const ahora = Date.now();
 
-        try {
-            const [filas] = await db.promise().query(
-                `SELECT LOWER(email) AS email, validacion_codigo
-                 FROM vi_validaciones_pendientes
-                 WHERE LOWER(email) COLLATE utf8mb4_unicode_ci IN (${marcas})`,
-                correos
-            );
-            for (const f of filas) porCorreo[f.email] = f.validacion_codigo;
-        } catch (e) {
-            // Si la tabla no existe todavia (migracion sin aplicar), la pantalla
-            // sigue funcionando con lo que haya en vi_verified_emails.
-            console.warn(`[VALIDACION] No se pudieron leer los codigos pendientes: ${e.message}`);
-        }
-    }
+            for (const d of destinatarios) {
+                const v = porCorreo[String(d.email || '').toLowerCase()];
+                if (!v) continue;
 
-    for (const d of destinatarios) {
-        const codigo = porCorreo[String(d.email || '').toLowerCase()] || null;
-        d.validacion = codigo ? { codigo } : null;
-    }
+                const vence = v.expira_at ? new Date(v.expira_at).getTime() : null;
+                const dias = vence ? Math.ceil((vence - ahora) / 86400000) : null;
 
-    // --- 3. El estado y los intentos, que viven en VI ---
-    const conCodigo = destinatarios.filter(d => d.validacion);
-    if (conCodigo.length) {
-        try {
-            await _pedirAVI(conCodigo);
+                d.validacion = {
+                    codigo: v.codigo,
+                    estado: v.estado,
+                    nombre: v.nombre_completo || null,
+                    documento: v.documento || null,
+                    tipo_documento: v.tipo_documento || null,
+                    creada_el: v.created_at || null,
+                    expira_at: v.expira_at || null,
+                    dias_restantes: dias,
+                    caducada: dias !== null && dias <= 0,
+                    // Los intentos: distinguen a quien no le llego el correo de
+                    // quien lo abrio y no consigue completarlo.
+                    intentos: v.intentos != null ? Number(v.intentos) : null,
+                    // Con que datos se creo de verdad. Si no coinciden con los
+                    // del pagare, algo se cruzo al crearla.
+                    email_vi: v.email_firmante || null
+                };
+            }
         } catch (e) {
             console.warn(`[VALIDACION] VI no respondio: ${e.message}`);
-            for (const d of conCodigo) d.validacion.vi_sin_respuesta = true;
+            // La pantalla tiene que seguir sirviendo aunque VI este caido: se
+            // marca que falta el detalle en vez de dejarla sin nada.
+            for (const d of destinatarios) d.validacion = { vi_sin_respuesta: true };
         }
     }
-
     return destinatarios;
 }
 
 /**
- * Pregunta a VI por el estado y los intentos de un lote de validaciones.
+ * Pregunta a VI por las validaciones de un lote de CORREOS.
  *
  * Se pide por su endpoint interno, no leyendo su base: es de solo lectura y no
  * devuelve el token ni la url de redireccion, que permitirian completar la
  * validacion de otra persona.
+ *
+ * @param {string[]} correos  en minusculas, maximo 200 por peticion
+ * @returns {Promise<object>} un mapa correo -> validacion
  */
-function _pedirAVI(destinatarios) {
+function _pedirAVI(correos) {
     const VI_URL = process.env.VI_URL || 'http://validacion-identidad-app-1:3000';
     const VI_API_KEY = process.env.INTERNAL_API_KEY || '';
     const url = new URL(`${VI_URL}/validacion/api/firmalegal/validaciones/consultar`);
     const transporte = url.protocol === 'https:' ? require('https') : require('http');
 
-    const codigos = [...new Set(destinatarios.map(d => d.validacion.codigo))];
-    const cuerpo = JSON.stringify({ codigos: codigos.slice(0, 200) });
+    // 200 es el limite de VI por peticion.
+    const cuerpo = JSON.stringify({ emails: correos.slice(0, 200) });
 
     return new Promise((resolver, rechazar) => {
         const peticion = transporte.request({
@@ -183,35 +177,17 @@ function _pedirAVI(destinatarios) {
                 } catch (e) {
                     return rechazar(new Error('VI devolvio algo que no es JSON'));
                 }
-                if (!Array.isArray(lista)) return rechazar(new Error('VI devolvio un formato inesperado'));
-
-                const porCodigo = {};
-                for (const v of lista) if (v && v.codigo) porCodigo[v.codigo] = v;
-
-                const ahora = Date.now();
-                for (const d of destinatarios) {
-                    const v = porCodigo[d.validacion.codigo];
-                    if (!v) { d.validacion.no_encontrada = true; continue; }
-
-                    const vence = v.expira_at ? new Date(v.expira_at).getTime() : null;
-                    const dias = vence ? Math.ceil((vence - ahora) / 86400000) : null;
-
-                    Object.assign(d.validacion, {
-                        estado: v.estado,
-                        nombre: v.nombre_completo || null,
-                        documento: v.documento || null,
-                        tipo_documento: v.tipo_documento || null,
-                        creada_el: v.created_at || null,
-                        expira_at: v.expira_at || null,
-                        dias_restantes: dias,
-                        caducada: dias !== null && dias <= 0,
-                        // Los intentos: el dato que faltaba. Cuantas veces lo ha
-                        // intentado esa persona, para saber si el problema es
-                        // que no le llego o que no consigue completarlo.
-                        intentos: v.intentos != null ? Number(v.intentos) : null
-                    });
+                if (!Array.isArray(lista)) {
+                    return rechazar(new Error('VI devolvio un formato inesperado'));
                 }
-                resolver(destinatarios);
+
+                const porCorreo = {};
+                for (const v of lista) {
+                    if (v && v.email_firmante) {
+                        porCorreo[String(v.email_firmante).toLowerCase()] = v;
+                    }
+                }
+                resolver(porCorreo);
             });
         });
         peticion.on('error', rechazar);

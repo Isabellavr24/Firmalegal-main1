@@ -3975,8 +3975,8 @@ app.post('/api/validaciones/un-clic', requireAuth, async (req, res) => {
         if (!recipientId) {
             return res.status(400).json({ success: false, message: 'Destinatario no valido' });
         }
-        if (!['iniciar', 'reenviar'].includes(accion)) {
-            return res.status(400).json({ success: false, message: 'La accion debe ser iniciar o reenviar' });
+        if (!['iniciar', 'reenviar', 'firma'].includes(accion)) {
+            return res.status(400).json({ success: false, message: 'La accion debe ser iniciar, reenviar o firma' });
         }
 
         const [filas] = await db.promise().query(
@@ -3992,9 +3992,41 @@ app.post('/api/validaciones/un-clic', requireAuth, async (req, res) => {
         }
         const p = filas[0];
 
+        // 'firma' es para quien YA valido: lo que necesita es el enlace para
+        // firmar, no otra validacion.
+        if (accion === 'firma') {
+            if (!p.vi_validated_at) {
+                return res.json({ success: false,
+                    message: 'Todavia no ha validado su identidad. La validacion va primero, siempre.' });
+            }
+            if (p.status === 'completed') {
+                return res.json({ success: false, message: 'Esa persona ya firmo' });
+            }
+
+            const espera = await _recordatorios.esperaIndividual(db, recipientId, req.userId);
+            if (!espera.puede) {
+                const m = Math.ceil(espera.faltan_segundos / 60);
+                return res.json({ success: false, en_espera: true,
+                    faltan_segundos: espera.faltan_segundos,
+                    message: m <= 1
+                        ? 'Se acaba de enviar. Espera un minuto antes de volver a intentarlo.'
+                        : `Se envio hace poco. Espera ${m} minutos antes de volver a intentarlo.` });
+            }
+
+            const r = await enviarRecordatorios([{
+                recipient_id: p.recipient_id, email: p.email,
+                nombre: p.name || p.email, es_firmante_definitivo: false
+            }], 'firma', p.document_id, p.title, req);
+
+            return r.enviados
+                ? res.json({ success: true, message: `Enlace de firma enviado a ${p.email}` })
+                : res.json({ success: false,
+                    message: r.errores?.[0]?.motivo || 'No se pudo enviar el enlace de firma' });
+        }
+
         if (p.vi_validated_at) {
             return res.json({ success: false,
-                message: 'Esta persona ya valido su identidad. No hace falta enviarle otra.' });
+                message: 'Esta persona ya valido su identidad. Usa "Enviar enlace de firma".' });
         }
 
         // Que ya tiene una validacion creada, para comprobar que la accion

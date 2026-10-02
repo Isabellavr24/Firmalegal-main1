@@ -937,11 +937,18 @@ function estadoValidacion(d) {
 
   const partes = [];
 
+  // Si ya la completo, eso es lo unico que importa decir.
+  if (v.estado === 'completada') {
+    return '<div style="font-size:11px;color:#166534;margin-top:2px;text-align:center;">' +
+           'Identidad verificada</div>';
+  }
+
   // Los intentos: cero intentos y varios intentos son problemas distintos.
   if (v.intentos != null) {
     partes.push(v.intentos === 0
       ? '<span style="color:#92400e;">No la ha intentado</span>'
-      : 'Intentos detectados: <strong>' + v.intentos + '</strong>');
+      : 'Intentos: <strong>' + v.intentos + '</strong>' +
+        (v.estado === 'en_proceso' ? ' <span style="color:#92400e;">(en proceso)</span>' : ''));
   }
 
   // La vigencia. Una caducada no se reenvia: hay que crearla de nuevo.
@@ -974,9 +981,20 @@ function botonValidacion(d) {
       ? 'Falta ' + falta.join(' y ') + ' en el pagare'
       : null;
 
-  const esReenvio = !!v && !v.no_encontrada;
-  const texto = esReenvio ? 'REENVIAR VALIDACION' : 'INICIAR VALIDACION';
-  const accion = esReenvio ? 'reenviar' : 'iniciar';
+  // Tres estados, tres botones distintos:
+  //
+  //   sin validacion       -> INICIAR VALIDACION    (se le crea una)
+  //   validacion pendiente -> REENVIAR VALIDACION   (se le vuelve a mandar)
+  //   ya validada          -> ENVIAR ENLACE DE FIRMA
+  //
+  // El tercero es el que faltaba: cuando alguien completa su validacion, lo
+  // que necesita es el enlace para firmar, no otra validacion.
+  const yaValido = !!v && v.estado === 'completada';
+  const esReenvio = !!v && !v.no_encontrada && !yaValido;
+
+  const texto = yaValido ? 'ENVIAR ENLACE DE FIRMA'
+    : esReenvio ? 'REENVIAR VALIDACION' : 'INICIAR VALIDACION';
+  const accion = yaValido ? 'firma' : esReenvio ? 'reenviar' : 'iniciar';
 
   const btn = `
     <button class="vi-un-clic-btn recipient-btn"
