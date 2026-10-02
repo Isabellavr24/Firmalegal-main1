@@ -144,6 +144,28 @@ async function estadoDocumento(db, documentId, userId) {
         }
     }
 
+    // Quien tiene validacion no se puede saber solo con nuestras tablas: el
+    // operador puede crearla desde el panel de VI y ahi no nos enteramos.
+    // Se le pregunta a VI por correo, que es lo unico fiable.
+    //
+    // Si VI no responde, se usa lo que haya en nuestras tablas: el panel
+    // sigue funcionando, aunque el reparto entre enviar y reenviar quede
+    // menos fino.
+    try {
+        const pendientes = [...sinValidar];
+        if (pendientes.length) {
+            const _estado = require('./estado-validacion');
+            const comoDestinatarios = pendientes.map(p => ({ email: p.email }));
+            await _estado.soloValidaciones(comoDestinatarios);
+            pendientes.forEach((p, i) => {
+                const v = comoDestinatarios[i].validacion;
+                if (v && v.codigo) p.tiene_validacion = true;
+            });
+        }
+    } catch (e) {
+        console.warn(`[RECORDATORIOS] No se pudo consultar VI: ${e.message}`);
+    }
+
     return {
         resumen: {
             total: filas.length,

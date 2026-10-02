@@ -2383,13 +2383,24 @@ function pintarPanelRecordatorios(d) {
 
   // Los botones solo salen si hay a quien escribir: uno que no hace nada
   // confunde mas que ayuda.
-  const btn = (id, texto, n, activo) => !n ? '' :
+  // Enviar y reenviar se distinguen por el color, no solo por el texto.
+  //
+  // Crear una validacion nueva y reenviar una que ya existe son acciones
+  // distintas -la nueva llega con otro codigo y otra fecha de vencimiento- y
+  // dos botones identicos uno al lado del otro se confunden.
+  //
+  // El relleno morado es para crear, que es la accion principal. El contorno,
+  // para reenviar: mismo color de la marca, menos peso visual.
+  const btn = (id, texto, n, activo, estilo = 'solido') => !n ? '' :
     `<button id="${id}" type="button" ${activo ? '' : 'disabled'}
        style="padding:10px 18px;border-radius:10px;font-size:13px;font-weight:600;
               font-family:inherit;cursor:${activo ? 'pointer' : 'not-allowed'};
-              border:1px solid ${activo ? 'var(--brand-color, #2a0d31)' : '#e5e0e8'};
-              background:${activo ? 'var(--brand-color, #2a0d31)' : '#faf9fb'};
-              color:${activo ? '#fff' : '#b0a6b8'};transition:opacity .15s;"
+              border:1px solid ${!activo ? '#e5e0e8' : 'var(--brand-color, #2a0d31)'};
+              background:${!activo ? '#faf9fb'
+                : estilo === 'contorno' ? '#fff' : 'var(--brand-color, #2a0d31)'};
+              color:${!activo ? '#b0a6b8'
+                : estilo === 'contorno' ? 'var(--brand-color, #2a0d31)' : '#fff'};
+              transition:opacity .15s;"
        ${activo ? 'onmouseover="this.style.opacity=0.85" onmouseout="this.style.opacity=1"' : ''}
        >${texto}</button>`;
 
@@ -2435,10 +2446,10 @@ function pintarPanelRecordatorios(d) {
               r.sin_validacion_creada, (r.validaciones_por_crear || 0) > 0)}
         ${btn('btnReenviarValidaciones',
               `Reenviar validaciones (${r.validaciones_por_reenviar || 0})`,
-              r.con_validacion_creada, (r.validaciones_por_reenviar || 0) > 0)}
+              r.con_validacion_creada, (r.validaciones_por_reenviar || 0) > 0, 'contorno')}
         ${btn('btnReenviarFirmas',
               `Reenviar enlaces de firma (${r.firmas_enviables})`,
-              r.validados_sin_firmar, r.firmas_enviables > 0)}
+              r.validados_sin_firmar, r.firmas_enviables > 0, 'contorno')}
       </div>` : ''}
       ${espera}
       ${leyenda}

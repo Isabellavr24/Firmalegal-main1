@@ -198,4 +198,40 @@ function _pedirAVI(correos) {
     });
 }
 
-module.exports = { conEstadoDeValidacion, queFalta };
+/**
+ * Solo el estado de la validacion, sin los datos del CSV.
+ *
+ * Lo usa el panel de arriba, que necesita saber QUIEN tiene validacion para
+ * repartir entre "Enviar" y "Reenviar", pero no necesita la cedula ni el
+ * celular de cada uno: eso solo hace falta en el renglon.
+ *
+ * @param {object[]} destinatarios  objetos con al menos { email }
+ */
+async function soloValidaciones(destinatarios) {
+    if (!Array.isArray(destinatarios) || !destinatarios.length) return destinatarios;
+
+    const correos = [...new Set(
+        destinatarios.map(d => String(d.email || '').toLowerCase()).filter(Boolean))];
+    for (const d of destinatarios) d.validacion = null;
+    if (!correos.length) return destinatarios;
+
+    const porCorreo = await _pedirAVI(correos);
+    const ahora = Date.now();
+
+    for (const d of destinatarios) {
+        const v = porCorreo[String(d.email || '').toLowerCase()];
+        if (!v) continue;
+        const vence = v.expira_at ? new Date(v.expira_at).getTime() : null;
+        const dias = vence ? Math.ceil((vence - ahora) / 86400000) : null;
+        d.validacion = {
+            codigo: v.codigo,
+            estado: v.estado,
+            dias_restantes: dias,
+            caducada: dias !== null && dias <= 0,
+            intentos: v.intentos != null ? Number(v.intentos) : null
+        };
+    }
+    return destinatarios;
+}
+
+module.exports = { conEstadoDeValidacion, soloValidaciones, queFalta };
