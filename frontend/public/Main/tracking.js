@@ -5489,6 +5489,24 @@ async function handleViStart(recipient) {
       email: recipient.email,
       redirect_token: recipient.token
     });
+
+    // Los datos que ya sabemos del CSV, para no obligar a reescribirlos a
+    // mano. El operador entra a CORREGIR algo concreto, no a teclearlo todo.
+    //
+    // OJO: hoy el formulario de VI solo lee asunto, email y redirect_token
+    // (crear-validacion.js:64-67). Estos van para cuando los acepte; mientras
+    // tanto los ignora y no estorban.
+    const csv = recipient.datos_csv;
+    if (csv) {
+      if (csv.documento) params.set('documento', csv.documento);
+      if (csv.nombre)    params.set('nombre', csv.nombre);
+      if (csv.celular)   params.set('celular', String(csv.celular).replace('+57', ''));
+    }
+    // Lo que la universidad usa siempre, para que no haya que elegirlo cada vez
+    params.set('tipo_documento', 'CC');
+    params.set('tipo_solicitud', 'validacion-completa');
+    params.set('notificacion', 'email');
+
     window.open(`${VI_BASE}?${params.toString()}`, '_blank');
 
   } catch (err) {
