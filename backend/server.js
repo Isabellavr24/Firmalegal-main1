@@ -3517,7 +3517,10 @@ const _recordatorios = require('./lib/recordatorios');
  *
  * No lanza: si uno falla, se anota y se sigue con los demas.
  */
-async function enviarRecordatorios(personas, tipo, docId, docTitle, req) {
+// `sinLimite` lo pone el PRIMER envio de validaciones: ahi cada persona
+// recibe la suya una sola vez, asi que no hay nada que repetir ni que
+// limitar. Los reenvios si lo llevan.
+async function enviarRecordatorios(personas, tipo, docId, docTitle, req, sinLimite = false) {
     const sendgrid = require('./lib/email/sendgrid');
     const plantillaFirma = require('./lib/email/templates/signature-request-bulk');
 
@@ -3541,7 +3544,8 @@ async function enviarRecordatorios(personas, tipo, docId, docTitle, req) {
 
     for (const p of personas) {
         // Se vuelve a comprobar el limite: la pantalla pudo abrirse hace rato.
-        if (!(await _recordatorios.sePuedeEnviar(db, p.recipient_id, req.userId))) {
+        // En el primer envio no hay limite que comprobar.
+        if (!sinLimite && !(await _recordatorios.sePuedeEnviar(db, p.recipient_id, req.userId))) {
             saltados++;
             continue;
         }
@@ -3777,8 +3781,16 @@ app.post('/api/documentos/:docId/recordatorios', requireAuth, async (req, res) =
             }
         }
 
-        const enviables = candidatos.filter(p => p.puede_reenviarse);
-        const enEspera = candidatos.filter(p => !p.puede_reenviarse);
+        // El PRIMER envio no lleva limite diario: cada persona recibe su
+        // validacion una sola vez, asi que no hay nada que repetir. El limite
+        // esta para los REENVIOS, que son los que pueden saturar a un padre.
+        //
+        // Lo que si se respeta siempre es el bloqueo por falta de datos: sin
+        // cedula o sin celular la validacion no sirve, se envie cuando se envie.
+        const sinLimite = (tipo === 'validacion' && modo === 'crear');
+
+        const enviables = candidatos.filter(p => sinLimite ? !p.bloqueo : p.puede_reenviarse);
+        const enEspera = candidatos.filter(p => sinLimite ? false : !p.puede_reenviarse);
         const conAviso = enviables.filter(p => p.aviso_otro_usuario);
 
         // Sin confirmar: no se manda nada, se devuelve el desglose completo.
@@ -3802,6 +3814,10 @@ app.post('/api/documentos/:docId/recordatorios', requireAuth, async (req, res) =
                 se_enviarian: enviables.length,
                 en_espera: enEspera.length,
                 envios_por_dia: _recordatorios.ENVIOS_POR_DIA,
+                // Cuanto durara una validacion que se cree ahora. Es el plazo
+                // por defecto de VI (columna validaciones.plazo_dias), y sirve
+                // para decir en el informe cuando vence antes de crearla.
+                dias_de_vigencia: 30,
                 vi_error: candidatos.vi_error || null,
                 avisos: conAviso.map(p => ({
                     nombre: p.nombre, email: p.email,
@@ -3818,7 +3834,7 @@ app.post('/api/documentos/:docId/recordatorios', requireAuth, async (req, res) =
                 mensaje: 'No hay a quien reenviar ahora mismo' });
         }
 
-        const resultado = await enviarRecordatorios(enviables, tipo, docId, doc[0].title, req);
+        const resultado = await enviarRecordatorios(enviables, tipo, docId, doc[0].title, req, sinLimite);
         res.json({ success: true, ...resultado, en_espera: enEspera.length });
 
     } catch (e) {

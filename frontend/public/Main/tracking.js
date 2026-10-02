@@ -2493,7 +2493,7 @@ function reparoDeValidacion(v, p) {
 
 // Una fila del informe. `tipo` decide que columnas importan: en validacion se
 // mira la vigencia y la cedula; en firma, cuando valido.
-function filaInforme(p, tipo) {
+function filaInforme(p, tipo, diasVigencia) {
   const v = p.validacion;
   const reparo = tipo === 'validacion' ? reparoDeValidacion(v, p) : null;
 
@@ -2543,9 +2543,17 @@ function filaInforme(p, tipo) {
   let vigencia;
   if (tipo === 'validacion') {
     if (v && v.expira_at) {
+      // Ya existe: su fecha real
       const dias = (v.dias_restantes !== null && v.dias_restantes !== undefined && v.dias_restantes > 0)
         ? ' <span style="color:#8b7d93;">(' + v.dias_restantes + 'd)</span>' : '';
       vigencia = fechaCorta(v.expira_at) + dias;
+    } else if (diasVigencia) {
+      // Todavia no existe: se dice cuando vencera si se crea hoy. El
+      // operador necesita saberlo ANTES de enviar, para no mandar
+      // validaciones que caducan antes de que el padre las abra.
+      const vence = new Date(Date.now() + diasVigencia * 86400000);
+      vigencia = '<span style="color:#8b7d93;">' + fechaCorta(vence) + '</span>' +
+                 '<div style="font-size:10px;color:#b0a6b8;">estimado, ' + diasVigencia + ' dias</div>';
     } else {
       vigencia = '—';
     }
@@ -2634,7 +2642,14 @@ function informeDeReenvio(tipo, personas, prev, modo = 'ambos') {
         : seCrean + ' no tienen validacion todavia: se les va a CREAR una nueva, no reenviar.');
     }
     if (modo === 'crear') {
-      avisos.push('Son validaciones NUEVAS: cada una llega con su propio codigo y su fecha de vencimiento.');
+      const d = prev.dias_de_vigencia;
+      let t = 'Son validaciones NUEVAS: cada una llega con su propio codigo.';
+      if (d) {
+        const vence = new Date(Date.now() + d * 86400000);
+        t += ' Caducan a los ' + d + ' dias, el ' + fechaCorta(vence) +
+             ': el padre tiene hasta esa fecha para validarse.';
+      }
+      avisos.push(t);
     }
     if (prev.en_espera) {
       avisos.push(prev.en_espera + ' no entran: ya recibieron sus ' +
@@ -2695,7 +2710,7 @@ function informeDeReenvio(tipo, personas, prev, modo = 'ambos') {
                             'text-transform:uppercase;letter-spacing:.04em;' +
                             'border-bottom:1px solid #ece7ee;white-space:nowrap;">' + h + '</th>').join('') +
             '</tr></thead>' +
-            '<tbody>' + orden.map(p => filaInforme(p, tipo)).join('') + '</tbody>' +
+            '<tbody>' + orden.map(p => filaInforme(p, tipo, prev.dias_de_vigencia)).join('') + '</tbody>' +
           '</table>' +
         '</div>' +
 
