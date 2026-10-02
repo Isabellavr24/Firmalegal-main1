@@ -2348,11 +2348,26 @@ function pintarPanelRecordatorios(d) {
 
   const hayBotones = r.sin_validar || r.validados_sin_firmar;
 
+  // Quien ya gasto sus envios de hoy
   const espera = r.en_espera
     ? `<div style="font-size:12px;color:#8b7d93;margin-top:14px;line-height:1.5;">
          ${r.en_espera} ${r.en_espera === 1 ? 'persona ya recibio' : 'personas ya recibieron'}
          sus ${d.envios_por_dia || 2} recordatorios de hoy: no se les reenvia hasta
          que pasen 24 horas del primero.
+       </div>` : '';
+
+  // La leyenda de limites, siempre visible cuando hay botones.
+  //
+  // Hasta ahora el operador no conocia los limites hasta que chocaba con
+  // ellos: pulsaba y le decia que no, sin saber por que ni hasta cuando.
+  const leyenda = hayBotones
+    ? `<div style="font-size:11px;color:#b0a6b8;margin-top:16px;line-height:1.6;
+                 padding-top:14px;border-top:1px solid var(--border-color, #ece7ee);">
+         Cada persona puede recibir como maximo
+         <strong style="color:#8b7d93;">${d.envios_por_dia || 2} recordatorios al dia</strong>,
+         contados sobre las ultimas 24 horas.
+         El reenvio individual de cada persona no tiene limite diario, pero si una
+         espera que crece a cada intento: 1 minuto, 10, 30 y 60.
        </div>` : '';
 
   caja.innerHTML = `
@@ -2368,19 +2383,27 @@ function pintarPanelRecordatorios(d) {
       ${hayBotones ? `
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:22px;
                   padding-top:20px;border-top:1px solid var(--border-color, #ece7ee);">
+        ${btn('btnEnviarValidaciones',
+              `Enviar validaciones (${r.validaciones_por_crear || 0})`,
+              r.sin_validacion_creada, (r.validaciones_por_crear || 0) > 0)}
         ${btn('btnReenviarValidaciones',
-              `Reenviar validaciones (${r.validaciones_enviables})`,
-              r.sin_validar, r.validaciones_enviables > 0)}
+              `Reenviar validaciones (${r.validaciones_por_reenviar || 0})`,
+              r.con_validacion_creada, (r.validaciones_por_reenviar || 0) > 0)}
         ${btn('btnReenviarFirmas',
               `Reenviar enlaces de firma (${r.firmas_enviables})`,
               r.validados_sin_firmar, r.firmas_enviables > 0)}
       </div>` : ''}
       ${espera}
+      ${leyenda}
     </div>`;
   caja.style.display = 'block';
 
+  // Enviar y reenviar llaman a lo mismo, pero con `modo` distinto: el
+  // servidor filtra a quien le toca cada una.
+  document.getElementById('btnEnviarValidaciones')
+    ?.addEventListener('click', () => confirmarReenvio('validacion', 'crear'));
   document.getElementById('btnReenviarValidaciones')
-    ?.addEventListener('click', () => confirmarReenvio('validacion'));
+    ?.addEventListener('click', () => confirmarReenvio('validacion', 'reenviar'));
   document.getElementById('btnReenviarFirmas')
     ?.addEventListener('click', () => confirmarReenvio('firma'));
 }
@@ -2578,7 +2601,7 @@ function filaInforme(p, tipo) {
  * @param {object[]} personas la lista completa, incluidas las que estan en espera
  * @param {object} prev       lo que devolvio el servidor al preguntar sin confirmar
  */
-function informeDeReenvio(tipo, personas, prev) {
+function informeDeReenvio(tipo, personas, prev, modo = 'ambos') {
   return new Promise((resolver) => {
     const que = tipo === 'validacion' ? 'validaciones de identidad' : 'enlaces de firma';
 
@@ -2601,10 +2624,15 @@ function informeDeReenvio(tipo, personas, prev) {
       : orden.filter(p => p.puede_reenviarse && !p.bloqueo).length;
 
     const avisos = [];
-    if (seCrean) {
+    // En modo 'crear' el titulo ya lo dice; el aviso solo hace falta cuando
+    // el envio mezcla las dos cosas.
+    if (seCrean && modo === 'ambos') {
       avisos.push(seCrean === 1
         ? '1 no tiene validacion todavia: se le va a CREAR una nueva, no reenviar.'
         : seCrean + ' no tienen validacion todavia: se les va a CREAR una nueva, no reenviar.');
+    }
+    if (modo === 'crear') {
+      avisos.push('Son validaciones NUEVAS: cada una llega con su propio codigo y su fecha de vencimiento.');
     }
     if (prev.en_espera) {
       avisos.push(prev.en_espera + ' no entran: ya recibieron sus ' +
@@ -2636,7 +2664,11 @@ function informeDeReenvio(tipo, personas, prev) {
 
         '<div style="padding:22px 28px 16px;border-bottom:1px solid #ece7ee;">' +
           '<div style="font-size:17px;font-weight:700;color:#2a0d31;">' +
-            (tipo === 'validacion' && seCrean && !seReenvian ? 'Crear ' : 'Reenviar ') +
+            (tipo !== 'validacion' ? 'Reenviar '
+              : modo === 'crear' ? 'Enviar '
+              : modo === 'reenviar' ? 'Reenviar '
+              // En 'ambos' se deduce: si todas se crean, el titulo lo dice.
+              : (seCrean && !seReenvian) ? 'Enviar ' : 'Reenviar ') +
             que + '</div>' +
           '<div style="font-size:13px;color:#8b7d93;margin-top:6px;">' +
             'Saldra correo a <strong style="color:#2a0d31;">' + prev.se_enviarian +
@@ -2680,11 +2712,14 @@ function informeDeReenvio(tipo, personas, prev) {
                    'border:1px solid ' + (prev.se_enviarian ? '#2a0d31' : '#e5e0e8') + ';' +
                    'background:' + (prev.se_enviarian ? '#2a0d31' : '#faf9fb') + ';' +
                    'color:' + (prev.se_enviarian ? '#fff' : '#b0a6b8') + ';">' +
-            (tipo === 'validacion' && seCrean && seReenvian
-              ? 'Crear ' + seCrean + ' y reenviar ' + seReenvian
-              : tipo === 'validacion' && seCrean
-                ? 'Crear ' + seCrean
-                : 'Enviar ' + prev.se_enviarian) +
+            (tipo !== 'validacion' ? 'Enviar ' + prev.se_enviarian
+              : modo === 'crear' ? 'Enviar ' + prev.se_enviarian
+              : modo === 'reenviar' ? 'Reenviar ' + prev.se_enviarian
+              // En 'ambos' el boton dice las dos cifras, que es lo unico
+              // honesto cuando el envio mezcla crear y reenviar.
+              : (seCrean && seReenvian) ? 'Crear ' + seCrean + ' y reenviar ' + seReenvian
+              : seCrean ? 'Crear ' + seCrean
+              : 'Reenviar ' + prev.se_enviarian) +
           '</button>' +
         '</div>' +
       '</div>';
@@ -2724,12 +2759,13 @@ function informeDeReenvio(tipo, personas, prev) {
 // Antes de mandar nada se abre el informe, con el desglose delante. Un clic no
 // puede sacar decenas de correos a padres reales sin vuelta atras, y menos sin
 // que se vea con que cedula y con que vigencia se creo cada validacion.
-async function confirmarReenvio(tipo) {
+async function confirmarReenvio(tipo, modo = 'ambos') {
   const docId = new URLSearchParams(window.location.search).get('id');
   if (!docId) return;
 
   const btn = document.getElementById(
-    tipo === 'validacion' ? 'btnReenviarValidaciones' : 'btnReenviarFirmas');
+    tipo !== 'validacion' ? 'btnReenviarFirmas'
+      : modo === 'crear' ? 'btnEnviarValidaciones' : 'btnReenviarValidaciones');
   const textoOriginal = btn ? btn.textContent : '';
   if (btn) { btn.disabled = true; btn.textContent = 'Comprobando...'; }
 
@@ -2737,7 +2773,7 @@ async function confirmarReenvio(tipo) {
     // Primero sin confirmar: solo devuelve lo que haria.
     const prev = await fetch(`/api/documentos/${docId}/recordatorios`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      credentials: 'include', body: JSON.stringify({ tipo, confirmar: false })
+      credentials: 'include', body: JSON.stringify({ tipo, modo, confirmar: false })
     }).then(r => r.json());
 
     if (!prev.success) {
@@ -2755,14 +2791,14 @@ async function confirmarReenvio(tipo) {
     }
 
     if (btn) { btn.disabled = false; btn.textContent = textoOriginal; }
-    const seguir = await informeDeReenvio(tipo, personas, prev);
+    const seguir = await informeDeReenvio(tipo, personas, prev, modo);
     if (!seguir) return;
 
     if (btn) { btn.disabled = true; btn.textContent = 'Enviando...'; }
 
     const res = await fetch(`/api/documentos/${docId}/recordatorios`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      credentials: 'include', body: JSON.stringify({ tipo, confirmar: true })
+      credentials: 'include', body: JSON.stringify({ tipo, modo, confirmar: true })
     }).then(r => r.json());
 
     if (res.success) {

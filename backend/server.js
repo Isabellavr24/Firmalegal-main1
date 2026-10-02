@@ -3717,7 +3717,11 @@ app.get('/api/documentos/:docId/recordatorios', requireAuth, async (req, res) =>
 app.post('/api/documentos/:docId/recordatorios', requireAuth, async (req, res) => {
     try {
         const docId = parseInt(req.params.docId, 10);
-        const { tipo, confirmar = false, recipients = null } = req.body || {};
+        // `modo` separa las dos acciones que antes iban juntas:
+        //   'crear'    — solo a quien NO tiene validacion todavia
+        //   'reenviar' — solo a quien YA tiene una creada
+        //   'ambos'    — las dos, que es como se comportaba antes
+        const { tipo, confirmar = false, recipients = null, modo = 'ambos' } = req.body || {};
 
         if (!docId) return res.status(400).json({ success: false, message: 'Documento no valido' });
         if (!['validacion', 'firma'].includes(tipo)) {
@@ -3738,6 +3742,15 @@ app.post('/api/documentos/:docId/recordatorios', requireAuth, async (req, res) =
         // El firmante definitivo no entra en los reenvios masivos: su correo
         // sale solo cuando todos los demas han firmado.
         candidatos = candidatos.filter(p => !p.es_firmante_definitivo);
+
+        // Crear una validacion nueva y reenviar la que ya existe son dos cosas
+        // distintas: la nueva llega con otro codigo y otra fecha de
+        // vencimiento. El boton dice cual de las dos va a hacer, y aqui se
+        // filtra para que haga exactamente eso.
+        if (tipo === 'validacion' && modo !== 'ambos') {
+            candidatos = candidatos.filter(p =>
+                modo === 'crear' ? !p.tiene_validacion : !!p.tiene_validacion);
+        }
 
         if (Array.isArray(recipients) && recipients.length) {
             const pedidos = new Set(recipients.map(Number));

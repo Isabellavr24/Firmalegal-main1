@@ -126,6 +126,12 @@ async function estadoDocumento(db, documentId, userId) {
         if (f.status === 'completed') {
             firmados.push({ ...persona, firmado_el: f.completed_at });
         } else if (!f.vi_validated_at) {
+            // Quien no ha validado se divide en dos, porque son dos acciones
+            // distintas: a quien no tiene validacion hay que CREARSELA; a quien
+            // ya tiene una, solo REENVIARLE el correo. Una validacion nueva
+            // llega con otro codigo y otra fecha de vencimiento, asi que
+            // crearle una segunda a quien ya tiene seria un error.
+            persona.tiene_validacion = !!f.validacion_codigo;
             sinValidar.push(persona);
         } else {
             // Valido pero no ha firmado: a estos les toca el enlace de firma
@@ -141,6 +147,13 @@ async function estadoDocumento(db, documentId, userId) {
             firmados: firmados.length,
             // Cuantos se pueden reenviar AHORA, que es lo que se va a mandar
             validaciones_enviables: sinValidar.filter(p => p.puede_reenviarse).length,
+            // Y separados, para los dos botones: crear las que no existen no
+            // es lo mismo que reenviar las que si.
+            validaciones_por_crear: sinValidar.filter(p => p.puede_reenviarse && !p.tiene_validacion).length,
+            validaciones_por_reenviar: sinValidar.filter(p => p.puede_reenviarse && p.tiene_validacion).length,
+            // El total de cada grupo, se puedan enviar hoy o no
+            sin_validacion_creada: sinValidar.filter(p => !p.tiene_validacion).length,
+            con_validacion_creada: sinValidar.filter(p => p.tiene_validacion).length,
             firmas_enviables: sinFirmar.filter(p => p.puede_reenviarse).length,
             // Los que estan en espera por el limite de dias
             en_espera: [...sinValidar, ...sinFirmar].filter(p => !p.puede_reenviarse).length
