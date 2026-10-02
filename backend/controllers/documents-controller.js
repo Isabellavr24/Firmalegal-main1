@@ -16,6 +16,7 @@ const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js'); // Para extracción 
 const mailer = require('../lib/email/mailer'); // 📧 NUEVO: Para envío de emails
 const crypto = require('crypto'); // 🔐 Para generar tokens
 const { PDFDocument } = require('pdf-lib'); // Para merge de trazas VI
+const _estadoValidacion = require('../lib/estado-validacion');
 
 // Copia de un VI trace solo las páginas cuyo tamaño difiere del contrato base,
 // descartando las copias del contrato que los VI traces incrustan.
@@ -2476,6 +2477,21 @@ router.get('/:id/recipients', requireAuth, async (req, res) => {
         });
 
         console.log(`✅ [DOCUMENTS] ${recipients.length} destinatario(s) encontrado(s)`);
+
+        // Lo que se sabe de la validacion de cada uno: los datos de su CSV,
+        // el estado de su validacion y cuantas veces la ha intentado.
+        //
+        // Esto es lo que convierte la pantalla en algo util cuando un padre
+        // escribe diciendo que no le funciona: hoy hay que entrar al servidor
+        // a consultarlo a mano.
+        //
+        // Si falla, los destinatarios se devuelven igual: la lista tiene que
+        // seguir saliendo aunque VI no responda.
+        try {
+            await _estadoValidacion.conEstadoDeValidacion(db, recipients);
+        } catch (e) {
+            console.warn('[DOCUMENTS] No se pudo completar el estado de validacion: ' + e.message);
+        }
 
         // Verificar si el pagaré ya fue sellado (sin firmante definitivo)
         const [pagareMetaRows] = await new Promise((resolve, reject) => {
