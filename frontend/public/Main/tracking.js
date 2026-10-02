@@ -873,6 +873,200 @@ function showEtituloMasivoModal(docId, groupIds, triggerBtn) {
     });
   });
 }
+// =====================================================================
+// VALIDACION DE IDENTIDAD DESDE EL PAGARE
+// =====================================================================
+//
+// Lo que se ve al lado de cada persona: con que datos se va a crear su
+// validacion, en que estado esta y cuantas veces la ha intentado.
+//
+// POR QUE: mandar una validacion era una caja negra. Se enviaba y despues no
+// habia forma de saber desde la pantalla si llego, si la abrieron, si lo
+// intentaron ni por que fallo. Para responderle a un padre que escribia
+// diciendo que no le funcionaba, habia que entrar al servidor a consultarlo.
+//
+// Los INTENTOS son el dato que faltaba: distinguen a quien no le llego el
+// correo de quien lo abrio y no consigue completarlo. Son dos problemas
+// distintos y se arreglan de forma distinta.
+//
+// SOLO PAGARES: los datos salen del CSV, y el CSV solo existe en pagares.
+
+// Los datos detectados del CSV, a la derecha del renglon.
+//
+// El NOMBRE se muestra a proposito: es contra lo que la biometria va a comparar
+// la cedula. Si esta mal escrito la validacion falla, y es mejor verlo antes de
+// enviar que despues.
+function datosDetectados(d) {
+  const csv = d.datos_csv;
+  if (!csv) return '';
+
+  const linea = (etiqueta, valor, falta) =>
+    `<div style="font-size:11px;color:${falta ? '#b91c1c' : '#6b7280'};line-height:1.7;">
+       ${etiqueta}: ${falta ? '<strong>falta</strong>' : escHtml(valor)}
+     </div>`;
+
+  // Cuando no se pudo emparejar, el motivo se dice tal cual: esta escrito
+  // para leerlo, no para depurarlo.
+  if (csv.motivo && !csv.documento) {
+    return `<div style="min-width:190px;max-width:230px;">
+       <div style="font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">Informacion detectada</div>
+       <div style="font-size:11px;color:#b91c1c;line-height:1.6;">${escHtml(csv.motivo)}</div>
+     </div>`;
+  }
+
+  return `<div style="min-width:190px;max-width:230px;">
+      <div style="font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">Informacion detectada</div>
+      ${linea('Cedula', csv.documento, !csv.documento)}
+      ${linea('Nombre', csv.nombre || d.name, !csv.nombre && !d.name)}
+      ${linea('Celular', csv.celular, !csv.celular)}
+    </div>`;
+}
+
+// El estado de su validacion, en una linea. Es lo que convierte la pantalla en
+// algo util cuando alguien pregunta "y a esta señora que le pasa".
+function estadoValidacion(d) {
+  const v = d.validacion;
+  if (!v) return '';
+
+  if (v.vi_sin_respuesta) {
+    return `<div style="font-size:11px;color:#9ca3af;margin-top:2px;">No se pudo consultar el estado</div>`;
+  }
+  if (v.no_encontrada) {
+    return `<div style="font-size:11px;color:#b91c1c;margin-top:2px;">La validacion ya no existe</div>`;
+  }
+
+  const partes = [];
+
+  // Los intentos: cero intentos y varios intentos son problemas distintos.
+  if (v.intentos != null) {
+    partes.push(v.intentos === 0
+      ? '<span style="color:#92400e;">No la ha intentado</span>'
+      : 'Intentos detectados: <strong>' + v.intentos + '</strong>');
+  }
+
+  // La vigencia. Una caducada no se reenvia: hay que crearla de nuevo.
+  if (v.caducada) {
+    partes.push('<span style="color:#b91c1c;">Caducada</span>');
+  } else if (v.dias_restantes != null && v.dias_restantes <= 3) {
+    partes.push('<span style="color:#92400e;">Vence en ' + v.dias_restantes + ' dia(s)</span>');
+  }
+
+  if (!partes.length) return '';
+  return `<div style="font-size:11px;color:#6b7280;margin-top:2px;">${partes.join(' &middot; ')}</div>`;
+}
+
+// El boton, segun lo que de verdad va a pasar al pulsarlo.
+//
+// Son dos acciones distintas y se llaman distinto: CREAR una validacion que no
+// existe no es lo mismo que REENVIAR una que ya existe. Una validacion nueva
+// llega con otro codigo y otra fecha de vencimiento.
+function botonValidacion(d) {
+  const csv = d.datos_csv;
+  const v = d.validacion;
+  const falta = (csv && csv.falta) || [];
+  const puede = csv && !falta.length;
+
+  // Sin cedula no hay nada contra que comparar; sin celular no llega el OTP.
+  // En los dos casos el boton no se puede pulsar y la pantalla dice que falta.
+  const motivoBloqueo = !csv
+    ? 'No se encontraron sus datos en el pagare'
+    : falta.length
+      ? 'Falta ' + falta.join(' y ') + ' en el pagare'
+      : null;
+
+  const esReenvio = !!v && !v.no_encontrada;
+  const texto = esReenvio ? 'REENVIAR VALIDACION' : 'INICIAR VALIDACION';
+  const accion = esReenvio ? 'reenviar' : 'iniciar';
+
+  const btn = `
+    <button class="vi-un-clic-btn recipient-btn"
+      data-accion="${accion}" data-id="${d.id}"
+      ${puede ? '' : 'disabled'}
+      style="padding:13px 20px;border:none;border-radius:8px;font-size:13px;
+             font-weight:700;letter-spacing:.5px;width:100%;text-align:center;
+             background:${puede ? '#2a0d31' : '#e5e0e8'};
+             color:${puede ? '#fff' : '#a39aaa'};
+             cursor:${puede ? 'pointer' : 'not-allowed'};">
+      ${texto}
+    </button>`;
+
+  // Debajo del boton: el motivo si no se puede, los intentos si ya se envio, y
+  // siempre la via para corregir lo que este mal.
+  const debajo = motivoBloqueo
+    ? `<div style="font-size:11px;color:#b91c1c;text-align:center;line-height:1.5;">${escHtml(motivoBloqueo)}</div>`
+    : estadoValidacion(d);
+
+  return `
+    <div class="recipient-actions" style="flex-direction:column;align-items:center;gap:7px;min-width:210px;">
+      ${btn}
+      ${debajo}
+      <button class="vi-corregir-btn" data-id="${d.id}"
+        style="background:none;border:none;color:#8b7d93;font-size:11px;
+               cursor:pointer;padding:0;text-decoration:underline;">
+        Corregir informacion
+      </button>
+    </div>`;
+}
+
+function escHtml(t) {
+  return String(t == null ? '' : t).replace(/[&<>"']/g,
+    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Enviar o reenviar la validacion, sin salir de la pantalla.
+//
+// Antes habia que ir al panel de Validacion de Identidad, escribir los datos a
+// mano y volver. Ahora se toman del CSV, que es de donde salen de todos modos.
+async function validacionUnClic(recipientId, accion, boton) {
+  const original = boton ? boton.textContent.trim() : '';
+  if (boton) { boton.disabled = true; boton.textContent = 'Enviando...'; }
+
+  try {
+    const res = await fetch('/api/validaciones/un-clic', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ recipient_id: recipientId, accion })
+    }).then(r => r.json());
+
+    if (res.success) {
+      avisar('success', res.message ||
+        (accion === 'iniciar' ? 'Validacion enviada' : 'Validacion reenviada'));
+      // Recargar para que el renglon pase a "REENVIAR" y aparezcan los intentos
+      const docId = new URLSearchParams(window.location.search).get('id');
+      if (docId) loadRecipients(docId);
+      return;
+    }
+
+    if (res.en_espera) {
+      // La cuenta atras en el propio boton, en vez de un error seco
+      if (boton && res.faltan_segundos) {
+        let faltan = res.faltan_segundos;
+        const tic = setInterval(() => {
+          faltan--;
+          if (faltan <= 0) {
+            clearInterval(tic);
+            boton.disabled = false;
+            boton.textContent = original;
+          } else {
+            const m = Math.floor(faltan / 60), s = faltan % 60;
+            boton.textContent = m ? `Espera ${m}:${String(s).padStart(2, '0')}`
+                                  : `Espera ${s}s`;
+          }
+        }, 1000);
+      }
+      avisar('warning', res.message);
+      return;   // el boton lo lleva la cuenta atras
+    }
+
+    avisar('error', res.message || 'No se pudo enviar la validacion');
+  } catch (e) {
+    avisar('error', 'Error de conexion al enviar la validacion');
+  }
+
+  if (boton) { boton.disabled = false; boton.textContent = original; }
+}
+
 
 
 function createRecipientCard(recipient) {
@@ -931,15 +1125,25 @@ function createRecipientCard(recipient) {
           : viValidatedBadge;
 
   // Botones a la derecha: VI cuando no verificado, normales cuando sí
+  // En PAGARES el renglon lleva los datos del CSV y el boton de un clic: se
+  // sabe con que cedula y celular se va a crear la validacion, y cuantas
+  // veces la ha intentado esa persona.
+  //
+  // En documentos normales no hay CSV de donde sacar esos datos, asi que se
+  // deja el boton de siempre, que lleva al panel de Validacion de Identidad.
+  const esPagare = !!recipient.viewer_group_id;
+
   const actionsHtml = showViBlock
-    ? `<div class="recipient-actions" style="flex-direction:column;align-items:center;gap:8px;min-width:220px;">
+    ? (esPagare
+      ? botonValidacion(recipient)
+      : `<div class="recipient-actions" style="flex-direction:column;align-items:center;gap:8px;min-width:220px;">
          <button class="vi-start-btn recipient-btn" style="padding:13px 20px;background:#2a0d31;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:0.5px;width:100%;text-align:center;">
            INICIAR VALIDACIÓN DE IDENTIDAD
          </button>
          <button class="vi-skip-btn" style="background:none;border:none;color:#888;font-size:12px;cursor:pointer;padding:0;text-decoration:underline;width:100%;text-align:center;">
            omitir validación de identidad
          </button>
-       </div>`
+       </div>`)
     : pagareViSinOtp
       ? `<div class="recipient-actions" style="flex-direction:column;align-items:center;gap:8px;min-width:200px;">
            <button class="otp-registrar-btn recipient-btn" data-email="${recipient.email}"
@@ -983,6 +1187,10 @@ function createRecipientCard(recipient) {
          </div>
        </div>`;
 
+  // Los datos que el sistema detecto del CSV, entre la informacion y los
+  // botones. Solo cuando hay algo que decidir: si ya valido, sobran.
+  const detectadosHtml = (esPagare && showViBlock) ? datosDetectados(recipient) : '';
+
   card.innerHTML = `
     <div class="recipient-info" style="flex:1;">
       ${badgeHtml}
@@ -992,8 +1200,22 @@ function createRecipientCard(recipient) {
         ${viInfoText}
       </div>
     </div>
+    ${detectadosHtml}
     ${actionsHtml}
   `;
+
+  // El boton de un clic: enviar o reenviar sin salir de la pantalla
+  const unClicBtn = card.querySelector('.vi-un-clic-btn');
+  if (unClicBtn && !unClicBtn.disabled) {
+    unClicBtn.addEventListener('click', () =>
+      validacionUnClic(recipient.id, unClicBtn.dataset.accion, unClicBtn));
+  }
+
+  // "Corregir informacion" hace lo que hacia el boton viejo: lleva al panel
+  // de Validacion de Identidad con los datos puestos, para arreglar lo que
+  // este mal antes de enviar.
+  const corregirBtn = card.querySelector('.vi-corregir-btn');
+  if (corregirBtn) corregirBtn.addEventListener('click', () => handleViStart(recipient));
 
   // Event listeners para botones de VI
   const startBtn = card.querySelector('.vi-start-btn');

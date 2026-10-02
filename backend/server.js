@@ -3875,6 +3875,114 @@ app.post('/api/recordatorios/individual', requireAuth, async (req, res) => {
     }
 });
 
+// POST /api/validaciones/un-clic — crear o reenviar la validacion de UNA persona.
+//
+// body: { recipient_id, accion: 'iniciar'|'reenviar' }
+//
+// Antes esto obligaba a salir de la pantalla: ir al panel de Validacion de
+// Identidad, escribir a mano la cedula, el nombre y el celular, y volver. Los
+// datos ya los tenemos -vienen del CSV del pagare- asi que se toman de ahi.
+//
+// SON DOS ACCIONES DISTINTAS y se piden por separado a proposito:
+//
+//   iniciar  — la persona no tiene validacion. Se le CREA una nueva.
+//   reenviar — ya tiene una. Se le vuelve a mandar el correo de la que existe.
+//
+// No es lo mismo: una validacion nueva llega con otro codigo y otra fecha de
+// vencimiento. Si el cliente pide "iniciar" para alguien que ya tiene una, se
+// le dice, en vez de crearle una segunda por descuido.
+app.post('/api/validaciones/un-clic', requireAuth, async (req, res) => {
+    try {
+        const { recipient_id, accion } = req.body || {};
+        const recipientId = parseInt(recipient_id, 10);
+
+        if (!recipientId) {
+            return res.status(400).json({ success: false, message: 'Destinatario no valido' });
+        }
+        if (!['iniciar', 'reenviar'].includes(accion)) {
+            return res.status(400).json({ success: false, message: 'La accion debe ser iniciar o reenviar' });
+        }
+
+        const [filas] = await db.promise().query(
+            `SELECT dr.recipient_id, dr.email, dr.name, dr.status, dr.vi_validated_at,
+                    dr.document_id, dr.viewer_group_id, d.title
+             FROM document_recipients dr
+             JOIN documents d ON d.document_id = dr.document_id
+             WHERE dr.recipient_id = ?`,
+            [recipientId]
+        );
+        if (!filas.length) {
+            return res.status(404).json({ success: false, message: 'Destinatario no encontrado' });
+        }
+        const p = filas[0];
+
+        if (p.vi_validated_at) {
+            return res.json({ success: false,
+                message: 'Esta persona ya valido su identidad. No hace falta enviarle otra.' });
+        }
+
+        // Que ya tiene una validacion creada, para comprobar que la accion
+        // pedida es la correcta.
+        const [ya] = await db.promise().query(
+            `SELECT validacion_codigo FROM vi_verified_emails
+             WHERE LOWER(email) COLLATE utf8mb4_unicode_ci = LOWER(?) COLLATE utf8mb4_unicode_ci
+               AND validacion_codigo IS NOT NULL LIMIT 1`,
+            [p.email]
+        );
+        const tieneValidacion = ya.length > 0;
+
+        if (accion === 'iniciar' && tieneValidacion) {
+            return res.json({ success: false,
+                message: 'Ya tiene una validacion creada. Usa "Reenviar validacion" para volver a mandarle el correo.' });
+        }
+        if (accion === 'reenviar' && !tieneValidacion) {
+            return res.json({ success: false,
+                message: 'Todavia no tiene ninguna validacion. Usa "Iniciar validacion" para crearsela.' });
+        }
+
+        // La misma espera que crece del reenvio individual: si un padre llama
+        // diciendo que no le llego hay que poder mandarselo ahora, pero que no
+        // salgan cinco correos seguidos a base de clics.
+        const espera = await _recordatorios.esperaIndividual(db, recipientId, req.userId);
+        if (!espera.puede) {
+            const m = Math.ceil(espera.faltan_segundos / 60);
+            return res.json({
+                success: false, en_espera: true, faltan_segundos: espera.faltan_segundos,
+                message: m <= 1
+                    ? 'Se acaba de enviar. Espera un minuto antes de volver a intentarlo.'
+                    : `Se envio hace poco. Espera ${m} minutos antes de volver a intentarlo.`
+            });
+        }
+
+        const persona = {
+            recipient_id: p.recipient_id, email: p.email,
+            nombre: p.name || p.email, es_firmante_definitivo: false
+        };
+
+        // `enviarRecordatorios` con tipo 'validacion' llama a crearValidacionVI,
+        // que ya saca la cedula y el celular del pagare y BLOQUEA si faltan. No
+        // se duplica esa comprobacion aqui: una sola fuente.
+        const r = await enviarRecordatorios([persona], 'validacion', p.document_id, p.title, req);
+
+        if (r.enviados) {
+            return res.json({ success: true,
+                message: accion === 'iniciar'
+                    ? `Validacion creada y enviada a ${p.email}`
+                    : `Validacion reenviada a ${p.email}` });
+        }
+
+        // El motivo real viene de crearValidacionVI: "el pagare no trae su
+        // cedula", "sin celular no recibira el OTP"... Se devuelve tal cual
+        // porque esta escrito para que lo lea un operador.
+        res.json({ success: false,
+            message: r.errores?.[0]?.motivo || 'No se pudo enviar la validacion' });
+
+    } catch (e) {
+        console.error('[VALIDACION-UN-CLIC] Error:', e.message);
+        res.status(500).json({ success: false, message: 'No se pudo enviar la validacion' });
+    }
+});
+
 // GET /api/registros/filtros — lo que se ofrece en los desplegables.
 app.get('/api/registros/filtros', requireAuth, async (req, res) => {
     try {
