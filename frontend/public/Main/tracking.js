@@ -900,10 +900,32 @@ function datosDetectados(d) {
   const csv = d.datos_csv;
   if (!csv) return '';
 
-  const linea = (etiqueta, valor, falta) =>
-    `<div style="font-size:11px;color:${falta ? '#b91c1c' : '#6b7280'};line-height:1.7;">
+  const v = d.validacion;
+
+  // Con que datos se creo DE VERDAD la validacion en VI. Si no coinciden con
+  // los del pagare, la validacion esta a nombre de otra persona y el firmante
+  // no va a poder completarla: la biometria comparara su cara con una cedula
+  // que no es la suya.
+  //
+  // Ya paso: una validacion quedo con la cedula del operador en vez de la del
+  // firmante, y la pantalla no lo decia.
+  const enVI = (campo) => {
+    if (!v || v.vi_sin_respuesta || v.no_encontrada) return null;
+    return v[campo] || null;
+  };
+
+  const normaliza = (t) => String(t == null ? '' : t)
+    .replace(/[.s+-]/g, '').toUpperCase();
+
+  // La linea: el dato del CSV y, si VI tiene otro, el aviso debajo.
+  const linea = (etiqueta, valor, falta, campoVI) => {
+    const suyo = campoVI ? enVI(campoVI) : null;
+    const difiere = suyo && valor && normaliza(suyo) !== normaliza(valor);
+    return `<div style="font-size:11px;color:${falta ? '#b91c1c' : '#6b7280'};line-height:1.7;">
        ${etiqueta}: ${falta ? '<strong>falta</strong>' : escHtml(valor)}
+       ${difiere ? `<div style="color:#b91c1c;font-weight:600;">En VI: ${escHtml(suyo)}</div>` : ''}
      </div>`;
+  };
 
   // Cuando no se pudo emparejar, el motivo se dice tal cual: esta escrito
   // para leerlo, no para depurarlo.
@@ -916,8 +938,8 @@ function datosDetectados(d) {
 
   return `<div style="min-width:190px;max-width:230px;">
       <div style="font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">Informacion detectada</div>
-      ${linea('Cedula', csv.documento, !csv.documento)}
-      ${linea('Nombre', csv.nombre || d.name, !csv.nombre && !d.name)}
+      ${linea('Cedula', csv.documento, !csv.documento, 'documento')}
+      ${linea('Nombre', csv.nombre || d.name, !csv.nombre && !d.name, 'nombre')}
       ${linea('Celular', csv.celular, !csv.celular)}
     </div>`;
 }
@@ -933,6 +955,18 @@ function estadoValidacion(d) {
   }
   if (v.no_encontrada) {
     return `<div style="font-size:11px;color:#b91c1c;margin-top:2px;text-align:center;">La validacion ya no existe</div>`;
+  }
+
+  // Si la validacion se creo con una cedula distinta a la del pagare, esa
+  // persona NO va a poder completarla: la biometria va a comparar su cara
+  // con el documento de otro. Hay que rehacerla, no reenviarla.
+  const csv = d.datos_csv;
+  const limpia = (t) => String(t == null ? '' : t).replace(/[.s+-]/g, '');
+  if (csv && csv.documento && v.documento &&
+      limpia(csv.documento) !== limpia(v.documento)) {
+    return '<div style="font-size:11px;color:#b91c1c;margin-top:2px;' +
+           'text-align:center;line-height:1.5;font-weight:600;">' +
+           'Creada con otra cedula: hay que rehacerla</div>';
   }
 
   const partes = [];
