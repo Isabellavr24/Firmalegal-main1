@@ -2201,8 +2201,15 @@ router.post('/:id/send', requireAuth, async (req, res) => {
             }
 
             // Preparar email
-            const signatureUrl = `${req.protocol}://${req.get('host')}/public-sign.html?token=${token}`;
-            const appUrl = `${req.protocol}://${req.get('host')}`;
+            // La URL del enlace NO se arma con req.get('host'): esa cabecera la
+            // pone quien hace la peticion, asi que un Host interno -o uno
+            // falseado- acaba metido en el correo del firmante. Ya paso: a una
+            // firmante le llego un enlace a firmalegal-app:3000, el nombre del
+            // contenedor, que desde su movil no resuelve.
+            //
+            // APP_URL es la unica fuente fiable del dominio publico.
+            const appUrl = process.env.APP_URL || 'https://firmalegalonline.com';
+            const signatureUrl = `${appUrl}/public-sign.html?token=${token}`;
 
             const senderName = document.sender_name || `${document.first_name} ${document.last_name}`;
             const fromEmail = document.sender_email || document.owner_email;

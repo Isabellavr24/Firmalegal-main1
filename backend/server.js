@@ -2952,8 +2952,15 @@ app.post('/api/integration/vi-skip', async (req, res) => {
         const signatureRequestTemplate = require('./lib/email/templates/signature-request-bulk');
         sendgrid.configureSendGrid(r.sendgrid_api_key);
 
-        const signatureUrl = `${req.protocol}://${req.get('host')}/public-sign.html?token=${r.token}`;
-        const appUrl = `${req.protocol}://${req.get('host')}`;
+        // La URL del enlace NO se arma con req.get('host'): esa cabecera la
+        // pone quien hace la peticion, asi que un Host interno -o uno
+        // falseado- acaba metido en el correo del firmante. Ya paso: a una
+        // firmante le llego un enlace a firmalegal-app:3000, el nombre del
+        // contenedor, que desde su movil no resuelve.
+        //
+        // APP_URL es la unica fuente fiable del dominio publico.
+        const appUrl = process.env.APP_URL || 'https://firmalegalonline.com';
+        const signatureUrl = `${appUrl}/public-sign.html?token=${r.token}`;
         const senderName = r.sender_name || `${r.first_name} ${r.last_name}`;
         const fromEmail = r.sender_email || r.owner_email;
 
