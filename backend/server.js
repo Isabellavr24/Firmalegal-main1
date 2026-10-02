@@ -2890,6 +2890,13 @@ app.post('/api/integration/vi-iniciar', async (req, res) => {
         if (viResp.status === 409) {
             return res.json({ success: false, needsVinculacion: true, message: viResp.body.message });
         }
+        // OJO: VI no devuelve ningun campo `success` en esta ruta -su respuesta
+        // es { validacion_url, codigo }- asi que esta comprobacion siempre da
+        // error aunque la validacion se haya creado bien.
+        //
+        // No se ha corregido porque NADIE llama a esta ruta: se busco en todo el
+        // repositorio. El boton de la pantalla abre el panel de VI por su cuenta
+        // con window.open. Si algun dia se usa, hay que arreglar esto antes.
         if (!viResp.body.success) {
             return res.status(400).json({ success: false, message: viResp.body.message || 'Error al iniciar validación' });
         }
