@@ -24,6 +24,7 @@ validatePaths();
 const foldersController = require('./controllers/folders-controller');
 const documentsController = require('./controllers/documents-controller');
 const _datosFirmante = require('./lib/datos-del-firmante');
+const _estadoValidacion = require('./lib/estado-validacion');
 const signaturesController = require('./controllers/signatures-controller');
 const certificatesController = require('./controllers/certificates-controller');
 const { requestLogger } = require('./middleware/auth');
@@ -4031,13 +4032,35 @@ app.post('/api/validaciones/un-clic', requireAuth, async (req, res) => {
 
         // Que ya tiene una validacion creada, para comprobar que la accion
         // pedida es la correcta.
-        const [ya] = await db.promise().query(
-            `SELECT validacion_codigo FROM vi_verified_emails
-             WHERE LOWER(email) COLLATE utf8mb4_unicode_ci = LOWER(?) COLLATE utf8mb4_unicode_ci
-               AND validacion_codigo IS NOT NULL LIMIT 1`,
-            [p.email]
-        );
-        const tieneValidacion = ya.length > 0;
+        //
+        // SE LE PREGUNTA A VI, no a nuestras tablas: el operador puede crear la
+        // validacion desde el panel de VI, y entonces nosotros no tenemos su
+        // codigo. Mirando solo nuestras tablas se decia 'todavia no tiene
+        // ninguna validacion' a alguien que si la tenia, y no dejaba reenviar.
+        //
+        // Es la misma fuente que usa la pantalla, asi que el boton y el
+        // servidor no pueden contradecirse.
+        let tieneValidacion = false;
+        try {
+            const consulta = [{ email: p.email }];
+            await _estadoValidacion.soloValidaciones(consulta);
+            tieneValidacion = !!(consulta[0].validacion && consulta[0].validacion.codigo);
+        } catch (e) {
+            // Si VI no responde, se mira lo que haya en nuestras tablas antes
+            // de bloquear a nadie.
+            console.warn(`[VALIDACION-UN-CLIC] VI no respondio: ${e.message}`);
+            const [ya] = await db.promise().query(
+                `SELECT validacion_codigo FROM vi_verified_emails
+                 WHERE LOWER(email) COLLATE utf8mb4_unicode_ci = LOWER(?) COLLATE utf8mb4_unicode_ci
+                   AND validacion_codigo IS NOT NULL
+                 UNION
+                 SELECT validacion_codigo FROM vi_validaciones_pendientes
+                 WHERE LOWER(email) COLLATE utf8mb4_unicode_ci = LOWER(?) COLLATE utf8mb4_unicode_ci
+                 LIMIT 1`,
+                [p.email, p.email]
+            );
+            tieneValidacion = ya.length > 0;
+        }
 
         if (accion === 'iniciar' && tieneValidacion) {
             return res.json({ success: false,
