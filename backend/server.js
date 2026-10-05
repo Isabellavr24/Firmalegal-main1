@@ -3695,6 +3695,37 @@ function _pedirValidacionesAVI(cuerpoObj) {
 }
 
 /**
+ * La respuesta cuando no se le puede escribir todavia a esa persona.
+ *
+ * Vive aqui porque son tres los sitios que la devuelven -el enlace de firma, el
+ * reenvio de un clic y el individual- y ya habian empezado a divergir.
+ *
+ * Distingue dos casos que se arreglan distinto: esperar un rato, o esperar a
+ * que el primer envio salga de la ventana de 24 horas.
+ *
+ * @param {object} espera  lo que devuelve _recordatorios.esperaIndividual
+ */
+function _respuestaEnEspera(espera) {
+    if (espera.tope_alcanzado) {
+        const h = Math.ceil(espera.faltan_segundos / 3600);
+        return {
+            success: false, en_espera: true, tope_alcanzado: true,
+            faltan_segundos: espera.faltan_segundos,
+            message: `Ya se le enviaron ${espera.intentos} correos en las ultimas 24 ` +
+                     `horas, que es el maximo. Podras volver a intentarlo en ` +
+                     `${h} hora${h === 1 ? '' : 's'}.`
+        };
+    }
+    const m = Math.ceil(espera.faltan_segundos / 60);
+    return {
+        success: false, en_espera: true, faltan_segundos: espera.faltan_segundos,
+        message: m <= 1
+            ? 'Se acaba de enviar. Espera un minuto antes de volver a intentarlo.'
+            : `Se envio hace poco. Espera ${m} minutos antes de volver a intentarlo.`
+    };
+}
+
+/**
  * Corrige los datos de una validacion que YA EXISTE, sin crear otra.
  *
  * Es la ruta PATCH que VI anadio el 05-10-2026. Antes corregir obligaba a
@@ -4013,6 +4044,13 @@ async function crearValidacionVI(persona, docId, docTitle, req) {
                  ON DUPLICATE KEY UPDATE
                    validacion_codigo = VALUES(validacion_codigo),
                    recipient_id = VALUES(recipient_id),
+                   -- EL DOCUMENTO TAMBIEN. La clave unica es el correo, asi
+                   -- que al crearle una validacion desde otro pagare esta
+                   -- fila se reutiliza; sin esto se quedaba apuntando al
+                   -- pagare viejo y la pantalla decia 'su validacion es de
+                   -- otro pagare' sobre el pagare donde se acababa de crear.
+                   document_id = VALUES(document_id),
+                   owner_user_id = VALUES(owner_user_id),
                    created_at = CURRENT_TIMESTAMP`,
                 [String(persona.email).toLowerCase(), respuesta.codigo,
                  persona.recipient_id, docId, req.userId || null]
@@ -4235,15 +4273,7 @@ app.post('/api/recordatorios/individual', requireAuth, async (req, res) => {
         }
 
         const espera = await _recordatorios.esperaIndividual(db, recipientId, req.userId);
-        if (!espera.puede) {
-            const m = Math.ceil(espera.faltan_segundos / 60);
-            return res.json({
-                success: false, en_espera: true, faltan_segundos: espera.faltan_segundos,
-                message: m <= 1
-                    ? 'Se acaba de enviar. Espera un minuto antes de volver a intentarlo.'
-                    : `Se envio hace poco. Espera ${m} minutos antes de volver a intentarlo.`
-            });
-        }
+        if (!espera.puede) return res.json(_respuestaEnEspera(espera));
 
         const persona = {
             recipient_id: p.recipient_id, email: p.email,
@@ -4402,14 +4432,7 @@ app.post('/api/validaciones/un-clic', requireAuth, async (req, res) => {
             }
 
             const espera = await _recordatorios.esperaIndividual(db, recipientId, req.userId);
-            if (!espera.puede) {
-                const m = Math.ceil(espera.faltan_segundos / 60);
-                return res.json({ success: false, en_espera: true,
-                    faltan_segundos: espera.faltan_segundos,
-                    message: m <= 1
-                        ? 'Se acaba de enviar. Espera un minuto antes de volver a intentarlo.'
-                        : `Se envio hace poco. Espera ${m} minutos antes de volver a intentarlo.` });
-            }
+            if (!espera.puede) return res.json(_respuestaEnEspera(espera));
 
             const r = await enviarRecordatorios([{
                 recipient_id: p.recipient_id, email: p.email,
@@ -4489,15 +4512,7 @@ app.post('/api/validaciones/un-clic', requireAuth, async (req, res) => {
         // diciendo que no le llego hay que poder mandarselo ahora, pero que no
         // salgan cinco correos seguidos a base de clics.
         const espera = await _recordatorios.esperaIndividual(db, recipientId, req.userId);
-        if (!espera.puede) {
-            const m = Math.ceil(espera.faltan_segundos / 60);
-            return res.json({
-                success: false, en_espera: true, faltan_segundos: espera.faltan_segundos,
-                message: m <= 1
-                    ? 'Se acaba de enviar. Espera un minuto antes de volver a intentarlo.'
-                    : `Se envio hace poco. Espera ${m} minutos antes de volver a intentarlo.`
-            });
-        }
+        if (!espera.puede) return res.json(_respuestaEnEspera(espera));
 
         const persona = {
             recipient_id: p.recipient_id, email: p.email,

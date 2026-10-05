@@ -146,14 +146,22 @@ async function conEstadoDeValidacion(db, destinatarios) {
                                 // consulta volveriamos a preferir la anulada.
                                 // Sin esto el operador ve la pantalla mal cada
                                 // vez que corrige algo.
+                                // El documento va con el codigo: si no, la
+                                // fila se queda apuntando al pagare viejo y
+                                // la pantalla dice 'es de otro pagare' sobre
+                                // el pagare en el que se esta mirando.
                                 db.promise().query(
                                     `INSERT INTO vi_validaciones_pendientes
-                                       (email, validacion_codigo)
-                                     VALUES (?, ?)
+                                       (email, validacion_codigo, document_id)
+                                     VALUES (?, ?, ?)
                                      ON DUPLICATE KEY UPDATE
                                        validacion_codigo = VALUES(validacion_codigo),
+                                       document_id = VALUES(document_id),
                                        created_at = CURRENT_TIMESTAMP`,
-                                    [correo, deVI.codigo]
+                                    [correo, deVI.codigo,
+                                     (destinatarios.find(x =>
+                                        String(x.email || '').toLowerCase() === correo
+                                      ) || {}).document_id || null]
                                 ).catch(e => console.warn(
                                     `[VALIDACION] No se pudo apuntar la validacion nueva de ${correo}: ${e.message}`));
                                 continue;

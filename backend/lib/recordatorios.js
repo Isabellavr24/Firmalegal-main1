@@ -36,6 +36,16 @@ const VENTANA_HORAS = 24;
 // minuto, luego 10, 30 y 60. A partir del quinto se queda en una hora.
 const ESPERA_INDIVIDUAL_MIN = [0, 1, 10, 30, 60];
 
+// El tope del reenvio individual en 24 horas.
+//
+// La escalera sola no bastaba: pasados 60 minutos se podia reenviar otra vez,
+// y otra, sin fin. Una persona llego a tener seis correos de validacion.
+//
+// Seis deja sitio de sobra para atender a un padre que llama varias veces en
+// un dia, y corta el goteo. Es mas que los 2 del masivo a proposito: el
+// individual es una respuesta a alguien que pide ayuda, no una campana.
+const MAX_INDIVIDUAL_DIA = 6;
+
 /**
  * El estado de un documento: quien falta por validar, quien por firmar, y a
  * quien se le puede escribir ahora mismo.
@@ -276,17 +286,21 @@ async function sePuedeEnviar(db, recipientId, userId) {
 }
 
 /**
- * El reenvio INDIVIDUAL: siempre se puede, pero con una espera que crece.
+ * El reenvio INDIVIDUAL: una espera que crece, y un tope al dia.
  *
- * No lleva limite de dias a proposito. Si un padre llama diciendo que no le
- * llego el correo, el operador tiene que poder reenviarselo en ese momento,
- * aunque se lo haya mandado ayer. Lo que se evita es el multiclick: que a
- * fuerza de pulsar el boton salgan cinco correos seguidos a la misma persona.
+ * Es mas permisivo que el masivo a proposito. Si un padre llama diciendo que
+ * no le llego el correo, el operador tiene que poder reenviarselo en ese
+ * momento, aunque se lo haya mandado ayer.
  *
- * La escalera es la misma idea que el codigo OTP: inmediato, 1 min, 10, 30, 60.
+ * Pero no infinito. La escalera sola -1 min, 10, 30, 60- solo frena el
+ * multiclick: pasada la ultima espera se podia reenviar indefinidamente, y una
+ * persona acabo con seis correos de validacion. Ahora hay un tope de
+ * MAX_INDIVIDUAL_DIA en 24 horas.
+ *
  * Se cuentan los reenvios de las ultimas 24 horas de ESE usuario a ESA persona.
  *
- * @returns {Promise<{puede:boolean, faltan_segundos:number, intentos:number}>}
+ * @returns {Promise<{puede:boolean, faltan_segundos:number, intentos:number,
+ *                    tope_alcanzado?:boolean}>}
  */
 async function esperaIndividual(db, recipientId, userId) {
     try {
@@ -302,6 +316,22 @@ async function esperaIndividual(db, recipientId, userId) {
         const intentos = filas[0]?.intentos || 0;
         const ultimo = filas[0]?.ultimo;
         if (!intentos || !ultimo) return { puede: true, faltan_segundos: 0, intentos: 0 };
+
+        // El tope del dia. Lo que falta ya no es un minuto: es hasta que el
+        // primero de los envios salga de la ventana de 24 horas.
+        if (intentos >= MAX_INDIVIDUAL_DIA) {
+            const [primero] = await db.promise().query(
+                `SELECT MIN(created_at) AS primero
+                 FROM recordatorios_enviados
+                 WHERE recipient_id = ? AND user_id <=> ?
+                   AND resultado = 'enviado'
+                   AND created_at >= NOW() - INTERVAL 24 HOUR`,
+                [recipientId, userId || null]
+            );
+            const desde = primero[0]?.primero ? new Date(primero[0].primero).getTime() : Date.now();
+            const faltan = Math.max(60, Math.ceil((desde + 24 * 3600e3 - Date.now()) / 1000));
+            return { puede: false, faltan_segundos: faltan, intentos, tope_alcanzado: true };
+        }
 
         // El minuto de espera que toca segun cuantos van
         const minutos = ESPERA_INDIVIDUAL_MIN[
@@ -323,5 +353,5 @@ async function esperaIndividual(db, recipientId, userId) {
 module.exports = {
     estadoDocumento, registrar, sePuedeEnviar, esperaIndividual,
     conDatosDeValidacion,
-    ENVIOS_POR_DIA, VENTANA_HORAS, ESPERA_INDIVIDUAL_MIN
+    ENVIOS_POR_DIA, VENTANA_HORAS, ESPERA_INDIVIDUAL_MIN, MAX_INDIVIDUAL_DIA
 };
