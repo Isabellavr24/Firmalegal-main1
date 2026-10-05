@@ -428,4 +428,23 @@ async function soloValidaciones(destinatarios) {
     return destinatarios;
 }
 
-module.exports = { conEstadoDeValidacion, soloValidaciones, queFalta };
+/**
+ * Si esa validacion sirve para algo.
+ *
+ * Una anulada en VI no sirve: su enlace no lleva a ninguna parte y
+ * reenviarla no hace nada. Cuenta como no tener ninguna, y lo que hay que
+ * hacer es crear otra.
+ *
+ * Vive aqui y no en cada sitio que lo pregunta porque ya paso: cuatro
+ * lugares contestaban distinto a '¿tiene validacion?' y la pantalla se
+ * contradecia con el servidor.
+ *
+ * @param {object|null} v  la validacion, tal como la devuelve este modulo
+ * @returns {boolean}
+ */
+function estaViva(v) {
+    if (!v || !v.codigo) return false;
+    return v.estado !== 'cancelada' && v.estado !== 'anulada';
+}
+
+module.exports = { conEstadoDeValidacion, soloValidaciones, queFalta, estaViva };

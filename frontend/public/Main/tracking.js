@@ -987,6 +987,13 @@ function estadoValidacion(d) {
            'Identidad verificada</div>';
   }
 
+  // Anulada en VI. Tampoco hay mas que decir: sus intentos y su vigencia ya
+  // no significan nada, y lo unico que cabe hacer es crearle otra.
+  if (v.estado === 'cancelada' || v.estado === 'anulada') {
+    return '<div style="font-size:11px;color:#b91c1c;margin-top:2px;text-align:center;">' +
+           'Validacion cancelada en VI</div>';
+  }
+
   // Los intentos: cero intentos y varios intentos son problemas distintos.
   if (v.intentos != null) {
     partes.push(v.intentos === 0
@@ -1019,6 +1026,9 @@ function estadoValidacion(d) {
 function leyendaValidacionCompartida(d) {
   const v = d.validacion;
   if (!v || !v.de_otro_documento) return '';
+  // Una cancelada no se reenvia a ninguna parte: hay que crear otra, y eso
+  // ya lo dice el boton. La leyenda aqui solo confundiria.
+  if (v.estado === 'cancelada' || v.estado === 'anulada') return '';
 
   const origen = v.pagare_origen;
   const pendientes = Array.isArray(v.pagares_pendientes) ? v.pagares_pendientes : [];
@@ -1082,19 +1092,24 @@ function botonValidacion(d) {
       ? 'Falta ' + falta.join(' y ') + ' en el pagare'
       : null;
 
-  // Tres estados, tres botones distintos:
+  // Cuatro estados, cuatro botones distintos:
   //
   //   sin validacion       -> INICIAR VALIDACION    (se le crea una)
+  //   validacion cancelada -> CREAR VALIDACION NUEVA
   //   validacion pendiente -> REENVIAR VALIDACION   (se le vuelve a mandar)
   //   ya validada          -> ENVIAR ENLACE DE FIRMA
   //
-  // El tercero es el que faltaba: cuando alguien completa su validacion, lo
-  // que necesita es el enlace para firmar, no otra validacion.
+  // La cancelada equivale a no tener ninguna: una validacion anulada en VI
+  // ya no sirve, su enlace no lleva a ninguna parte y reenviarla no haria
+  // nada. Hay que crear otra. Se dice CREAR VALIDACION NUEVA y no INICIAR
+  // para que se vea que hubo una antes y alguien la anulo.
   const yaValido = !!v && v.estado === 'completada';
-  const esReenvio = !!v && !v.no_encontrada && !yaValido;
+  const cancelada = !!v && (v.estado === 'cancelada' || v.estado === 'anulada');
+  const esReenvio = !!v && !v.no_encontrada && !yaValido && !cancelada;
 
-  const deOtro = !!(v && v.de_otro_documento && v.estado !== 'completada');
+  const deOtro = !!(v && v.de_otro_documento && !yaValido && !cancelada);
   const texto = yaValido ? 'ENVIAR ENLACE DE FIRMA'
+    : cancelada ? 'CREAR VALIDACION NUEVA'
     : esReenvio ? (deOtro ? 'REENVIAR LA DEL OTRO PAGARE' : 'REENVIAR VALIDACION')
     : 'INICIAR VALIDACION';
   const accion = yaValido ? 'firma' : esReenvio ? 'reenviar' : 'iniciar';

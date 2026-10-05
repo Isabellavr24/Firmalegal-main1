@@ -4187,11 +4187,22 @@ app.post('/api/validaciones/un-clic', requireAuth, async (req, res) => {
         //
         // Es la misma fuente que usa la pantalla, asi que el boton y el
         // servidor no pueden contradecirse.
+        // UNA VALIDACION ANULADA NO CUENTA COMO VALIDACION.
+        //
+        // Si el operador la anula en el panel de VI, su enlace deja de
+        // llevar a ninguna parte y reenviarla no hace nada. Tenerla en
+        // cuenta impedia crear otra: el boton decia 'ya tiene una validacion
+        // creada' sobre algo que esa persona no puede usar.
         let tieneValidacion = false;
+        let estadoVI = null;
         try {
             const consulta = [{ email: p.email }];
             await _estadoValidacion.soloValidaciones(consulta);
-            tieneValidacion = !!(consulta[0].validacion && consulta[0].validacion.codigo);
+            const vv = consulta[0].validacion;
+            estadoVI = (vv && vv.estado) || null;
+            // La misma definicion que usa la pantalla, para que el boton y el
+            // servidor no puedan contradecirse.
+            tieneValidacion = _estadoValidacion.estaViva(vv);
         } catch (e) {
             // Si VI no responde, se mira lo que haya en nuestras tablas antes
             // de bloquear a nadie.
@@ -4214,8 +4225,13 @@ app.post('/api/validaciones/un-clic', requireAuth, async (req, res) => {
                 message: 'Ya tiene una validacion creada. Usa "Reenviar validacion" para volver a mandarle el correo.' });
         }
         if (accion === 'reenviar' && !tieneValidacion) {
+            // Distinguir las dos razones: 'no tiene ninguna' y 'la que tenia
+            // fue anulada' se arreglan igual, pero el operador necesita
+            // saber cual de las dos es.
             return res.json({ success: false,
-                message: 'Todavia no tiene ninguna validacion. Usa "Iniciar validacion" para crearsela.' });
+                message: (estadoVI === 'cancelada' || estadoVI === 'anulada')
+                    ? 'Su validacion fue cancelada en Validacion de Identidad. Usa "Crear validacion nueva".'
+                    : 'Todavia no tiene ninguna validacion. Usa "Iniciar validacion" para crearsela.' });
         }
 
         // La misma espera que crece del reenvio individual: si un padre llama

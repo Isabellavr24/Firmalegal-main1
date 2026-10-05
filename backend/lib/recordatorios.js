@@ -158,8 +158,11 @@ async function estadoDocumento(db, documentId, userId) {
             const comoDestinatarios = pendientes.map(p => ({ email: p.email }));
             await _estado.soloValidaciones(comoDestinatarios);
             pendientes.forEach((p, i) => {
-                const v = comoDestinatarios[i].validacion;
-                if (v && v.codigo) p.tiene_validacion = true;
+                // Una anulada no cuenta: esa persona va al boton de
+                // CREAR, no al de reenviar.
+                if (_estado.estaViva(comoDestinatarios[i].validacion)) {
+                    p.tiene_validacion = true;
+                }
             });
         }
     } catch (e) {
@@ -214,6 +217,9 @@ async function conDatosDeValidacion(personas) {
         await _estado.soloValidaciones(consulta);
 
         personas.forEach((p, i) => {
+            // La anulada SI se conserva: la pantalla tiene que poder decir
+            // que fue cancelada en vez de callarse. Lo que no hace es
+            // contar como validacion viva.
             const v = consulta[i].validacion;
             p.validacion = (v && v.codigo) ? v : null;
         });
