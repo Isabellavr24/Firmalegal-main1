@@ -941,18 +941,20 @@ function datosDetectados(d) {
      </div>`;
   }
 
-  // VI puede tener OTRA validacion del mismo correo con datos distintos.
+  // CUANTAS VALIDACIONES TIENE ESA PERSONA EN VI.
   //
-  // Pasa al corregir informacion: la correccion crea una validacion nueva en
-  // vez de editar la que habia, asi que quedan dos. La que vale es la que se
-  // envio -la nuestra-, pero si la otra tiene otra cedula hay que decirlo: si
-  // no, el operador corrige, sigue viendo los datos viejos y cree que no se
-  // guardo nada.
-  const otra = v && v.otra_validacion;
-  const avisoOtra = (otra && otra.datos_distintos)
+  // Mas de una es rastro de cuando reenviar creaba en vez de reenviar: cada
+  // pulsacion dejaba una validacion mas, con otro codigo y otro enlace. Eso ya
+  // no pasa -VI anadio la ruta de reenvio el 05-10-2026- pero las que se
+  // crearon siguen ahi, y esa persona tiene varios correos en su bandeja.
+  //
+  // Se dice para que el operador sepa que ese correo esta repetido y pueda
+  // anular las que sobran desde el panel de VI.
+  const cuantas = v && v.total_validaciones;
+  const avisoOtra = (cuantas > 1)
     ? `<div style="font-size:10.5px;color:#92400e;line-height:1.5;margin-top:5px;">
-         Tiene otra validacion en VI con la cedula ${escHtml(otra.documento || 'sin dato')}.
-         La que se le envio es esta.
+         Tiene ${cuantas} validaciones en VI. La vigente es esta;
+         las demas se pueden anular desde el panel.
        </div>`
     : '';
 

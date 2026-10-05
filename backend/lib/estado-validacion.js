@@ -218,7 +218,16 @@ async function conEstadoDeValidacion(db, destinatarios) {
                     // Otra validacion suya en VI, cuando la hay. Normalmente
                     // es el rastro de una correccion que creo una nueva en vez
                     // de editar la que habia.
-                    otra_validacion: v.otra_validacion || null
+                    otra_validacion: v.otra_validacion || null,
+                    // Cuantas validaciones tiene esa persona en VI. Lo anadio
+                    // VI el 05-10-2026; antes no habia forma de detectar los
+                    // duplicados, porque consultar devuelve una sola.
+                    //
+                    // Mas de una es rastro de los reenvios que creaban en vez
+                    // de reenviar. Ya no deberia crecer, pero las que hay
+                    // siguen ahi y conviene que se vean.
+                    total_validaciones: v.total_validaciones != null
+                        ? Number(v.total_validaciones) : null
                 };
             }
         } catch (e) {
@@ -447,6 +456,8 @@ async function soloValidaciones(destinatarios) {
             dias_restantes: dias,
             caducada: dias !== null && dias <= 0,
             intentos: v.intentos != null ? Number(v.intentos) : null,
+            total_validaciones: v.total_validaciones != null
+                ? Number(v.total_validaciones) : null,
             // De otro pagare, cuando lo sabemos. VI no devuelve el asunto,
             // asi que no se puede nombrar cual; se rellena mas abajo
             // comparando con nuestra tabla de pendientes.
