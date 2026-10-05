@@ -2862,6 +2862,30 @@ app.post('/api/integration/vi-iniciar', async (req, res) => {
     const VI_API_KEY = process.env.INTERNAL_API_KEY || '';
     const owner_firmalegal_user_id = jwtUser.userId || jwtUser.id || jwtUser.user_id;
 
+    // SI YA TIENE UNA VALIDACION VIVA, NO SE CREA OTRA.
+    //
+    // El mismo guard que en crearValidacionVI, porque esta es la OTRA via por
+    // la que se crean validaciones -la del flujo normal de documentos- y sin
+    // el seguiria duplicando por su cuenta.
+    //
+    // VI solo ofrece `iniciar-validacion`, que CREA. Sin ruta de reenvio, cada
+    // intento deja a la persona con un enlace mas y sin saber cual usar.
+    try {
+        const yaTiene = await _validacionYaExistente(signer_email);
+        if (_estadoValidacion.estaViva(yaTiene)) {
+            return res.json({ success: false, ya_tiene_validacion: true,
+                codigo: yaTiene.codigo,
+                message: 'Esa persona ya tiene una validacion activa (' + yaTiene.codigo +
+                         '). Crear otra la dejaria con dos enlaces distintos. Si hay que ' +
+                         'volver a mandarle el correo, hazlo desde el panel de Validacion ' +
+                         'de Identidad.' });
+        }
+    } catch (e) {
+        // Si no se puede comprobar, se sigue adelante: es peor dejar a alguien
+        // sin validacion que arriesgar un duplicado.
+        console.warn(`[VI-INICIAR] No se pudo comprobar si ya tiene validacion: ${e.message}`);
+    }
+
     try {
         const viUrlParsed = new URL(`${VI_URL}/validacion/api/firmalegal/iniciar-validacion`);
         const transport = viUrlParsed.protocol === 'https:' ? require('https') : require('http');
@@ -3779,6 +3803,28 @@ async function crearValidacionVI(persona, docId, docTitle, req) {
         console.warn(`[VI] No se pudo mirar su validacion anterior: ${e.message}`);
     }
 
+    // SI YA TIENE UNA VALIDACION VIVA, NO SE CREA OTRA.
+    //
+    // VI solo nos ofrece `iniciar-validacion`, que CREA. No hay ruta para
+    // reenviar. Asi que cada vez que alguien pulsaba 'Reenviar validacion' se
+    // creaba una validacion mas: el 05/10 un mismo correo acabo con tres
+    // pendientes a la vez, cada una con su codigo y su enlace.
+    //
+    // Eso deja a la persona con varios correos y varios enlaces distintos sin
+    // saber cual usar, y al operador sin saber cual es la que vale. Es
+    // preferible no mandar nada y decir por que, hasta que VI tenga la ruta de
+    // reenvio que se le ha pedido en PETICION-VI-EDITAR-VALIDACION.md.
+    if (_estadoValidacion.estaViva(deVI)) {
+        const err = new Error(
+            'Ya tiene una validacion activa (' + deVI.codigo + '). Validacion de ' +
+            'Identidad todavia no permite reenviar el correo de una validacion ' +
+            'existente, y crear otra la dejaria con dos enlaces distintos. ' +
+            'Puede reenviarselo desde el panel de VI.');
+        err.yaTieneValidacion = true;
+        err.codigoExistente = deVI.codigo;
+        throw err;
+    }
+
     const documento = (deVI && deVI.documento) || datos.documento;
     const nombre = (deVI && deVI.nombre_completo) || datos.nombre || persona.nombre;
     const tipoDoc = (deVI && deVI.tipo_documento) || 'CC';
@@ -4232,6 +4278,22 @@ app.post('/api/validaciones/un-clic', requireAuth, async (req, res) => {
                 message: (estadoVI === 'cancelada' || estadoVI === 'anulada')
                     ? 'Su validacion fue cancelada en Validacion de Identidad. Usa "Crear validacion nueva".'
                     : 'Todavia no tiene ninguna validacion. Usa "Iniciar validacion" para crearsela.' });
+        }
+
+        // REENVIAR NO EXISTE TODAVIA.
+        //
+        // VI solo ofrece `iniciar-validacion`, que CREA una validacion nueva.
+        // Hasta que exista su ruta de reenvio, pulsar aqui generaba otra
+        // validacion con otro codigo y otro enlace: el 05/10 una persona acabo
+        // con tres pendientes a la vez.
+        //
+        // Se dice donde SI se puede reenviar, en vez de duplicar en silencio.
+        if (accion === 'reenviar') {
+            return res.json({ success: false, sin_reenvio_en_vi: true,
+                message: 'Validacion de Identidad todavia no permite reenviar el correo ' +
+                         'de una validacion que ya existe. Crear otra la dejaria con dos ' +
+                         'enlaces distintos sin saber cual usar. Reenviaselo desde el panel ' +
+                         'de VI, en Informes.' });
         }
 
         // La misma espera que crece del reenvio individual: si un padre llama
