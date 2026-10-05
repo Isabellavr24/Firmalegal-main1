@@ -1007,8 +1007,13 @@ function leyendaValidacionCompartida(d) {
   const origen = v.pagare_origen;
   const pendientes = Array.isArray(v.pagares_pendientes) ? v.pagares_pendientes : [];
   const dondeSeHizo = origen
-    ? '<strong style="color:#2a0d31;">' + escHtml(origen) + '</strong>'
+    ? '<span style="color:#6b7280;">' + escHtml(origen) + '</span>'
     : 'otro pagare suyo';
+
+  // Una linea pegada abajo a la izquierda, sin recuadro, sin padding y sin
+  // borde: es una aclaracion de como funciona el sistema, no un aviso, y no
+  // tiene que pesar en el diseno del renglon.
+  const ESTILO = 'margin:2px 0 0 2px;font-size:10.5px;color:#9ca3af;line-height:1.5;';
 
   // Ya validada: no hay nada que reenviar, pero hay que decir igual que su
   // validacion se hizo en otro pagare. Si no, el operador ve 'verificado' en
@@ -1023,26 +1028,23 @@ function leyendaValidacionCompartida(d) {
     if (v.documento && csv.documento && norm(v.documento) !== norm(csv.documento)) corregidos.push('la cedula');
     if (v.nombre && csv.nombre && norm(v.nombre) !== norm(csv.nombre)) corregidos.push('el nombre');
     const correccion = corregidos.length
-      ? ' Al validarse se le corrigio ' + corregidos.join(' y ') + ', y esa correccion vale para este pagare.'
+      ? ' Se le corrigio ' + corregidos.join(' y ') + ', y vale aqui tambien.'
       : '';
-    return `
-    <div style="margin-top:8px;font-size:11px;color:#6b7280;line-height:1.6;">
-      Valido su identidad en ${dondeSeHizo}, y vale para este.${correccion}
-    </div>`;
+    return `<div style="${ESTILO}">Valido su identidad en ${dondeSeHizo}, y vale para este.${correccion}</div>`;
   }
 
-  // Una sola linea, discreta. El recuadro ambar que habia antes parecia una
-  // alarma, y esto no es un problema: es como funciona el sistema.
+  // Lo que pasa al pulsar, dicho entero: el correo de validacion sale para el
+  // pagare de origen, y los enlaces de firma llegan DESPUES, uno por pagare.
+  //
+  // `pendientes` son sus PAGARES sin firmar, este incluido. Antes decia
+  // "firmara sus N pagares", que sonaba a que iban a aparecer de la nada; lo
+  // que le llega al correo son los enlaces, y eso es lo que se nombra.
   const cuantos = pendientes.length;
-  const firmara = cuantos > 1
-    ? ` Al completarla firmara sus ${cuantos} pagares.`
-    : '';
+  const luego = cuantos > 1
+    ? ` Al completarla le llegaran los enlaces de firma de sus ${cuantos} pagares.`
+    : ' Al completarla le llegara el enlace de firma.';
 
-  return `
-    <div style="margin-top:8px;font-size:11px;color:#6b7280;line-height:1.6;">
-      Su validacion es de ${dondeSeHizo}:
-      al reenviarla le llega el correo de ese pagare.${firmara}
-    </div>`;
+  return `<div style="${ESTILO}">Su validacion es de ${dondeSeHizo}: al reenviarla le llega el correo de ese pagare.${luego}</div>`;
 }
 
 // El boton, segun lo que de verdad va a pasar al pulsarlo.
@@ -1320,7 +1322,12 @@ function createRecipientCard(recipient) {
     </div>
     ${leyendaHtml}
   `;
-  if (leyendaHtml) card.style.flexDirection = 'column';
+  // A la izquierda y pegada abajo. Sin alignItems la tarjeta la centra, que
+  // es como se veia antes: un bloque en mitad del renglon.
+  if (leyendaHtml) {
+    card.style.flexDirection = 'column';
+    card.style.alignItems = 'flex-start';
+  }
 
   // El boton de un clic: enviar o reenviar sin salir de la pantalla
   const unClicBtn = card.querySelector('.vi-un-clic-btn');

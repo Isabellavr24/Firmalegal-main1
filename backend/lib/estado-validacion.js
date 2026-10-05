@@ -144,7 +144,7 @@ async function conEstadoDeValidacion(db, destinatarios) {
             const codigos = [...new Set(conValidacion.map(d => d.validacion.codigo))];
             const marcas = codigos.map(() => '?').join(',');
             const [filas] = await db.promise().query(
-                `SELECT p.validacion_codigo, p.document_id, d.title
+                `SELECT p.validacion_codigo, p.document_id, d.title, d.created_at
                  FROM vi_validaciones_pendientes p
                  LEFT JOIN documents d ON d.document_id = p.document_id
                  WHERE p.validacion_codigo IN (${marcas})`,
@@ -152,7 +152,18 @@ async function conEstadoDeValidacion(db, destinatarios) {
             );
             const docDe = {};
             for (const f of filas) {
-                docDe[f.validacion_codigo] = { id: f.document_id, titulo: f.title };
+                // Varios envios del mismo CSV llevan el MISMO titulo. Sin la
+                // fecha, decir de que pagare viene la validacion no distingue
+                // nada: en DEV hay cinco 'Paquete matriculas 2026 Jardin (1)'.
+                let titulo = f.title || null;
+                if (titulo && f.created_at) {
+                    const d = new Date(f.created_at);
+                    if (!isNaN(d)) {
+                        titulo += ' del ' + String(d.getDate()).padStart(2, '0') +
+                                  '/' + String(d.getMonth() + 1).padStart(2, '0');
+                    }
+                }
+                docDe[f.validacion_codigo] = { id: f.document_id, titulo };
             }
 
             // Y los demas pagares de cada uno que siguen sin firmar: el
@@ -163,26 +174,30 @@ async function conEstadoDeValidacion(db, destinatarios) {
             if (correosConValidacion.length) {
                 const m2 = correosConValidacion.map(() => '?').join(',');
                 const [otros] = await db.promise().query(
-                    `SELECT LOWER(dr.email) AS email, dr.document_id, d.title,
-                            dr.signing_order
+                    `SELECT LOWER(dr.email) AS email, dr.document_id,
+                            dr.viewer_group_id, d.title, dr.signing_order
                      FROM document_recipients dr
                      JOIN documents d ON d.document_id = dr.document_id
                      WHERE LOWER(dr.email) COLLATE utf8mb4_unicode_ci IN (${m2})
                        AND dr.status NOT IN ('completed', 'rejected')
                        AND dr.is_final_signer = 0
-                     ORDER BY dr.document_id`,
+                     ORDER BY dr.document_id, dr.viewer_group_id`,
                     correosConValidacion
                 );
-                // Un documento puede traer a la misma persona mas de una vez
-                // -en pagares distintos del mismo envio-, asi que se agrupa
-                // por documento: la lista es de PAGARES, no de filas.
+                // Lo que se cuenta son PAGARES, no documentos ni filas.
+                //
+                // Un documento contiene varios pagares -uno por
+                // viewer_group_id- y la misma persona puede estar en mas de
+                // uno. Agrupar por documento contaba de menos; no agrupar
+                // contaba de mas. El pagare es la unidad que se firma, asi
+                // que la clave es el grupo.
                 const vistos = {};
                 for (const o of otros) {
-                    const clave = o.email + '|' + o.document_id;
+                    const clave = o.email + '|' + o.document_id + '|' + (o.viewer_group_id || 0);
                     if (vistos[clave]) continue;
                     vistos[clave] = true;
                     (pendientesDe[o.email] = pendientesDe[o.email] || [])
-                        .push({ id: o.document_id, titulo: o.title });
+                        .push({ id: o.document_id, grupo: o.viewer_group_id, titulo: o.title });
                 }
             }
 
