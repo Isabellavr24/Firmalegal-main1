@@ -144,7 +144,8 @@ async function conEstadoDeValidacion(db, destinatarios) {
             const codigos = [...new Set(conValidacion.map(d => d.validacion.codigo))];
             const marcas = codigos.map(() => '?').join(',');
             const [filas] = await db.promise().query(
-                `SELECT p.validacion_codigo, p.document_id, d.title, d.created_at
+                `SELECT p.validacion_codigo, p.document_id, d.title, d.created_at,
+                        p.created_at AS validacion_creada
                  FROM vi_validaciones_pendientes p
                  LEFT JOIN documents d ON d.document_id = p.document_id
                  WHERE p.validacion_codigo IN (${marcas})`,
@@ -163,7 +164,12 @@ async function conEstadoDeValidacion(db, destinatarios) {
                                   '/' + String(d.getMonth() + 1).padStart(2, '0');
                     }
                 }
-                docDe[f.validacion_codigo] = { id: f.document_id, titulo };
+                docDe[f.validacion_codigo] = {
+                    id: f.document_id, titulo,
+                    // Desde cuando vale: los pagares anteriores a esta
+                    // fecha no se apoyan en esta validacion.
+                    creada: f.validacion_creada || null
+                };
             }
 
             // Y los demas pagares de cada uno que siguen sin firmar: el
@@ -175,7 +181,8 @@ async function conEstadoDeValidacion(db, destinatarios) {
                 const m2 = correosConValidacion.map(() => '?').join(',');
                 const [otros] = await db.promise().query(
                     `SELECT LOWER(dr.email) AS email, dr.document_id,
-                            dr.viewer_group_id, d.title, dr.signing_order
+                            dr.viewer_group_id, d.title, dr.signing_order,
+                            d.created_at AS documento_creado
                      FROM document_recipients dr
                      JOIN documents d ON d.document_id = dr.document_id
                      WHERE LOWER(dr.email) COLLATE utf8mb4_unicode_ci IN (${m2})
@@ -196,8 +203,10 @@ async function conEstadoDeValidacion(db, destinatarios) {
                     const clave = o.email + '|' + o.document_id + '|' + (o.viewer_group_id || 0);
                     if (vistos[clave]) continue;
                     vistos[clave] = true;
-                    (pendientesDe[o.email] = pendientesDe[o.email] || [])
-                        .push({ id: o.document_id, grupo: o.viewer_group_id, titulo: o.title });
+                    (pendientesDe[o.email] = pendientesDe[o.email] || []).push({
+                        id: o.document_id, grupo: o.viewer_group_id, titulo: o.title,
+                        creado: o.documento_creado || null
+                    });
                 }
             }
 
@@ -211,8 +220,18 @@ async function conEstadoDeValidacion(db, destinatarios) {
                     // Todos sus pagares pendientes, en orden. Es lo que la
                     // pantalla usa para decir que firmara primero y que
                     // despues cuando complete la validacion.
-                    d.validacion.pagares_pendientes =
-                        pendientesDe[String(d.email || '').toLowerCase()] || [];
+                    // Solo los pagares POSTERIORES a la validacion.
+                    //
+                    // Una validacion no alcanza hacia atras: los pagares
+                    // que ya existian cuando se creo tuvieron su propio
+                    // flujo. Si se cuentan, la leyenda promete enlaces de
+                    // firma que no van a llegar, porque la propagacion
+                    // aplica este mismo corte.
+                    const todos = pendientesDe[String(d.email || '').toLowerCase()] || [];
+                    const desde = suyo.creada ? new Date(suyo.creada).getTime() : null;
+                    d.validacion.pagares_pendientes = desde
+                        ? todos.filter(p => !p.creado || new Date(p.creado).getTime() >= desde)
+                        : todos;
                 }
             }
         } catch (e) {

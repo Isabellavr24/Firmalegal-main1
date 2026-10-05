@@ -5235,19 +5235,44 @@ async function propagarValidacion(email, documentoYaHecho, trazaPath, codigo) {
     const correo = String(email || '').toLowerCase();
     if (!correo) return;
 
+    // DESDE CUANDO vale esta validacion.
+    //
+    // Una validacion no puede alcanzar hacia atras. Si se creo el 02/10, los
+    // pagares que ya existian antes tuvieron su propio flujo -su propia
+    // validacion, su propio correo- y no es esta la que les corresponde.
+    // Solo los que se crearon DESPUES se apoyan en ella.
+    //
+    // Sin este corte, validarse una vez mandaba de golpe los enlaces de firma
+    // de todos los envios viejos que siguieran abiertos. En DEV eran cinco
+    // paquetes del mismo CSV, del 18-09 al 05-10: cinco correos de firma por
+    // una sola validacion.
+    let desde = null;
+    try {
+        const [[fila]] = await db.promise().query(
+            'SELECT created_at FROM vi_validaciones_pendientes WHERE email = ? LIMIT 1',
+            [correo]
+        );
+        if (fila && fila.created_at) desde = fila.created_at;
+    } catch (e) {
+        // Si no se sabe cuando se creo, se propaga a todos como hasta ahora:
+        // es preferible un enlace de mas que dejar a alguien sin el suyo.
+        console.warn(`   ⚠️ no se pudo saber desde cuando vale la validacion: ${e.message}`);
+    }
+
     // A quien marcar: el mismo correo, en otros documentos, sin validar y sin
     // firmar. Se excluye el documento que acaba de completarse.
     const [pendientes] = await db.promise().query(
         `SELECT dr.recipient_id, dr.document_id, dr.token, dr.name,
                 dr.signing_order, dr.viewer_group_id, dr.is_final_signer,
-                d.title
+                d.title, d.created_at AS documento_creado
          FROM document_recipients dr
          JOIN documents d ON d.document_id = dr.document_id
          WHERE LOWER(dr.email) = ?
            AND dr.document_id <> ?
            AND dr.vi_validated_at IS NULL
-           AND dr.status NOT IN ('completed', 'rejected')`,
-        [correo, documentoYaHecho || 0]
+           AND dr.status NOT IN ('completed', 'rejected')
+           AND (? IS NULL OR d.created_at >= ?)`,
+        [correo, documentoYaHecho || 0, desde, desde]
     );
 
     if (!pendientes.length) return;
