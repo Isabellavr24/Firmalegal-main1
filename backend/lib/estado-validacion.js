@@ -173,7 +173,14 @@ async function conEstadoDeValidacion(db, destinatarios) {
                      ORDER BY dr.document_id`,
                     correosConValidacion
                 );
+                // Un documento puede traer a la misma persona mas de una vez
+                // -en pagares distintos del mismo envio-, asi que se agrupa
+                // por documento: la lista es de PAGARES, no de filas.
+                const vistos = {};
                 for (const o of otros) {
+                    const clave = o.email + '|' + o.document_id;
+                    if (vistos[clave]) continue;
+                    vistos[clave] = true;
                     (pendientesDe[o.email] = pendientesDe[o.email] || [])
                         .push({ id: o.document_id, titulo: o.title });
                 }

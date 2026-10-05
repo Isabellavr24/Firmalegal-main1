@@ -916,7 +916,7 @@ function datosDetectados(d) {
   };
 
   const normaliza = (t) => String(t == null ? '' : t)
-    .replace(/[.s+-]/g, '').toUpperCase();
+    .replace(/[^0-9A-Za-z]/g, '').toUpperCase();
 
   // La linea: el dato del CSV y, si VI tiene otro, el aviso debajo.
   const linea = (etiqueta, valor, falta, campoVI) => {
@@ -1002,28 +1002,46 @@ function estadoValidacion(d) {
 // firma le llegan despues, cuando complete la validacion.
 function leyendaValidacionCompartida(d) {
   const v = d.validacion;
-  if (!v || !v.de_otro_documento || v.estado === 'completada') return '';
+  if (!v || !v.de_otro_documento) return '';
 
   const origen = v.pagare_origen;
   const pendientes = Array.isArray(v.pagares_pendientes) ? v.pagares_pendientes : [];
+  const dondeSeHizo = origen
+    ? '<strong style="color:#6b5b73;">' + escHtml(origen) + '</strong>'
+    : 'otro pagare suyo';
 
-  // El orden en que tendra que firmarlos, cuando son varios.
-  const lista = pendientes.length > 1
-    ? '<div style="margin-top:6px;">Tendra que firmar, en este orden: ' +
-      pendientes.map((p, i) => '<strong>' + (i + 1) + '. ' + escHtml(p.titulo) + '</strong>')
-               .join(' &middot; ') + '</div>'
+  // Ya validada: no hay nada que reenviar, pero hay que decir igual que su
+  // validacion se hizo en otro pagare. Si no, el operador ve 'verificado' en
+  // un pagare al que esta persona nunca entro y no sabe de donde sale.
+  //
+  // Y si al validarse le corrigieron los datos, esa correccion es la que vale
+  // aqui tambien: es una sola validacion, compartida.
+  if (v.estado === 'completada') {
+    const csv = d.datos_csv || {};
+    const norm = (t) => String(t == null ? '' : t).replace(/[^0-9A-Za-z]/g, '').toUpperCase();
+    const corregidos = [];
+    if (v.documento && csv.documento && norm(v.documento) !== norm(csv.documento)) corregidos.push('la cedula');
+    if (v.nombre && csv.nombre && norm(v.nombre) !== norm(csv.nombre)) corregidos.push('el nombre');
+    const correccion = corregidos.length
+      ? ' Al validarse se le corrigio ' + corregidos.join(' y ') + ', y esa correccion vale para este pagare.'
+      : '';
+    return `
+    <div style="margin-top:8px;font-size:11px;color:#8b7d93;line-height:1.6;">
+      Valido su identidad en ${dondeSeHizo}, y vale para este.${correccion}
+    </div>`;
+  }
+
+  // Una sola linea, discreta. El recuadro ambar que habia antes parecia una
+  // alarma, y esto no es un problema: es como funciona el sistema.
+  const cuantos = pendientes.length;
+  const firmara = cuantos > 1
+    ? ` Al completarla firmara sus ${cuantos} pagares.`
     : '';
 
   return `
-    <div style="margin-top:10px;padding:10px 14px;background:#fffbf7;
-                border:1px solid #f5e6d3;border-radius:8px;
-                font-size:11px;color:#92400e;line-height:1.7;">
-      Su validacion de identidad se creo para
-      ${origen ? '<strong>' + escHtml(origen) + '</strong>' : 'otro pagare suyo'},
-      no para este. Al reenviarla le llegara el correo de ese pagare, no el de
-      aqui. Cuando la complete valdra para los dos, y recibira los enlaces de
-      firma de cada uno.
-      ${lista}
+    <div style="margin-top:8px;font-size:11px;color:#8b7d93;line-height:1.6;">
+      Su validacion es de ${dondeSeHizo}:
+      al reenviarla le llega el correo de ese pagare.${firmara}
     </div>`;
 }
 
@@ -1067,7 +1085,9 @@ function botonValidacion(d) {
   // pasa lo que uno esperaria -el correo sale para el otro pagare- y eso tiene
   // que verse antes de pulsar, no despues.
   const esDeOtro = !!(v && v.de_otro_documento && v.estado !== 'completada');
-  const fondo = !puede ? '#e5e0e8' : esDeOtro ? '#92400e' : '#2a0d31';
+  // Morado agrisado, de la misma familia que la marca. El ambar de antes
+  // parecia sangre y daba una alarma que no corresponde.
+  const fondo = !puede ? '#e5e0e8' : esDeOtro ? '#6b5b73' : '#2a0d31';
 
   const btn = `
     <button class="vi-un-clic-btn recipient-btn"
