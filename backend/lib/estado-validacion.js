@@ -126,16 +126,44 @@ async function conEstadoDeValidacion(db, destinatarios) {
                             const suya = porCodigo[String(n.validacion_codigo)];
                             if (!suya) continue;
 
-                            // VI puede tener OTRA validacion mas reciente para
-                            // el mismo correo: pasa cuando se corrige la
-                            // informacion, porque la correccion crea una nueva
-                            // en vez de editar la que habia.
-                            //
-                            // La nuestra es la que se envio, asi que es la que
-                            // manda. Pero si la otra tiene datos distintos hay
-                            // que decirlo: si no, el operador corrige, ve los
-                            // datos viejos y cree que no se guardo.
+                            // VI puede tener OTRA validacion para el mismo
+                            // correo: pasa cuando se corrige la informacion,
+                            // porque la correccion crea una nueva en vez de
+                            // editar la que habia.
                             const deVI = porCorreo[correo];
+
+                            // SI LA NUESTRA ESTA ANULADA, NO MANDA.
+                            //
+                            // Una anulada no sirve para nada, asi que preferirla
+                            // sobre una viva deja la pantalla diciendo
+                            // 'cancelada' cuando esa persona ya tiene otra
+                            // validacion en marcha. Paso el 05/10: se anularon
+                            // las dos de un correo, se creo una tercera con los
+                            // datos corregidos, y la pantalla seguia ensenando
+                            // la anulada porque era la que teniamos guardada.
+                            if (!estaViva(suya) && estaViva(deVI)) {
+                                // Y se apunta la nueva, o en la siguiente
+                                // consulta volveriamos a preferir la anulada.
+                                // Sin esto el operador ve la pantalla mal cada
+                                // vez que corrige algo.
+                                db.promise().query(
+                                    `INSERT INTO vi_validaciones_pendientes
+                                       (email, validacion_codigo)
+                                     VALUES (?, ?)
+                                     ON DUPLICATE KEY UPDATE
+                                       validacion_codigo = VALUES(validacion_codigo),
+                                       created_at = CURRENT_TIMESTAMP`,
+                                    [correo, deVI.codigo]
+                                ).catch(e => console.warn(
+                                    `[VALIDACION] No se pudo apuntar la validacion nueva de ${correo}: ${e.message}`));
+                                continue;
+                            }
+
+                            // Fuera de ese caso manda la nuestra: es la que de
+                            // verdad se le envio a esa persona. Pero si la otra
+                            // tiene datos distintos hay que decirlo, o el
+                            // operador corrige, ve los datos viejos y cree que
+                            // no se guardo.
                             if (deVI && deVI.codigo && deVI.codigo !== suya.codigo) {
                                 suya.otra_validacion = {
                                     codigo: deVI.codigo,
