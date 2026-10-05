@@ -5112,6 +5112,91 @@ app.get('/api/public/vi-status/:token', async (req, res) => {
 });
 
 /**
+ * Reconstruye el PDF de un grupo de pagare incorporando las trazas de todos
+ * los que ya validaron.
+ *
+ * Se parte SIEMPRE de `personal_pdf_path`, que es la base limpia sin trazas, y
+ * se anexan las de todos los validados en orden de firma. Anexar sobre el
+ * acumulado duplicaria trazas cada vez que alguien valida.
+ *
+ * SI ALGUIEN DEL GRUPO YA FIRMO, NO SE TOCA NADA.
+ *
+ * El 22-09-2026 una reconstruccion sobre un grupo ya firmado borro las firmas
+ * de 8 pagares. Se recuperaron porque seguian en field_values, pero el
+ * documento estuvo mal. El interim ya anexa la traza de cada firmante cuando le
+ * toca firmar, asi que esperar no pierde nada: lo unico es que quien valide
+ * ahora vera su traza al firmar y no antes.
+ *
+ * @param {number} viewerGroupId  el grupo del pagare
+ * @param {object} extra  opcional: { recipientId, trazaRelPath } para incluir
+ *                        una traza que todavia no esta en la base
+ * @returns {Promise<{reconstruido:boolean, motivo?:string, anexadas?:number, ruta?:string}>}
+ */
+async function reconstruirPdfDeGrupo(viewerGroupId, extra = {}) {
+    if (!viewerGroupId) return { reconstruido: false, motivo: 'sin grupo' };
+
+    const { PDFDocument: PDFDocTraza } = require('pdf-lib');
+
+    const [grupo] = await db.promise().query(
+        `SELECT recipient_id, email, status, personal_pdf_path, custom_pdf_path,
+                vi_traza_path, vi_validated_at
+         FROM document_recipients
+         WHERE viewer_group_id = ? AND is_final_signer = 0
+         ORDER BY signing_order, recipient_id`,
+        [viewerGroupId]
+    );
+    if (!grupo.length) return { reconstruido: false, motivo: 'grupo vacio' };
+
+    // La regla que no se rompe: con firmas, no se reconstruye.
+    if (grupo.some(g => g.status === 'completed')) {
+        return { reconstruido: false, motivo: 'el grupo ya tiene firmas' };
+    }
+
+    const base = grupo.find(g => g.personal_pdf_path);
+    const baseRel = base ? String(base.personal_pdf_path).replace(/^\/+/, '') : '';
+    const baseAbs = baseRel ? resolveFromRoot(baseRel) : '';
+    if (!baseAbs || !fs.existsSync(baseAbs)) {
+        return { reconstruido: false, motivo: 'sin PDF base' };
+    }
+
+    const pdfNuevo = await PDFDocTraza.load(fs.readFileSync(baseAbs));
+    let anexadas = 0;
+
+    for (const g of grupo) {
+        // La traza de quien acaba de validar puede no estar aun en la base
+        const esElNuevo = extra.recipientId && g.recipient_id === extra.recipientId;
+        if (!g.vi_validated_at && !esElNuevo) continue;
+
+        const tRel = esElNuevo && extra.trazaRelPath
+            ? String(extra.trazaRelPath).replace(/^\/+/, '')
+            : String(g.vi_traza_path || '').replace(/^\/+/, '');
+        if (!tRel) continue;
+
+        const tAbs = resolveFromRoot(tRel);
+        if (!fs.existsSync(tAbs)) continue;
+
+        const tDoc = await PDFDocTraza.load(fs.readFileSync(tAbs));
+        const pgs = await pdfNuevo.copyPages(tDoc, tDoc.getPageIndices());
+        pgs.forEach(p => pdfNuevo.addPage(p));
+        anexadas++;
+    }
+
+    const relNuevo = `uploads/pagares/vi_personal_vg${viewerGroupId}_${Date.now()}.pdf`;
+    const dirPag = resolveFromRoot('uploads', 'pagares');
+    if (!fs.existsSync(dirPag)) fs.mkdirSync(dirPag, { recursive: true });
+    fs.writeFileSync(resolveFromRoot(relNuevo), Buffer.from(await pdfNuevo.save()));
+
+    // Solo a los NO definitivos: el firmante definitivo no ve trazas.
+    const idsGrupo = grupo.map(g => g.recipient_id);
+    await db.promise().query(
+        'UPDATE document_recipients SET custom_pdf_path = ? WHERE recipient_id IN (?)',
+        [relNuevo, idsGrupo]
+    );
+
+    return { reconstruido: true, anexadas, ruta: relNuevo, firmantes: idsGrupo.length };
+}
+
+/**
  * Cuando alguien completa su validacion, marcarla en TODOS sus pagares y
  * mandarle el enlace de firma de cada uno.
  *
@@ -5181,7 +5266,47 @@ async function propagarValidacion(email, documentoYaHecho, trazaPath, codigo) {
             );
             console.log(`   ✅ marcado como validado en "${p.title}" (doc ${p.document_id})`);
 
-            // 2. El enlace de firma, solo si le toca firmar ya.
+            // 2. SU TRAZA, DENTRO DEL PDF DE ESE PAGARE.
+            //
+            // Marcar vi_traza_path en la base NO basta: lo que tiene valor es
+            // el PDF que el firmante descarga. Si no se reconstruye, ese
+            // pagare sale sin su trazabilidad aunque la base diga que valido.
+            //
+            // Se reconstruye desde la base limpia con las trazas de todos los
+            // validados del grupo, igual que en el documento donde se valido.
+            // Si alguien del grupo ya firmo NO se toca: el interim ya anexa la
+            // traza al firmar, y reconstruir sobre firmas las borraria.
+            if (p.viewer_group_id) {
+                try {
+                    const r = await reconstruirPdfDeGrupo(p.viewer_group_id, {
+                        recipientId: p.recipient_id, trazaRelPath: trazaPath
+                    });
+                    if (r.reconstruido) {
+                        console.log(`   📄 "${p.title}": PDF reconstruido con ${r.anexadas} traza(s)`);
+                    } else {
+                        console.log(`   📄 "${p.title}": no se reconstruye (${r.motivo})`);
+                    }
+                } catch (e) {
+                    // Un pagare sin trazabilidad es justo lo que mas cuesta
+                    // detectar: tiene que quedar en los registros.
+                    //
+                    // Pero que falle la traza NO puede impedir el enlace de
+                    // firma: son dos cosas independientes, y dejar al padre
+                    // sin enlace es peor. Por eso el registro va en su propio
+                    // try: si tambien falla, se sigue adelante.
+                    console.error(`   ❌ "${p.title}": no se pudo meter la traza en el PDF: ${e.message}`);
+                    try {
+                        await registrarError({
+                            documentId: p.document_id, recipientId: p.recipient_id,
+                            donde: 'validacion de identidad',
+                            mensaje: `La validacion se propago pero la traza no entro en el PDF: ${e.message}`,
+                            datos: { correo, viewer_group_id: p.viewer_group_id, traza: trazaPath || null }
+                        });
+                    } catch (_) { /* el registro no puede tumbar el envio */ }
+                }
+            }
+
+            // 3. El enlace de firma, solo si le toca firmar ya.
             //
             // En los pagares la firma es secuencial: si hay alguien antes que
             // el que todavia no ha firmado, su turno no ha llegado y mandarle
