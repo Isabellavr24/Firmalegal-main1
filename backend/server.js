@@ -3621,6 +3621,123 @@ async function enviarRecordatorios(personas, tipo, docId, docTitle, req, sinLimi
  * bien, asi que un 400 no significa que haya fallado. Se comprueba el
  * resultado consultando VI, no por el codigo HTTP.
  */
+/**
+ * Pide a VI un lote de validaciones. El cuerpo es { emails } o { codigos }.
+ *
+ * Devuelve [] si VI no contesta o contesta algo ilegible: quien llama decide
+ * que hacer sin eso, y nunca se queda el envio colgado por VI.
+ *
+ * @param {object} cuerpoObj
+ * @returns {Promise<object[]>}
+ */
+function _pedirValidacionesAVI(cuerpoObj) {
+    const VI_URL = process.env.VI_URL || 'http://validacion-identidad-app-1:3000';
+    const url = new URL(`${VI_URL}/validacion/api/firmalegal/validaciones/consultar`);
+    const transporte = url.protocol === 'https:' ? require('https') : require('http');
+    const cuerpo = JSON.stringify(cuerpoObj);
+
+    return new Promise((resolver, rechazar) => {
+        const peticion = transporte.request({
+            hostname: url.hostname,
+            port: url.port || (url.protocol === 'https:' ? 443 : 80),
+            path: url.pathname,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Internal-Api-Key': process.env.INTERNAL_API_KEY || '',
+                'Content-Length': Buffer.byteLength(cuerpo)
+            }
+        }, (respuesta) => {
+            let datos = '';
+            respuesta.on('data', t => { datos += t; });
+            respuesta.on('end', () => {
+                if (respuesta.statusCode !== 200) return resolver([]);
+                try {
+                    const json = JSON.parse(datos || '{}');
+                    const l = json.validaciones || json.data || json;
+                    resolver(Array.isArray(l) ? l : []);
+                } catch (e) { resolver([]); }
+            });
+        });
+        peticion.on('error', rechazar);
+        // No se deja colgado el envio esperando a VI.
+        peticion.setTimeout(5000, () => peticion.destroy(new Error('VI no respondio')));
+        peticion.write(cuerpo);
+        peticion.end();
+    });
+}
+
+/**
+ * La validacion que esa persona ya tiene en VI, si tiene alguna.
+ *
+ * Se pide POR CODIGO cuando lo tenemos guardado, porque una persona puede
+ * tener varias validaciones -cada correccion crea una nueva- y preguntando
+ * por correo VI devuelve la que ella elija, que no tiene por que ser la
+ * nuestra. Por correo se pregunta solo cuando no hay codigo: las creadas
+ * desde el panel de VI.
+ *
+ * Devuelve null si no tiene ninguna, si VI no contesta o si lo que llega no
+ * trae cedula: en todos esos casos se sigue con los datos del pagare.
+ *
+ * @param {string} email
+ * @returns {Promise<object|null>}
+ */
+async function _validacionYaExistente(email) {
+    const correo = String(email || '').toLowerCase();
+    if (!correo) return null;
+
+    let codigo = null;
+    try {
+        const [filas] = await db.promise().query(
+            `SELECT validacion_codigo FROM vi_validaciones_pendientes
+             WHERE email COLLATE utf8mb4_unicode_ci = ?
+             UNION
+             SELECT validacion_codigo FROM vi_verified_emails
+             WHERE LOWER(email) COLLATE utf8mb4_unicode_ci = ?
+               AND validacion_codigo IS NOT NULL
+             LIMIT 1`,
+            [correo, correo]
+        );
+        codigo = filas[0] && filas[0].validacion_codigo;
+    } catch (e) {
+        // Sin codigo se pregunta por correo, que es mejor que no preguntar.
+    }
+
+    // Se pregunta por codigo cuando lo tenemos: el correo puede tener varias
+    // validaciones y VI devolveria la que ella elija.
+    const lista = await _pedirValidacionesAVI(
+        codigo ? { codigos: [codigo] } : { emails: [correo] });
+
+    let v = lista.find(x => x && x.documento) || null;
+
+    // Si preguntamos por codigo, mirar tambien que dice VI por correo: puede
+    // haber una posterior, creada al corregir los datos desde su panel.
+    if (codigo) {
+        try {
+            const otras = await _pedirValidacionesAVI({ emails: [correo] });
+            const porCorreo = otras.find(x => x && x.documento);
+            if (porCorreo && (!v || _esPosterior(porCorreo, v))) {
+                if (v && porCorreo.codigo !== v.codigo) {
+                    console.log(`   ℹ️ ${correo}: VI tiene una validacion posterior ` +
+                                `(${porCorreo.codigo}); se usan sus datos`);
+                }
+                v = porCorreo;
+            }
+        } catch (e) {
+            // Queda la del codigo, que es mejor que nada.
+        }
+    }
+
+    return v;
+}
+
+// Cual de las dos validaciones es mas reciente.
+function _esPosterior(a, b) {
+    const ta = a && a.created_at ? new Date(a.created_at).getTime() : 0;
+    const tb = b && b.created_at ? new Date(b.created_at).getTime() : 0;
+    return ta > tb;
+}
+
 async function crearValidacionVI(persona, docId, docTitle, req) {
     const [rec] = await db.promise().query(
         'SELECT token FROM document_recipients WHERE recipient_id = ?', [persona.recipient_id]);
@@ -3641,14 +3758,44 @@ async function crearValidacionVI(persona, docId, docTitle, req) {
     }
 
     const VI_URL = process.env.VI_URL || 'http://validacion-identidad-app-1:3000';
+
+    // SI YA TIENE UNA VALIDACION, MANDAN SUS DATOS, NO LOS DEL CSV.
+    //
+    // VI no tiene ruta para reenviar ni para editar -solo `iniciar-validacion`,
+    // que crea una nueva cada vez-, asi que reenviar crea otra. Lo que si
+    // podemos es crearla CON LOS DATOS BUENOS.
+    //
+    // Importa porque el operador corrige la informacion en el panel de VI
+    // cuando el CSV viene mal. Si al reenviar volvemos a mandar lo del CSV, la
+    // correccion se pierde y la persona recibe otra vez el enlace con la
+    // cedula equivocada. Paso en DEV el 03/10: se corrigio una validacion el
+    // 02/10 y el reenvio creo otra con los datos de la plantilla.
+    let deVI = null;
+    try {
+        deVI = await _validacionYaExistente(persona.email);
+    } catch (e) {
+        // Si VI no contesta se sigue con los del pagare, que es lo que habia
+        // antes: mejor un correo con los datos del CSV que ningun correo.
+        console.warn(`[VI] No se pudo mirar su validacion anterior: ${e.message}`);
+    }
+
+    const documento = (deVI && deVI.documento) || datos.documento;
+    const nombre = (deVI && deVI.nombre_completo) || datos.nombre || persona.nombre;
+    const tipoDoc = (deVI && deVI.tipo_documento) || 'CC';
+    if (deVI && String(deVI.documento || '') !== String(datos.documento || '')) {
+        console.log(`   ℹ️ ${persona.email}: se reenvia con la cedula de su validacion ` +
+                    `(${deVI.documento}), no con la del pagare (${datos.documento})`);
+    }
+
     const cuerpo = JSON.stringify({
         owner_firmalegal_user_id: req.userId,
         signer_email: persona.email,
         // El nombre del pagare manda sobre el del destinatario: es el que
-        // esta junto a la cedula, asi que es el que concuerda con ella.
-        signer_name: datos.nombre || persona.nombre,
-        signer_documento: datos.documento,
-        signer_tipo_documento: 'CC',
+        // esta junto a la cedula, asi que es el que concuerda con ella. Y si
+        // ya hay una validacion suya, mandan los datos de esa.
+        signer_name: nombre,
+        signer_documento: documento,
+        signer_tipo_documento: tipoDoc,
         // Sin celular no le llega el codigo OTP y no puede completar la
         // validacion. Va si el pagare lo trae; si no, la validacion se crea
         // igual y el informe avisa de que el OTP no le va a llegar.
