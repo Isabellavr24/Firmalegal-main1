@@ -5640,20 +5640,37 @@ async function handleViStart(recipient) {
       redirect_token: recipient.token
     });
 
-    // Los datos que ya sabemos del CSV, para no obligar a reescribirlos a
-    // mano. El operador entra a CORREGIR algo concreto, no a teclearlo todo.
+    // Los datos que ya sabemos, para no obligar a reescribirlos a mano. El
+    // operador entra a CORREGIR algo concreto, no a teclearlo todo.
     //
-    // OJO: hoy el formulario de VI solo lee asunto, email y redirect_token
-    // (crear-validacion.js:64-67). Estos van para cuando los acepte; mientras
-    // tanto los ignora y no estorban.
-    const csv = recipient.datos_csv;
-    if (csv) {
-      if (csv.documento) params.set('documento', csv.documento);
-      if (csv.nombre)    params.set('nombre', csv.nombre);
-      if (csv.celular)   params.set('celular', String(csv.celular).replace('+57', ''));
-    }
+    // SI YA TIENE VALIDACION, MANDAN SUS DATOS, NO LOS DEL CSV.
+    //
+    // Quien entra aqui por segunda vez viene a afinar una correccion que ya
+    // hizo. Si le volvemos a poner delante lo del CSV, lo corregido desaparece
+    // de la pantalla y al guardar se pierde otra vez. Es como se duplico una
+    // validacion el 03/10 en DEV: se corrigio, y el siguiente paso volvio a
+    // mandar los datos de la plantilla.
+    const csv = recipient.datos_csv || {};
+    const v = recipient.validacion;
+    const hayValidacion = v && v.codigo && !v.vi_sin_respuesta;
+
+    const documento = (hayValidacion && v.documento) || csv.documento;
+    const nombre    = (hayValidacion && v.nombre)    || csv.nombre;
+    // El celular no viene en lo que VI nos devuelve, asi que ese sigue
+    // saliendo del pagare.
+    const celular   = csv.celular;
+
+    if (documento) params.set('documento', documento);
+    if (nombre)    params.set('nombre', nombre);
+    if (celular)   params.set('celular', String(celular).replace('+57', ''));
+
+    // El codigo de la validacion que se esta corrigiendo. VI todavia no lo
+    // usa, pero es lo que le permitira EDITAR esa misma validacion en vez de
+    // crear otra, que es lo que se le ha pedido.
+    if (hayValidacion) params.set('codigo', v.codigo);
     // Lo que la universidad usa siempre, para que no haya que elegirlo cada vez
-    params.set('tipo_documento', 'CC');
+    params.set('tipo_documento',
+      (hayValidacion && v.tipo_documento) || 'CC');
     params.set('tipo_solicitud', 'validacion-completa');
     params.set('notificacion', 'email');
 
