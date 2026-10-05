@@ -77,15 +77,24 @@ async function conEstadoDeValidacion(db, destinatarios) {
         }
     }
 
-    // --- 2. El estado de su validacion, preguntandoselo a VI POR CORREO ---
+    // --- 2. El estado de su validacion, preguntandoselo a VI ---
     //
-    // Se pregunta por el CORREO y no por el codigo a proposito: el operador
-    // puede crear la validacion desde el panel de VI, y en ese caso nosotros
-    // no tenemos su codigo guardado. Preguntando por el correo nos enteramos
-    // igual, se haya creado por donde se haya creado.
+    // SE PIDE POR CODIGO CUANDO LO TENEMOS, Y POR CORREO CUANDO NO.
     //
-    // El correo es ademas el ancla natural: es lo que identifica al firmante
-    // en los dos sistemas.
+    // Una persona puede tener VARIAS validaciones en VI. Pasa cada vez que
+    // se corrige la informacion: la correccion crea una validacion nueva y
+    // la vieja se queda ahi. Preguntando solo por el correo, VI nos da la
+    // que ella elija -la mas reciente- que no tiene por que ser la que
+    // nosotros le mandamos a esa persona.
+    //
+    // Eso se vio en DEV: diegoarrietaherrera8 tenia la corregida del 02/10
+    // (cedula 1062427399) y otra del 03/10 con los datos del CSV sin
+    // corregir (79458213). La pantalla ensenaba la del CSV, asi que la
+    // correccion parecia no haberse guardado.
+    //
+    // El codigo que guardamos es el de la validacion que de verdad se envio,
+    // asi que esa es la que manda. El correo se sigue usando para quien no
+    // esta en nuestra tabla: las creadas desde el panel de VI.
     const correos = [...new Set(
         destinatarios.map(d => String(d.email || '').toLowerCase()).filter(Boolean))];
 
@@ -94,6 +103,62 @@ async function conEstadoDeValidacion(db, destinatarios) {
     if (correos.length) {
         try {
             const porCorreo = await _pedirAVI(correos);
+
+            // Y encima de eso, la que nosotros registramos para cada uno.
+            if (db) {
+                try {
+                    const m = correos.map(() => '?').join(',');
+                    const [nuestras] = await db.promise().query(
+                        `SELECT email, validacion_codigo
+                         FROM vi_validaciones_pendientes
+                         WHERE email COLLATE utf8mb4_unicode_ci IN (${m})`,
+                        correos
+                    );
+                    const codigosNuestros = nuestras
+                        .map(n => n.validacion_codigo).filter(Boolean);
+
+                    if (codigosNuestros.length) {
+                        const porCodigo = await _pedirAVI(null, codigosNuestros);
+                        // Cada correo se queda con SU validacion, no con la
+                        // que VI eligiera.
+                        for (const n of nuestras) {
+                            const correo = String(n.email).toLowerCase();
+                            const suya = porCodigo[String(n.validacion_codigo)];
+                            if (!suya) continue;
+
+                            // VI puede tener OTRA validacion mas reciente para
+                            // el mismo correo: pasa cuando se corrige la
+                            // informacion, porque la correccion crea una nueva
+                            // en vez de editar la que habia.
+                            //
+                            // La nuestra es la que se envio, asi que es la que
+                            // manda. Pero si la otra tiene datos distintos hay
+                            // que decirlo: si no, el operador corrige, ve los
+                            // datos viejos y cree que no se guardo.
+                            const deVI = porCorreo[correo];
+                            if (deVI && deVI.codigo && deVI.codigo !== suya.codigo) {
+                                suya.otra_validacion = {
+                                    codigo: deVI.codigo,
+                                    documento: deVI.documento || null,
+                                    nombre: deVI.nombre_completo || null,
+                                    creada_el: deVI.created_at || null,
+                                    // Si los datos coinciden es un duplicado
+                                    // sin consecuencias; si no, una de las dos
+                                    // esta mal y hay que mirarla.
+                                    datos_distintos:
+                                        String(deVI.documento || '') !== String(suya.documento || '')
+                                };
+                            }
+                            porCorreo[correo] = suya;
+                        }
+                    }
+                } catch (e) {
+                    // Si esto falla queda lo que VI dijo por correo, que es
+                    // como funcionaba hasta ahora.
+                    console.warn(`[VALIDACION] No se pudo pedir por codigo: ${e.message}`);
+                }
+            }
+
             const ahora = Date.now();
 
             for (const d of destinatarios) {
@@ -121,7 +186,11 @@ async function conEstadoDeValidacion(db, destinatarios) {
                     email_vi: v.email_firmante || null,
                     // Si la validacion viene de otro pagare de esa misma
                     // persona. Se rellena mas abajo.
-                    de_otro_documento: false
+                    de_otro_documento: false,
+                    // Otra validacion suya en VI, cuando la hay. Normalmente
+                    // es el rastro de una correccion que creo una nueva en vez
+                    // de editar la que habia.
+                    otra_validacion: v.otra_validacion || null
                 };
             }
         } catch (e) {
@@ -243,23 +312,28 @@ async function conEstadoDeValidacion(db, destinatarios) {
 }
 
 /**
- * Pregunta a VI por las validaciones de un lote de CORREOS.
+ * Pregunta a VI por un lote de validaciones, por correo o por codigo.
  *
  * Se pide por su endpoint interno, no leyendo su base: es de solo lectura y no
  * devuelve el token ni la url de redireccion, que permitirian completar la
  * validacion de otra persona.
  *
- * @param {string[]} correos  en minusculas, maximo 200 por peticion
- * @returns {Promise<object>} un mapa correo -> validacion
+ * @param {string[]|null} correos  en minusculas, maximo 200 por peticion
+ * @param {string[]|null} codigos  si se pasan, se pregunta por estos
+ * @returns {Promise<object>} un mapa correo -> validacion, o codigo ->
+ *                            validacion cuando se pregunto por codigos
  */
-function _pedirAVI(correos) {
+function _pedirAVI(correos, codigos) {
     const VI_URL = process.env.VI_URL || 'http://validacion-identidad-app-1:3000';
     const VI_API_KEY = process.env.INTERNAL_API_KEY || '';
     const url = new URL(`${VI_URL}/validacion/api/firmalegal/validaciones/consultar`);
     const transporte = url.protocol === 'https:' ? require('https') : require('http');
 
     // 200 es el limite de VI por peticion.
-    const cuerpo = JSON.stringify({ emails: correos.slice(0, 200) });
+    const porCodigo = Array.isArray(codigos) && codigos.length > 0;
+    const cuerpo = JSON.stringify(porCodigo
+        ? { codigos: codigos.slice(0, 200) }
+        : { emails: (correos || []).slice(0, 200) });
 
     return new Promise((resolver, rechazar) => {
         const peticion = transporte.request({
@@ -292,13 +366,18 @@ function _pedirAVI(correos) {
                     return rechazar(new Error('VI devolvio un formato inesperado'));
                 }
 
-                const porCorreo = {};
+                // Preguntando por codigo la clave es el codigo: hay varias
+                // validaciones del mismo correo y se pisarian entre si.
+                const mapa = {};
                 for (const v of lista) {
-                    if (v && v.email_firmante) {
-                        porCorreo[String(v.email_firmante).toLowerCase()] = v;
+                    if (!v) continue;
+                    if (porCodigo) {
+                        if (v.codigo) mapa[String(v.codigo)] = v;
+                    } else if (v.email_firmante) {
+                        mapa[String(v.email_firmante).toLowerCase()] = v;
                     }
                 }
-                resolver(porCorreo);
+                resolver(mapa);
             });
         });
         peticion.on('error', rechazar);

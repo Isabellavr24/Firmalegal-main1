@@ -941,11 +941,27 @@ function datosDetectados(d) {
      </div>`;
   }
 
+  // VI puede tener OTRA validacion del mismo correo con datos distintos.
+  //
+  // Pasa al corregir informacion: la correccion crea una validacion nueva en
+  // vez de editar la que habia, asi que quedan dos. La que vale es la que se
+  // envio -la nuestra-, pero si la otra tiene otra cedula hay que decirlo: si
+  // no, el operador corrige, sigue viendo los datos viejos y cree que no se
+  // guardo nada.
+  const otra = v && v.otra_validacion;
+  const avisoOtra = (otra && otra.datos_distintos)
+    ? `<div style="font-size:10.5px;color:#92400e;line-height:1.5;margin-top:5px;">
+         Tiene otra validacion en VI con la cedula ${escHtml(otra.documento || 'sin dato')}.
+         La que se le envio es esta.
+       </div>`
+    : '';
+
   return `<div style="min-width:190px;max-width:230px;">
       <div style="font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">Informacion detectada</div>
       ${linea('Cedula', csv.documento, !csv.documento, 'documento')}
       ${linea('Nombre', csv.nombre || d.name, !csv.nombre && !d.name, 'nombre')}
       ${linea('Celular', csv.celular, !csv.celular)}
+      ${avisoOtra}
     </div>`;
 }
 
