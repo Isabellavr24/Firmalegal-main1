@@ -964,15 +964,6 @@ function estadoValidacion(d) {
 
   const partes = [];
 
-  // La validacion viene de OTRO pagare de esa misma persona.
-  //
-  // Pasa cuando un padre tiene dos hijos en la universidad: firma dos
-  // pagares, pero su identidad es una sola. No se le crea otra validacion
-  // -no tiene sentido pedirle que se valide dos veces con la misma cedula-,
-  // se reenvia la que ya tiene, y al completarla vale para los dos.
-  if (v.de_otro_documento && v.estado !== 'completada') {
-    partes.push('<span style="color:#92400e;">De otro pagare suyo</span>');
-  }
 
   // Si ya la completo, eso es lo unico que importa decir.
   if (v.estado === 'completada') {
@@ -997,6 +988,43 @@ function estadoValidacion(d) {
 
   if (!partes.length) return '';
   return `<div style="font-size:11px;color:#6b7280;margin-top:2px;text-align:center;line-height:1.5;">${partes.join(' &middot; ')}</div>`;
+}
+
+// La leyenda de cuando la validacion viene de OTRO pagare de esa persona.
+//
+// Pasa cuando un padre tiene dos hijos en la universidad: firma dos pagares
+// pero su identidad es una sola. No se le crea otra validacion -no tiene
+// sentido pedirle que se valide dos veces con la misma cedula-, se reenvia la
+// que ya tiene, y al completarla vale para los dos.
+//
+// Decirlo importa porque al pulsar NO pasa lo que uno esperaria: el correo
+// que le llega es el del pagare de origen, no el de este. Y los enlaces de
+// firma le llegan despues, cuando complete la validacion.
+function leyendaValidacionCompartida(d) {
+  const v = d.validacion;
+  if (!v || !v.de_otro_documento || v.estado === 'completada') return '';
+
+  const origen = v.pagare_origen;
+  const pendientes = Array.isArray(v.pagares_pendientes) ? v.pagares_pendientes : [];
+
+  // El orden en que tendra que firmarlos, cuando son varios.
+  const lista = pendientes.length > 1
+    ? '<div style="margin-top:6px;">Tendra que firmar, en este orden: ' +
+      pendientes.map((p, i) => '<strong>' + (i + 1) + '. ' + escHtml(p.titulo) + '</strong>')
+               .join(' &middot; ') + '</div>'
+    : '';
+
+  return `
+    <div style="margin-top:10px;padding:10px 14px;background:#fffbf7;
+                border:1px solid #f5e6d3;border-radius:8px;
+                font-size:11px;color:#92400e;line-height:1.7;">
+      Su validacion de identidad se creo para
+      ${origen ? '<strong>' + escHtml(origen) + '</strong>' : 'otro pagare suyo'},
+      no para este. Al reenviarla le llegara el correo de ese pagare, no el de
+      aqui. Cuando la complete valdra para los dos, y recibira los enlaces de
+      firma de cada uno.
+      ${lista}
+    </div>`;
 }
 
 // El boton, segun lo que de verdad va a pasar al pulsarlo.
@@ -1029,9 +1057,17 @@ function botonValidacion(d) {
   const yaValido = !!v && v.estado === 'completada';
   const esReenvio = !!v && !v.no_encontrada && !yaValido;
 
+  const deOtro = !!(v && v.de_otro_documento && v.estado !== 'completada');
   const texto = yaValido ? 'ENVIAR ENLACE DE FIRMA'
-    : esReenvio ? 'REENVIAR VALIDACION' : 'INICIAR VALIDACION';
+    : esReenvio ? (deOtro ? 'REENVIAR LA DEL OTRO PAGARE' : 'REENVIAR VALIDACION')
+    : 'INICIAR VALIDACION';
   const accion = yaValido ? 'firma' : esReenvio ? 'reenviar' : 'iniciar';
+
+  // Si la validacion es de OTRO pagare, el boton va en ambar: al pulsarlo no
+  // pasa lo que uno esperaria -el correo sale para el otro pagare- y eso tiene
+  // que verse antes de pulsar, no despues.
+  const esDeOtro = !!(v && v.de_otro_documento && v.estado !== 'completada');
+  const fondo = !puede ? '#e5e0e8' : esDeOtro ? '#92400e' : '#2a0d31';
 
   const btn = `
     <button class="vi-un-clic-btn recipient-btn"
@@ -1040,7 +1076,7 @@ function botonValidacion(d) {
       style="padding:13px 20px;border:none;border-radius:8px;font-size:13px;
              font-weight:700;letter-spacing:.5px;width:100%;
              display:flex;align-items:center;justify-content:center;
-             background:${puede ? '#2a0d31' : '#e5e0e8'};
+             background:${fondo};
              color:${puede ? '#fff' : '#a39aaa'};
              cursor:${puede ? 'pointer' : 'not-allowed'};">
       ${texto}
@@ -1248,18 +1284,26 @@ function createRecipientCard(recipient) {
   // botones. Solo cuando hay algo que decidir: si ya valido, sobran.
   const detectadosHtml = (esPagare && showViBlock) ? datosDetectados(recipient) : '';
 
+  // La leyenda va ABAJO, a lo ancho de la tarjeta: es una explicacion de lo
+  // que va a pasar, no una etiqueta del boton.
+  const leyendaHtml = (esPagare && showViBlock) ? leyendaValidacionCompartida(recipient) : '';
+
   card.innerHTML = `
-    <div class="recipient-info" style="flex:1;">
-      ${badgeHtml}
-      <div class="recipient-emails">
-        <p class="recipient-email">${displayEmail}</p>
-        ${recipient.name && recipient.name !== recipient.email ? `<p class="recipient-name" style="font-size: 12px; color: #666; margin-top: 4px;">${recipient.name}</p>` : ''}
-        ${viInfoText}
+    <div style="display:flex;align-items:flex-start;gap:16px;width:100%;flex-wrap:wrap;">
+      <div class="recipient-info" style="flex:1;">
+        ${badgeHtml}
+        <div class="recipient-emails">
+          <p class="recipient-email">${displayEmail}</p>
+          ${recipient.name && recipient.name !== recipient.email ? `<p class="recipient-name" style="font-size: 12px; color: #666; margin-top: 4px;">${recipient.name}</p>` : ''}
+          ${viInfoText}
+        </div>
       </div>
+      ${detectadosHtml}
+      ${actionsHtml}
     </div>
-    ${detectadosHtml}
-    ${actionsHtml}
+    ${leyendaHtml}
   `;
+  if (leyendaHtml) card.style.flexDirection = 'column';
 
   // El boton de un clic: enviar o reenviar sin salir de la pantalla
   const unClicBtn = card.querySelector('.vi-un-clic-btn');

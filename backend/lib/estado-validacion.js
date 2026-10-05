@@ -144,20 +144,53 @@ async function conEstadoDeValidacion(db, destinatarios) {
             const codigos = [...new Set(conValidacion.map(d => d.validacion.codigo))];
             const marcas = codigos.map(() => '?').join(',');
             const [filas] = await db.promise().query(
-                `SELECT validacion_codigo, document_id
-                 FROM vi_validaciones_pendientes
-                 WHERE validacion_codigo IN (${marcas})`,
+                `SELECT p.validacion_codigo, p.document_id, d.title
+                 FROM vi_validaciones_pendientes p
+                 LEFT JOIN documents d ON d.document_id = p.document_id
+                 WHERE p.validacion_codigo IN (${marcas})`,
                 codigos
             );
             const docDe = {};
-            for (const f of filas) docDe[f.validacion_codigo] = f.document_id;
+            for (const f of filas) {
+                docDe[f.validacion_codigo] = { id: f.document_id, titulo: f.title };
+            }
+
+            // Y los demas pagares de cada uno que siguen sin firmar: el
+            // operador necesita saber en que orden va a tener que firmarlos.
+            const correosConValidacion = [...new Set(
+                conValidacion.map(d => String(d.email || '').toLowerCase()))];
+            const pendientesDe = {};
+            if (correosConValidacion.length) {
+                const m2 = correosConValidacion.map(() => '?').join(',');
+                const [otros] = await db.promise().query(
+                    `SELECT LOWER(dr.email) AS email, dr.document_id, d.title,
+                            dr.signing_order
+                     FROM document_recipients dr
+                     JOIN documents d ON d.document_id = dr.document_id
+                     WHERE LOWER(dr.email) COLLATE utf8mb4_unicode_ci IN (${m2})
+                       AND dr.status NOT IN ('completed', 'rejected')
+                       AND dr.is_final_signer = 0
+                     ORDER BY dr.document_id`,
+                    correosConValidacion
+                );
+                for (const o of otros) {
+                    (pendientesDe[o.email] = pendientesDe[o.email] || [])
+                        .push({ id: o.document_id, titulo: o.title });
+                }
+            }
 
             for (const d of conValidacion) {
                 const suyo = docDe[d.validacion.codigo];
                 // Solo se marca cuando SE SABE que es de otro: si no esta en
                 // la tabla (se creo desde el panel de VI) no se afirma nada.
-                if (suyo && d.document_id && suyo !== d.document_id) {
+                if (suyo && suyo.id && d.document_id && suyo.id !== d.document_id) {
                     d.validacion.de_otro_documento = true;
+                    d.validacion.pagare_origen = suyo.titulo || null;
+                    // Todos sus pagares pendientes, en orden. Es lo que la
+                    // pantalla usa para decir que firmara primero y que
+                    // despues cuando complete la validacion.
+                    d.validacion.pagares_pendientes =
+                        pendientesDe[String(d.email || '').toLowerCase()] || [];
                 }
             }
         } catch (e) {
