@@ -1007,7 +1007,7 @@ function leyendaValidacionCompartida(d) {
   const origen = v.pagare_origen;
   const pendientes = Array.isArray(v.pagares_pendientes) ? v.pagares_pendientes : [];
   const dondeSeHizo = origen
-    ? '<strong style="color:#6b5b73;">' + escHtml(origen) + '</strong>'
+    ? '<strong style="color:#2a0d31;">' + escHtml(origen) + '</strong>'
     : 'otro pagare suyo';
 
   // Ya validada: no hay nada que reenviar, pero hay que decir igual que su
@@ -1026,7 +1026,7 @@ function leyendaValidacionCompartida(d) {
       ? ' Al validarse se le corrigio ' + corregidos.join(' y ') + ', y esa correccion vale para este pagare.'
       : '';
     return `
-    <div style="margin-top:8px;font-size:11px;color:#8b7d93;line-height:1.6;">
+    <div style="margin-top:8px;font-size:11px;color:#6b7280;line-height:1.6;">
       Valido su identidad en ${dondeSeHizo}, y vale para este.${correccion}
     </div>`;
   }
@@ -1039,7 +1039,7 @@ function leyendaValidacionCompartida(d) {
     : '';
 
   return `
-    <div style="margin-top:8px;font-size:11px;color:#8b7d93;line-height:1.6;">
+    <div style="margin-top:8px;font-size:11px;color:#6b7280;line-height:1.6;">
       Su validacion es de ${dondeSeHizo}:
       al reenviarla le llega el correo de ese pagare.${firmara}
     </div>`;
@@ -1081,13 +1081,10 @@ function botonValidacion(d) {
     : 'INICIAR VALIDACION';
   const accion = yaValido ? 'firma' : esReenvio ? 'reenviar' : 'iniciar';
 
-  // Si la validacion es de OTRO pagare, el boton va en ambar: al pulsarlo no
-  // pasa lo que uno esperaria -el correo sale para el otro pagare- y eso tiene
-  // que verse antes de pulsar, no despues.
-  const esDeOtro = !!(v && v.de_otro_documento && v.estado !== 'completada');
-  // Morado agrisado, de la misma familia que la marca. El ambar de antes
-  // parecia sangre y daba una alarma que no corresponde.
-  const fondo = !puede ? '#e5e0e8' : esDeOtro ? '#6b5b73' : '#2a0d31';
+  // El morado de siempre, el mismo de ENVIAR. El ambar de antes parecia una
+  // alarma, y el morado agrisado se veia deslavado al lado del resto.
+  // Que la validacion sea de otro pagare ya lo dice la leyenda de abajo.
+  const fondo = !puede ? '#e5e0e8' : '#2a0d31';
 
   const btn = `
     <button class="vi-un-clic-btn recipient-btn"
