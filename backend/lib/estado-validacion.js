@@ -118,7 +118,10 @@ async function conEstadoDeValidacion(db, destinatarios) {
                     intentos: v.intentos != null ? Number(v.intentos) : null,
                     // Con que datos se creo de verdad. Si no coinciden con los
                     // del pagare, algo se cruzo al crearla.
-                    email_vi: v.email_firmante || null
+                    email_vi: v.email_firmante || null,
+                    // Si la validacion viene de otro pagare de esa misma
+                    // persona. Se rellena mas abajo.
+                    de_otro_documento: false
                 };
             }
         } catch (e) {
@@ -128,6 +131,40 @@ async function conEstadoDeValidacion(db, destinatarios) {
             for (const d of destinatarios) d.validacion = { vi_sin_respuesta: true };
         }
     }
+    // De que documento salio cada validacion. VI no lo dice, pero nosotros
+    // guardamos el documento cuando la creamos desde aqui.
+    //
+    // Importa porque una validacion sirve para TODOS los pagares de esa
+    // persona -un padre con dos hijos firma dos, y no tiene sentido pedirle
+    // que se valide dos veces-. Si la suya viene de otro pagare, la pantalla
+    // lo dice en vez de hacer creer que se creo para este.
+    const conValidacion = destinatarios.filter(d => d.validacion && d.validacion.codigo);
+    if (conValidacion.length && db) {
+        try {
+            const codigos = [...new Set(conValidacion.map(d => d.validacion.codigo))];
+            const marcas = codigos.map(() => '?').join(',');
+            const [filas] = await db.promise().query(
+                `SELECT validacion_codigo, document_id
+                 FROM vi_validaciones_pendientes
+                 WHERE validacion_codigo IN (${marcas})`,
+                codigos
+            );
+            const docDe = {};
+            for (const f of filas) docDe[f.validacion_codigo] = f.document_id;
+
+            for (const d of conValidacion) {
+                const suyo = docDe[d.validacion.codigo];
+                // Solo se marca cuando SE SABE que es de otro: si no esta en
+                // la tabla (se creo desde el panel de VI) no se afirma nada.
+                if (suyo && d.document_id && suyo !== d.document_id) {
+                    d.validacion.de_otro_documento = true;
+                }
+            }
+        } catch (e) {
+            console.warn(`[VALIDACION] No se pudo saber de que documento viene: ${e.message}`);
+        }
+    }
+
     return destinatarios;
 }
 
@@ -228,7 +265,11 @@ async function soloValidaciones(destinatarios) {
             estado: v.estado,
             dias_restantes: dias,
             caducada: dias !== null && dias <= 0,
-            intentos: v.intentos != null ? Number(v.intentos) : null
+            intentos: v.intentos != null ? Number(v.intentos) : null,
+            // De otro pagare, cuando lo sabemos. VI no devuelve el asunto,
+            // asi que no se puede nombrar cual; se rellena mas abajo
+            // comparando con nuestra tabla de pendientes.
+            de_otro_documento: false
         };
     }
     return destinatarios;

@@ -5111,6 +5111,118 @@ app.get('/api/public/vi-status/:token', async (req, res) => {
     }
 });
 
+/**
+ * Cuando alguien completa su validacion, marcarla en TODOS sus pagares y
+ * mandarle el enlace de firma de cada uno.
+ *
+ * POR QUE:
+ *
+ * Una validacion de identidad es de la PERSONA, no del documento. Un padre con
+ * dos hijos en la universidad firma dos pagares, y no tiene sentido pedirle que
+ * se valide dos veces con la misma cedula.
+ *
+ * El sistema ya reutiliza las validaciones de hasta un año cuando se envia un
+ * CSV nuevo, pero solo las COMPLETADAS. Si el padre tenia una pendiente y la
+ * completa despues, los otros pagares se quedaban esperando: aparecia como no
+ * verificado en unos y verificado en otro.
+ *
+ * Y ADEMAS EL ENLACE DE FIRMA:
+ *
+ * Al terminar la validacion, VI redirige al firmante para que firme ese
+ * documento. Pero los OTROS pagares suyos no se los ensena nadie, y el enlace
+ * no le llega al correo. Ahora si: recibe un correo por cada pagare que le
+ * quede pendiente, para que los tenga fuera del sistema de validacion.
+ *
+ * LO QUE NO HACE:
+ *
+ * - No manda el enlace del pagare que acaba de validar: de ese ya se encarga la
+ *   redireccion de VI. Solo los demas.
+ * - No manda nada a quien no le toque firmar todavia. En los pagares la firma
+ *   es secuencial: si el deudor no ha firmado, al codeudor no le toca.
+ * - No toca a quien ya firmo.
+ *
+ * @param {string} email          el correo que acaba de validar
+ * @param {number} documentoYaHecho  el pagare donde se valido, que se excluye
+ * @param {string} trazaPath     la traza generada, para copiarla
+ * @param {string} codigo        el codigo de la validacion
+ */
+async function propagarValidacion(email, documentoYaHecho, trazaPath, codigo) {
+    const correo = String(email || '').toLowerCase();
+    if (!correo) return;
+
+    // A quien marcar: el mismo correo, en otros documentos, sin validar y sin
+    // firmar. Se excluye el documento que acaba de completarse.
+    const [pendientes] = await db.promise().query(
+        `SELECT dr.recipient_id, dr.document_id, dr.token, dr.name,
+                dr.signing_order, dr.viewer_group_id, dr.is_final_signer,
+                d.title
+         FROM document_recipients dr
+         JOIN documents d ON d.document_id = dr.document_id
+         WHERE LOWER(dr.email) = ?
+           AND dr.document_id <> ?
+           AND dr.vi_validated_at IS NULL
+           AND dr.status NOT IN ('completed', 'rejected')`,
+        [correo, documentoYaHecho || 0]
+    );
+
+    if (!pendientes.length) return;
+
+    console.log(`🔗 [VI-CALLBACK] ${correo} valido: tiene ${pendientes.length} pagare(s) mas pendiente(s)`);
+
+    for (const p of pendientes) {
+        try {
+            // 1. Marcarlo como validado, con la misma traza
+            await db.promise().query(
+                `UPDATE document_recipients
+                 SET vi_validated_at = NOW(),
+                     vi_traza_path = COALESCE(vi_traza_path, ?)
+                 WHERE recipient_id = ?`,
+                [trazaPath || null, p.recipient_id]
+            );
+            console.log(`   ✅ marcado como validado en "${p.title}" (doc ${p.document_id})`);
+
+            // 2. El enlace de firma, solo si le toca firmar ya.
+            //
+            // En los pagares la firma es secuencial: si hay alguien antes que
+            // el que todavia no ha firmado, su turno no ha llegado y mandarle
+            // el enlace solo le confundiria.
+            if (p.is_final_signer) continue;   // el definitivo va por su propia via
+
+            const [antes] = await db.promise().query(
+                `SELECT COUNT(*) AS faltan FROM document_recipients
+                 WHERE document_id = ? AND viewer_group_id <=> ?
+                   AND signing_order < ? AND status <> 'completed'`,
+                [p.document_id, p.viewer_group_id, p.signing_order || 1]
+            );
+            if (Number(antes[0]?.faltan) > 0) {
+                console.log(`   ⏳ "${p.title}": aun no le toca firmar, no se le manda el enlace`);
+                continue;
+            }
+
+            const r = await enviarRecordatorios(
+                [{ recipient_id: p.recipient_id, email: correo,
+                   nombre: p.name || correo, es_firmante_definitivo: false }],
+                'firma', p.document_id, p.title,
+                // No hay peticion: es el callback de VI. Se pasa lo minimo que
+                // enviarRecordatorios necesita.
+                { userId: null },
+                true   // sin limite: es la consecuencia de validarse, no un reenvio
+            );
+
+            if (r.enviados) {
+                console.log(`   📧 enlace de firma enviado para "${p.title}"`);
+            } else {
+                console.warn(`   ⚠️ no se pudo enviar el enlace de "${p.title}": ` +
+                             (r.errores?.[0]?.motivo || 'sin motivo'));
+            }
+        } catch (e) {
+            // Un pagare que falle no puede impedir los demas, ni tumbar el
+            // callback: la validacion ya se completo y eso es lo importante.
+            console.error(`   ❌ error propagando a doc ${p.document_id}: ${e.message}`);
+        }
+    }
+}
+
 // POST /api/public/vi-callback
 // Llamado server-to-server por VI cuando la validación es exitosa (fire-and-forget).
 // Marca vi_validated_at y descarga + inserta la trazabilidad al PDF del documento.
@@ -5545,6 +5657,19 @@ app.post('/api/public/vi-callback', async (req, res) => {
             } catch (e) {
                 console.error('⚠️ [VI-CALLBACK] Error enviando email a firmante definitivo:', e.message);
             }
+        }
+        // Una validacion es de la PERSONA, no del documento. Si este firmante
+        // tiene mas pagares pendientes, se marcan todos y se le manda el
+        // enlace de firma de cada uno: no tiene sentido pedirle que se valide
+        // dos veces con la misma cedula.
+        try {
+            await propagarValidacion(
+                recipient.email, recipient.document_id,
+                trazaRelPathGuardada, trazaCodigoGuardado);
+        } catch (e) {
+            // La validacion ya se completo: que falle la propagacion no puede
+            // deshacer eso. Queda el aviso para poder repararlo a mano.
+            console.error('⚠️ [VI-CALLBACK] No se pudo propagar a otros pagares:', e.message);
         }
 
     } catch (error) {

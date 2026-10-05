@@ -964,6 +964,16 @@ function estadoValidacion(d) {
 
   const partes = [];
 
+  // La validacion viene de OTRO pagare de esa misma persona.
+  //
+  // Pasa cuando un padre tiene dos hijos en la universidad: firma dos
+  // pagares, pero su identidad es una sola. No se le crea otra validacion
+  // -no tiene sentido pedirle que se valide dos veces con la misma cedula-,
+  // se reenvia la que ya tiene, y al completarla vale para los dos.
+  if (v.de_otro_documento && v.estado !== 'completada') {
+    partes.push('<span style="color:#92400e;">De otro pagare suyo</span>');
+  }
+
   // Si ya la completo, eso es lo unico que importa decir.
   if (v.estado === 'completada') {
     return '<div style="font-size:11px;color:#166534;margin-top:2px;text-align:center;">' +
