@@ -3695,6 +3695,66 @@ function _pedirValidacionesAVI(cuerpoObj) {
 }
 
 /**
+ * Corrige los datos de una validacion que YA EXISTE, sin crear otra.
+ *
+ * Es la ruta PATCH que VI anadio el 05-10-2026. Antes corregir obligaba a
+ * crear una validacion nueva desde su panel, y la vieja se quedaba viva con
+ * los datos malos: quedaban dos y no se sabia cual valia.
+ *
+ * Mantiene el codigo, el enlace y los intentos. Solo sobre una validacion
+ * pendiente o en proceso: una completada no se toca, porque son los datos
+ * contra los que esa persona se valido biometricamente.
+ *
+ * @param {string} codigo  el codigo de la validacion (VAL-XXXX)
+ * @param {object} campos  nombre_completo, documento, tipo_documento, celular
+ * @returns {Promise<{ok:boolean, estado:number, validacion?:object, motivo?:string}>}
+ */
+function _corregirValidacionVI(codigo, campos) {
+    const VI_URL = process.env.VI_URL || 'http://validacion-identidad-app-1:3000';
+    const url = new URL(
+        `${VI_URL}/validacion/api/firmalegal/validaciones/${encodeURIComponent(codigo)}`);
+    const transporte = url.protocol === 'https:' ? require('https') : require('http');
+
+    // Solo los campos que vengan con valor: VI deja los demas como estaban.
+    const cuerpoObj = {};
+    for (const k of ['nombre_completo', 'documento', 'tipo_documento', 'celular']) {
+        if (campos && campos[k]) cuerpoObj[k] = String(campos[k]).trim();
+    }
+    const cuerpo = JSON.stringify(cuerpoObj);
+
+    return new Promise((resolver, rechazar) => {
+        const peticion = transporte.request({
+            hostname: url.hostname,
+            port: url.port || (url.protocol === 'https:' ? 443 : 80),
+            path: url.pathname,
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Internal-Api-Key': process.env.INTERNAL_API_KEY || '',
+                'Content-Length': Buffer.byteLength(cuerpo)
+            }
+        }, (respuesta) => {
+            let datos = '';
+            respuesta.on('data', t => { datos += t; });
+            respuesta.on('end', () => {
+                let json = null;
+                try { json = JSON.parse(datos || '{}'); } catch (e) {}
+                if (respuesta.statusCode === 200) {
+                    return resolver({ ok: true, estado: 200,
+                                      validacion: (json && json.validacion) || null });
+                }
+                resolver({ ok: false, estado: respuesta.statusCode,
+                           motivo: (json && json.message) || `VI respondio ${respuesta.statusCode}` });
+            });
+        });
+        peticion.on('error', rechazar);
+        peticion.setTimeout(8000, () => peticion.destroy(new Error('VI no respondio en 8 segundos')));
+        peticion.write(cuerpo);
+        peticion.end();
+    });
+}
+
+/**
  * Reenvia el correo de una validacion que YA EXISTE, sin crear otra.
  *
  * Es la ruta que VI anadio el 05-10-2026. Antes no habia ninguna: reenviar y
@@ -4201,6 +4261,91 @@ app.post('/api/recordatorios/individual', requireAuth, async (req, res) => {
     } catch (e) {
         console.error('[RECORDATORIOS] Error en el reenvio individual:', e.message);
         res.status(500).json({ success: false, message: 'No se pudo reenviar el correo' });
+    }
+});
+
+// PATCH /api/validaciones/:recipientId/datos — corregir SU validacion.
+//
+// body: { nombre_completo, documento, tipo_documento, celular }
+//
+// Corrige los datos DENTRO de la validacion que ya existe. No crea otra.
+//
+// POR QUE IMPORTA: antes corregir obligaba a ir al panel de VI y rellenar el
+// formulario, que CREA una validacion nueva. La vieja se quedaba viva con los
+// datos malos, asi que esa persona acababa con dos y nadie sabia cual valia.
+// Peor aun: por fecha no se puede distinguir cual lleva el dato bueno, porque
+// un reenvio posterior crea una mas nueva con los datos del CSV sin corregir.
+//
+// Una persona tiene UNA validacion. Corregir la edita; no la duplica.
+app.patch('/api/validaciones/:recipientId/datos', requireAuth, async (req, res) => {
+    try {
+        const recipientId = parseInt(req.params.recipientId, 10);
+        if (!recipientId) {
+            return res.status(400).json({ success: false, message: 'Falta el destinatario' });
+        }
+
+        const [filas] = await db.promise().query(
+            'SELECT recipient_id, email, name FROM document_recipients WHERE recipient_id = ?',
+            [recipientId]
+        );
+        if (!filas.length) {
+            return res.status(404).json({ success: false, message: 'Destinatario no encontrado' });
+        }
+        const p = filas[0];
+
+        // Cual es SU validacion. Se pide por el codigo que tenemos guardado,
+        // no por el correo: una persona puede tener varias y VI devolveria la
+        // que ella elija.
+        let suya = null;
+        try {
+            suya = await _validacionYaExistente(p.email);
+        } catch (e) {
+            return res.status(502).json({ success: false,
+                message: 'No se pudo consultar Validacion de Identidad: ' + e.message });
+        }
+
+        if (!_estadoValidacion.estaViva(suya)) {
+            // Sin validacion viva no hay nada que corregir: lo que toca es
+            // crearsela, y entonces los datos se toman del pagare.
+            return res.json({ success: false, sin_validacion: true,
+                message: 'Esa persona no tiene una validacion activa. Creale una con ' +
+                         '"Iniciar validacion" y se enviara con los datos que corrijas en el pagare.' });
+        }
+        if (suya.estado === 'completada') {
+            return res.json({ success: false, ya_valido: true,
+                message: 'Ya valido su identidad. Los datos con los que se valido no se cambian.' });
+        }
+
+        const { nombre_completo, documento, tipo_documento, celular } = req.body || {};
+        if (!nombre_completo && !documento && !tipo_documento && !celular) {
+            return res.status(400).json({ success: false,
+                message: 'No se recibio ningun dato que corregir' });
+        }
+
+        const r = await _corregirValidacionVI(suya.codigo,
+            { nombre_completo, documento, tipo_documento, celular });
+
+        if (!r.ok) {
+            // El motivo de VI se devuelve tal cual: esta escrito para leerlo.
+            return res.json({ success: false, codigo: suya.codigo,
+                message: r.motivo || 'No se pudo corregir la validacion' });
+        }
+
+        await registrarError({
+            tipo: 'vi_validacion_corregida', gravedad: 'info',
+            mensaje: `Datos corregidos en la validacion ${suya.codigo} de ${p.email}`,
+            datos: { correo: p.email, codigo: suya.codigo,
+                     documento: documento || null, nombre: nombre_completo || null },
+            req
+        }).catch(() => {});
+
+        res.json({ success: true, codigo: suya.codigo,
+            validacion: r.validacion || null,
+            message: 'Datos corregidos en su validacion (' + suya.codigo + ').' });
+
+    } catch (e) {
+        console.error('[VALIDACION-CORREGIR] Error:', e.message);
+        res.status(500).json({ success: false, message: 'No se pudo corregir la validacion' });
     }
 });
 

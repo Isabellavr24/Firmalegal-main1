@@ -1162,6 +1162,137 @@ function escHtml(t) {
 //
 // Antes habia que ir al panel de Validacion de Identidad, escribir los datos a
 // mano y volver. Ahora se toman del CSV, que es de donde salen de todos modos.
+// Corregir los datos de SU validacion, sin salir de la pantalla.
+//
+// Antes esto abria el panel de Validacion de Identidad, que CREA una
+// validacion nueva: la vieja se quedaba viva con los datos malos y esa persona
+// acababa con dos sin saber cual usar. Con la ruta PATCH que VI anadio el
+// 05-10-2026 se puede editar la que ya tiene.
+//
+// Si NO tiene validacion viva no hay nada que editar, y entonces se abre el
+// panel de VI como siempre: lo que toca es crearsela.
+function abrirCorregirValidacion(recipient) {
+  const v = recipient.validacion;
+  const hayQueEditar = v && v.codigo && !v.vi_sin_respuesta &&
+                       v.estado !== 'cancelada' && v.estado !== 'anulada' &&
+                       v.estado !== 'completada';
+
+  // Sin validacion viva: al panel de VI, que es donde se crea.
+  if (!hayQueEditar) { handleViStart(recipient); return; }
+
+  const csv = recipient.datos_csv || {};
+  // Lo que se ensena es lo que VI tiene AHORA, no lo del CSV: el operador
+  // viene a afinar lo que ya hay.
+  const valores = {
+    nombre: v.nombre || csv.nombre || recipient.name || '',
+    documento: v.documento || csv.documento || '',
+    celular: String(csv.celular || '').replace('+57', '')
+  };
+
+  const fondo = document.createElement('div');
+  fondo.style.cssText = 'position:fixed;inset:0;background:rgba(20,8,24,.45);' +
+    'display:flex;align-items:center;justify-content:center;z-index:10000;padding:16px;';
+
+  const campo = (id, etiqueta, valor, ayuda) => `
+    <div style="margin-bottom:14px;">
+      <label for="${id}" style="display:block;font-size:11px;color:#6b7280;
+             text-transform:uppercase;letter-spacing:.04em;margin-bottom:5px;">${etiqueta}</label>
+      <input id="${id}" value="${escHtml(valor)}" autocomplete="off"
+             style="width:100%;padding:10px 12px;border:1px solid #e5e0e8;border-radius:8px;
+                    font-size:14px;color:#1f2937;box-sizing:border-box;">
+      ${ayuda ? `<div style="font-size:10.5px;color:#9ca3af;margin-top:4px;">${ayuda}</div>` : ''}
+    </div>`;
+
+  fondo.innerHTML = `
+    <div style="background:#fff;border-radius:14px;max-width:440px;width:100%;
+                box-shadow:0 20px 60px rgba(0,0,0,.25);overflow:hidden;">
+      <div style="padding:20px 24px 0;">
+        <div style="font-size:17px;font-weight:700;color:#2a0d31;">Corregir su validacion</div>
+        <div style="font-size:12px;color:#6b7280;margin-top:5px;line-height:1.5;">
+          Se corrigen los datos de la validacion que ya tiene
+          (<span style="color:#2a0d31;">${escHtml(v.codigo)}</span>).
+          No se le crea otra ni se le cambia el enlace.
+        </div>
+      </div>
+      <div style="padding:20px 24px 0;">
+        ${campo('corr-nombre', 'Nombre completo', valores.nombre,
+                'Es contra lo que la biometria compara su cedula')}
+        ${campo('corr-documento', 'Cedula', valores.documento, '')}
+        ${campo('corr-celular', 'Celular', valores.celular,
+                'Sin el +57. Es a donde le llega el codigo OTP')}
+        <div id="corr-aviso" style="display:none;font-size:11.5px;color:#b91c1c;
+             line-height:1.5;margin-bottom:12px;"></div>
+      </div>
+      <div style="padding:6px 24px 20px;display:flex;gap:10px;justify-content:flex-end;">
+        <button id="corr-cancelar" style="padding:10px 18px;border:1px solid #e5e0e8;
+                background:#fff;border-radius:8px;font-size:13px;color:#6b7280;cursor:pointer;">
+          Cancelar</button>
+        <button id="corr-guardar" style="padding:10px 20px;border:none;background:#2a0d31;
+                border-radius:8px;font-size:13px;font-weight:700;color:#fff;cursor:pointer;">
+          Guardar</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(fondo);
+  const cerrar = () => fondo.remove();
+  fondo.addEventListener('click', (e) => { if (e.target === fondo) cerrar(); });
+  fondo.querySelector('#corr-cancelar').addEventListener('click', cerrar);
+
+  const aviso = fondo.querySelector('#corr-aviso');
+  const decir = (t) => { aviso.textContent = t; aviso.style.display = t ? 'block' : 'none'; };
+
+  const guardar = fondo.querySelector('#corr-guardar');
+  guardar.addEventListener('click', async () => {
+    const nombre = fondo.querySelector('#corr-nombre').value.trim();
+    const documento = fondo.querySelector('#corr-documento').value.trim();
+    const celular = fondo.querySelector('#corr-celular').value.trim();
+
+    // La cedula es contra lo que se compara: sin ella la validacion no sirve.
+    if (!documento) { decir('Sin cedula la validacion no sirve: no hay contra que comparar.'); return; }
+    if (!/^[0-9]{5,12}$/.test(documento.replace(/[.\s-]/g, ''))) {
+      decir('La cedula deberia ser solo numeros.'); return;
+    }
+    const soloDigitos = celular.replace(/[^0-9]/g, '');
+    if (celular && !(soloDigitos.length === 10 && soloDigitos[0] === '3')) {
+      decir('El celular deberia tener 10 digitos y empezar por 3.'); return;
+    }
+    decir('');
+
+    guardar.disabled = true;
+    guardar.textContent = 'Guardando...';
+    try {
+      const res = await fetch(`/api/validaciones/${recipient.id}/datos`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          nombre_completo: nombre || undefined,
+          documento: documento.replace(/[.\s-]/g, ''),
+          tipo_documento: 'CC',
+          celular: soloDigitos ? '+57' + soloDigitos : undefined
+        })
+      }).then(r => r.json());
+
+      if (res.success) {
+        cerrar();
+        avisar(res.message || 'Datos corregidos', true);
+        const docId = new URLSearchParams(window.location.search).get('id');
+        if (docId) loadRecipients(docId);
+      } else {
+        decir(res.message || 'No se pudo corregir');
+        guardar.disabled = false;
+        guardar.textContent = 'Guardar';
+      }
+    } catch (e) {
+      decir('No se pudo conectar: ' + e.message);
+      guardar.disabled = false;
+      guardar.textContent = 'Guardar';
+    }
+  });
+
+  setTimeout(() => { const n = fondo.querySelector('#corr-documento'); if (n) n.focus(); }, 50);
+}
+
 async function validacionUnClic(recipientId, accion, boton) {
   const original = boton ? boton.textContent.trim() : '';
   if (boton) { boton.disabled = true; boton.textContent = 'Enviando...'; }
@@ -1373,7 +1504,7 @@ function createRecipientCard(recipient) {
   // de Validacion de Identidad con los datos puestos, para arreglar lo que
   // este mal antes de enviar.
   const corregirBtn = card.querySelector('.vi-corregir-btn');
-  if (corregirBtn) corregirBtn.addEventListener('click', () => handleViStart(recipient));
+  if (corregirBtn) corregirBtn.addEventListener('click', () => abrirCorregirValidacion(recipient));
 
   // Event listeners para botones de VI
   const startBtn = card.querySelector('.vi-start-btn');
