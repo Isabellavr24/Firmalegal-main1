@@ -5857,16 +5857,19 @@ async function handleViStart(recipient) {
     // Los datos que ya sabemos, para no obligar a reescribirlos a mano. El
     // operador entra a CORREGIR algo concreto, no a teclearlo todo.
     //
-    // SI YA TIENE VALIDACION, MANDAN SUS DATOS, NO LOS DEL CSV.
+    // SI TIENE UNA VALIDACION QUE SIRVE, MANDAN SUS DATOS. SI NO, EL CSV.
     //
     // Quien entra aqui por segunda vez viene a afinar una correccion que ya
-    // hizo. Si le volvemos a poner delante lo del CSV, lo corregido desaparece
-    // de la pantalla y al guardar se pierde otra vez. Es como se duplico una
-    // validacion el 03/10 en DEV: se corrigio, y el siguiente paso volvio a
-    // mandar los datos de la plantilla.
+    // hizo, asi que se le pone delante lo que VI tiene y no lo del pagare.
+    //
+    // Pero SOLO si esa validacion sigue viva. Los datos de una anulada o
+    // vencida no son 'los corregidos': son los de algo que ya no existe, y al
+    // crear la nueva lo que vale es el pagare. Se vio el 06-10: con todas las
+    // validaciones anuladas, el formulario se abria con la cedula y el nombre
+    // de una cancelada, distintos de los que la pantalla estaba ensenando.
     const csv = recipient.datos_csv || {};
     const v = recipient.validacion;
-    const hayValidacion = v && v.codigo && !v.vi_sin_respuesta;
+    const hayValidacion = validacionUtil(v);
 
     const documento = (hayValidacion && v.documento) || csv.documento;
     const nombre    = (hayValidacion && v.nombre)    || csv.nombre;
@@ -5878,9 +5881,9 @@ async function handleViStart(recipient) {
     if (nombre)    params.set('nombre', nombre);
     if (celular)   params.set('celular', String(celular).replace('+57', ''));
 
-    // El codigo de la validacion que se esta corrigiendo. VI todavia no lo
-    // usa, pero es lo que le permitira EDITAR esa misma validacion en vez de
-    // crear otra, que es lo que se le ha pedido.
+    // El codigo de la validacion que se esta corrigiendo, para que VI edite
+    // esa en vez de crear otra. Solo cuando hay una viva: sobre una anulada
+    // no hay nada que editar, lo que toca es crear una nueva.
     if (hayValidacion) params.set('codigo', v.codigo);
     // Lo que la universidad usa siempre, para que no haya que elegirlo cada vez
     params.set('tipo_documento',
