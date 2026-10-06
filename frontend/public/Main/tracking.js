@@ -2757,10 +2757,11 @@ function pintarPanelRecordatorios(d) {
   const leyenda = hayBotones
     ? `<div style="font-size:11px;color:#b0a6b8;margin-top:16px;line-height:1.6;
                  padding-top:14px;border-top:1px solid var(--border-color, #ece7ee);">
-         Para no saturar a los firmantes, desde aqui se envian como maximo
+         Para no saturar a los firmantes, estos botones envian como maximo
          <strong style="color:#8b7d93;">${d.envios_por_dia || 2} correos de validacion
          y ${d.envios_por_dia || 2} de firma</strong> a cada persona por dia.
-         Si hace falta escribirle antes, se puede desde su propio renglon.
+         Para escribirle a una sola persona, usa el boton que esta al lado de
+         su nombre en la lista de abajo.
        </div>` : '';
 
   caja.innerHTML = `
