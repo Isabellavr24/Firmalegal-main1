@@ -3573,16 +3573,30 @@ async function enviarRecordatorios(personas, tipo, docId, docTitle, req, sinLimi
     for (const p of personas) {
         // Se vuelve a comprobar el limite: la pantalla pudo abrirse hace rato.
         // En el primer envio no hay limite que comprobar.
-        if (!sinLimite && !(await _recordatorios.sePuedeEnviar(db, p.recipient_id, req.userId))) {
+        // El limite de los correos de validacion depende de en que estado
+        // esta la suya: si se la anularon o se le vencio, la cuenta empieza
+        // de cero, porque le toca que le creen otra.
+        const puedeAhora = tipo === 'validacion'
+            ? await _recordatorios.sePuedeEnviarValidacion(db, p.recipient_id, req.userId, p.email)
+            : await _recordatorios.sePuedeEnviar(db, p.recipient_id, req.userId, 'firma');
+        if (!sinLimite && !puedeAhora) {
             saltados++;
             continue;
         }
 
+        // Que accion fue de verdad, para contarla por separado.
+        //
+        // Crear una validacion y reenviarla no son lo mismo y no comparten
+        // limite: el operador puede enviar dos y reenviar dos, cada cosa con
+        // su cuenta. crearValidacionVI devuelve `reenviada` cuando esa persona
+        // ya tenia una y solo se le volvio a mandar el correo.
+        let tipoReal = tipo;
         try {
             if (tipo === 'validacion') {
                 // La validacion la crea el sistema de VI, que ademas manda su
                 // propio correo. Se reutiliza la misma ruta que usa el boton.
-                await crearValidacionVI(p, docId, docTitle, req);
+                const rv = await crearValidacionVI(p, docId, docTitle, req);
+                tipoReal = (rv && rv.reenviada) ? 'validacion_reenvio' : 'validacion';
             } else {
                 const [rec] = await db.promise().query(
                     'SELECT token FROM document_recipients WHERE recipient_id = ?', [p.recipient_id]);
@@ -3605,7 +3619,7 @@ async function enviarRecordatorios(personas, tipo, docId, docTitle, req, sinLimi
             enviados++;
             await _recordatorios.registrar(db, {
                 recipientId: p.recipient_id, documentId: docId, userId: req.userId,
-                tipo, email: p.email, resultado: 'enviado'
+                tipo: tipoReal, email: p.email, resultado: 'enviado'
             });
 
         } catch (e) {

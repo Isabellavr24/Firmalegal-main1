@@ -2698,12 +2698,26 @@ function pintarPanelRecordatorios(d) {
 
   const hayBotones = r.sin_validar || r.validados_sin_firmar;
 
-  // Quien ya gasto sus envios de hoy
+  // Quien ya gasto sus envios de la ventana.
+  //
+  // Se dice CUANDO fue y CUANTO falta, no 'de hoy': la ventana es de 24
+  // horas rodantes, asi que un envio de ayer por la tarde sigue contando.
+  // Decir 'hoy' hacia pensar que el dato estaba mal.
+  const cuando = r.ultimo_envio
+    ? new Date(r.ultimo_envio).toLocaleString('es-CO',
+        { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+    : null;
+  const faltan = r.espera_min_segundos > 0
+    ? (r.espera_min_segundos >= 3600
+        ? Math.ceil(r.espera_min_segundos / 3600) + ' hora' +
+          (Math.ceil(r.espera_min_segundos / 3600) === 1 ? '' : 's')
+        : Math.ceil(r.espera_min_segundos / 60) + ' minutos')
+    : null;
   const espera = r.en_espera
     ? `<div style="font-size:12px;color:#8b7d93;margin-top:14px;line-height:1.5;">
          ${r.en_espera} ${r.en_espera === 1 ? 'persona ya recibio' : 'personas ya recibieron'}
-         sus ${d.envios_por_dia || 2} recordatorios de hoy: no se les reenvia hasta
-         que pasen 24 horas del primero.
+         sus ${d.envios_por_dia || 2} correos${cuando ? ', el ultimo el ' + escHtml(cuando) : ''}.
+         ${faltan ? 'Se les puede volver a escribir en ' + faltan + '.' : ''}
        </div>` : '';
 
   // La leyenda de limites, siempre visible cuando hay botones.
@@ -2713,11 +2727,13 @@ function pintarPanelRecordatorios(d) {
   const leyenda = hayBotones
     ? `<div style="font-size:11px;color:#b0a6b8;margin-top:16px;line-height:1.6;
                  padding-top:14px;border-top:1px solid var(--border-color, #ece7ee);">
-         Cada persona puede recibir como maximo
-         <strong style="color:#8b7d93;">${d.envios_por_dia || 2} recordatorios al dia</strong>,
-         contados sobre las ultimas 24 horas.
-         El reenvio individual de cada persona no tiene limite diario, pero si una
-         espera que crece a cada intento: 1 minuto, 10, 30 y 60.
+         Cada persona puede recibir
+         <strong style="color:#8b7d93;">${d.envios_por_dia || 2} correos de cada tipo</strong>
+         en 24 horas: enviar validacion, reenviarla y mandar el enlace de firma
+         llevan cuentas separadas.
+         Si su validacion se anula, los correos anteriores dejan de contar.
+         El reenvio individual tiene una espera que crece a cada intento
+         -1 minuto, 10, 30 y 60- y un tope de 6 al dia.
        </div>` : '';
 
   caja.innerHTML = `

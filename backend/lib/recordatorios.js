@@ -81,13 +81,33 @@ async function estadoDocumento(db, documentId, userId) {
                     AND r.user_id <=> ?
                     AND r.resultado = 'enviado') AS ultimo_mio,
                 -- Cuantos lleva en las ultimas 24 horas, que es el limite.
+                --
+                -- Solo los de VALIDACION -crear o reenviar-: el enlace de
+                -- firma lleva su propia cuenta, y gastar el cupo de uno con
+                -- el otro no tiene sentido.
                 (SELECT COUNT(*) FROM recordatorios_enviados r
                   JOIN document_recipients d2 ON d2.recipient_id = r.recipient_id
                   WHERE LOWER(d2.email) COLLATE utf8mb4_unicode_ci =
                         LOWER(dr.email) COLLATE utf8mb4_unicode_ci
                     AND r.user_id <=> ?
                     AND r.resultado = 'enviado'
+                    AND r.tipo IN ('validacion', 'validacion_reenvio')
                     AND r.created_at >= NOW() - INTERVAL ? HOUR) AS envios_hoy,
+                -- Separados, porque enviar y reenviar no comparten limite.
+                (SELECT COUNT(*) FROM recordatorios_enviados r
+                  JOIN document_recipients d2 ON d2.recipient_id = r.recipient_id
+                  WHERE LOWER(d2.email) COLLATE utf8mb4_unicode_ci =
+                        LOWER(dr.email) COLLATE utf8mb4_unicode_ci
+                    AND r.user_id <=> ? AND r.resultado = 'enviado'
+                    AND r.tipo = 'validacion'
+                    AND r.created_at >= NOW() - INTERVAL ? HOUR) AS envios_crear,
+                (SELECT COUNT(*) FROM recordatorios_enviados r
+                  JOIN document_recipients d2 ON d2.recipient_id = r.recipient_id
+                  WHERE LOWER(d2.email) COLLATE utf8mb4_unicode_ci =
+                        LOWER(dr.email) COLLATE utf8mb4_unicode_ci
+                    AND r.user_id <=> ? AND r.resultado = 'enviado'
+                    AND r.tipo = 'validacion_reenvio'
+                    AND r.created_at >= NOW() - INTERVAL ? HOUR) AS envios_reenvio,
                 -- Cuando caduca el mas viejo de esos: el momento en que
                 -- vuelve a tener hueco.
                 (SELECT MIN(r.created_at) FROM recordatorios_enviados r
@@ -110,7 +130,9 @@ async function estadoDocumento(db, documentId, userId) {
            ON LOWER(vp.email) COLLATE utf8mb4_unicode_ci = LOWER(dr.email) COLLATE utf8mb4_unicode_ci
          WHERE dr.document_id = ?
          ORDER BY dr.viewer_group_id, dr.signing_order`,
-        [userId, userId, VENTANA_HORAS, userId, VENTANA_HORAS, userId, documentId]
+        [userId, userId, VENTANA_HORAS,
+         userId, VENTANA_HORAS, userId, VENTANA_HORAS,
+         userId, VENTANA_HORAS, userId, documentId]
     );
 
     const ahora = Date.now();
@@ -120,8 +142,16 @@ async function estadoDocumento(db, documentId, userId) {
 
     for (const f of filas) {
         // Puede recibir otro si lleva menos de ENVIOS_POR_DIA en la ventana.
+        //
+        // Se mira el contador de LA ACCION QUE LE TOCA. A quien no tiene
+        // validacion viva le toca CREAR, asi que sus reenvios de ayer no le
+        // frenan; a quien si la tiene le toca REENVIAR y cuentan los suyos.
+        // Antes compartian limite y dos reenvios impedian crear.
+        const llevaCrear = Number(f.envios_crear) || 0;
+        const llevaReenvio = Number(f.envios_reenvio) || 0;
         const llevaHoy = Number(f.envios_hoy) || 0;
-        const puede = llevaHoy < ENVIOS_POR_DIA;
+        // Se rellena mas abajo, cuando se sepa si su validacion sigue viva.
+        let puede = llevaHoy < ENVIOS_POR_DIA;
 
         // Cuando vuelve a tener hueco: al caducar el mas viejo de los que
         // ocupan la ventana. Como es movil, no hay que esperar a medianoche.
@@ -144,6 +174,9 @@ async function estadoDocumento(db, documentId, userId) {
             ultimo_recordatorio: f.ultimo_mio,
             puede_reenviarse: puede,
             envios_hoy: llevaHoy,
+            // Por accion, para decidir mas abajo cual es el que frena.
+            envios_crear: llevaCrear,
+            envios_reenvio: llevaReenvio,
             // Lo que falta para volver a tener hueco, en segundos. La
             // pantalla lo convierte a horas o minutos segun cuanto sea.
             faltan_segundos: faltanSegundos,
@@ -195,6 +228,31 @@ async function estadoDocumento(db, documentId, userId) {
                 // Paso el 06-10-2026: se anularon las quince validaciones de
                 // DEV y el panel seguia diciendo 'Reenviar validaciones (1)'.
                 p.tiene_validacion = _estado.estaViva(comoDestinatarios[i].validacion);
+
+                // Y AHORA EL LIMITE, SOBRE LA ACCION QUE LE TOCA.
+                //
+                // SI SU VALIDACION YA NO SIRVE, LA CUENTA EMPIEZA DE CERO.
+                //
+                // A quien se le anulo o se le vencio la validacion le toca
+                // CREAR otra, y los correos que se le mandaron antes no deben
+                // frenarlo: todos llevaban al enlace que acaba de morir.
+                // Frenar por ellos no protege a nadie, solo impide mandarle el
+                // unico que ya le serviria.
+                //
+                // Es lo que se vio el 06-10: se anularon las quince
+                // validaciones de DEV y el panel seguia diciendo que cuatro
+                // personas habian gastado su cupo, con el boton en Enviar (0).
+                if (!p.tiene_validacion) {
+                    p.puede_reenviarse = true;
+                    p.envios_hoy = 0;
+                    p.faltan_segundos = 0;
+                } else {
+                    // Con validacion viva, lo que toca es reenviar: cuentan
+                    // sus reenvios, no las veces que se le creo.
+                    p.puede_reenviarse = p.envios_reenvio < ENVIOS_POR_DIA;
+                    p.envios_hoy = p.envios_reenvio;
+                    if (p.puede_reenviarse) p.faltan_segundos = 0;
+                }
             });
         }
     } catch (e) {
@@ -218,7 +276,22 @@ async function estadoDocumento(db, documentId, userId) {
             con_validacion_creada: sinValidar.filter(p => p.tiene_validacion).length,
             firmas_enviables: sinFirmar.filter(p => p.puede_reenviarse).length,
             // Los que estan en espera por el limite de dias
-            en_espera: [...sinValidar, ...sinFirmar].filter(p => !p.puede_reenviarse).length
+            en_espera: [...sinValidar, ...sinFirmar].filter(p => !p.puede_reenviarse).length,
+            // CUANDO fue el ultimo envio y CUANTO falta, para poder decirlo en
+            // vez de 'recordatorios de hoy': la ventana es de 24 horas
+            // rodantes, asi que un envio de ayer por la tarde sigue contando y
+            // decir 'hoy' hacia pensar que el dato estaba mal.
+            ultimo_envio: [...sinValidar, ...sinFirmar]
+                .filter(p => !p.puede_reenviarse && p.ultimo_recordatorio)
+                .map(p => p.ultimo_recordatorio)
+                .sort().pop() || null,
+            // Lo que falta al que antes vuelve a tener hueco.
+            espera_min_segundos: (() => {
+                const esperas = [...sinValidar, ...sinFirmar]
+                    .filter(p => !p.puede_reenviarse && p.faltan_segundos > 0)
+                    .map(p => p.faltan_segundos);
+                return esperas.length ? Math.min(...esperas) : 0;
+            })()
         },
         sin_validar: sinValidar,
         sin_firmar: sinFirmar,
@@ -285,15 +358,60 @@ async function registrar(db, { recipientId, documentId, userId, tipo, email, res
 }
 
 /**
+ * Si se le puede mandar un correo de VALIDACION ahora mismo.
+ *
+ * Es `sePuedeEnviar` pero sabiendo en que estado esta su validacion, porque
+ * eso cambia el limite:
+ *
+ *   sin validacion viva  la cuenta empieza de cero. Le toca que le creen
+ *                        otra, y los correos de antes llevaban al enlace
+ *                        que acaba de morir: frenar por ellos no protege a
+ *                        nadie, solo impide mandarle el que si sirve.
+ *   con validacion viva  cuentan sus reenvios, hasta ENVIOS_POR_DIA.
+ *
+ * @param {object} db
+ * @param {number} recipientId
+ * @param {number} userId
+ * @param {string} email  para preguntarle a VI
+ * @returns {Promise<boolean>}
+ */
+async function sePuedeEnviarValidacion(db, recipientId, userId, email) {
+    let viva = false;
+    try {
+        const _estado = require('./estado-validacion');
+        const consulta = [{ email }];
+        await _estado.soloValidaciones(consulta);
+        viva = _estado.estaViva(consulta[0].validacion);
+    } catch (e) {
+        // Si VI no contesta se aplica el limite de siempre, que es lo
+        // prudente: es peor repetirle a un padre que saltarse uno.
+        console.warn(`[RECORDATORIOS] No se pudo consultar VI: ${e.message}`);
+        return sePuedeEnviar(db, recipientId, userId);
+    }
+    if (!viva) return true;
+    return sePuedeEnviar(db, recipientId, userId, 'validacion_reenvio');
+}
+
+/**
  * Comprueba si a esta persona se le puede escribir ahora, por este usuario.
  * Se consulta otra vez en el momento del envio, no solo al pintar la pantalla:
  * entre que el operador abre el panel y pulsa el boton pueden pasar minutos, y
  * en una tanda larga el mismo destinatario podria repetirse.
  */
-async function sePuedeEnviar(db, recipientId, userId) {
+async function sePuedeEnviar(db, recipientId, userId, tipo = null, desde = null) {
     try {
         // Se cuenta POR CORREO, no por fila: una persona con dos pagares
         // tiene dos recipient_id y recibiria el doble de correos.
+        //
+        // Y POR ACCION: crear una validacion, reenviarla y mandar el enlace
+        // de firma son tres cosas distintas, con su propia cuenta de dos al
+        // dia. Antes compartian limite, asi que dos reenvios consumian el
+        // cupo de poder crear.
+        //
+        // `desde` descarta lo anterior a una fecha. Se usa cuando la
+        // validacion de esa persona se anulo: los correos que se le mandaron
+        // antes llevaban a un enlace que ya no existe, asi que frenar por
+        // ellos no protege a nadie; solo impide mandarle el que si sirve.
         const [filas] = await db.promise().query(
             `SELECT COUNT(*) AS llevan
              FROM recordatorios_enviados r
@@ -302,8 +420,10 @@ async function sePuedeEnviar(db, recipientId, userId) {
                      SELECT LOWER(email) COLLATE utf8mb4_unicode_ci
                      FROM document_recipients WHERE recipient_id = ?)
                AND r.user_id <=> ? AND r.resultado = 'enviado'
-               AND r.created_at >= NOW() - INTERVAL ? HOUR`,
-            [recipientId, userId || null, VENTANA_HORAS]
+               AND r.created_at >= NOW() - INTERVAL ? HOUR
+               AND (? IS NULL OR r.tipo = ?)
+               AND (? IS NULL OR r.created_at > ?)`,
+            [recipientId, userId || null, VENTANA_HORAS, tipo, tipo, desde, desde]
         );
         return (Number(filas[0]?.llevan) || 0) < ENVIOS_POR_DIA;
     } catch (e) {
@@ -389,7 +509,8 @@ async function esperaIndividual(db, recipientId, userId) {
 }
 
 module.exports = {
-    estadoDocumento, registrar, sePuedeEnviar, esperaIndividual,
+    estadoDocumento, registrar, sePuedeEnviar, sePuedeEnviarValidacion,
+    esperaIndividual,
     conDatosDeValidacion,
     ENVIOS_POR_DIA, VENTANA_HORAS, ESPERA_INDIVIDUAL_MIN, MAX_INDIVIDUAL_DIA
 };
