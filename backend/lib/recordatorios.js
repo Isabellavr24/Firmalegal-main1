@@ -108,6 +108,19 @@ async function estadoDocumento(db, documentId, userId) {
                     AND r.user_id <=> ? AND r.resultado = 'enviado'
                     AND r.tipo = 'validacion_reenvio'
                     AND r.created_at >= NOW() - INTERVAL ? HOUR) AS envios_reenvio,
+                -- Los de FIRMA, con su propia cuenta.
+                --
+                -- Validacion y firma son independientes: gastar el cupo de
+                -- validacion no puede impedir mandar el enlace de firma a
+                -- quien acaba de validarse. Pasaba: los dos botones se
+                -- bloqueaban juntos porque compartian este contador.
+                (SELECT COUNT(*) FROM recordatorios_enviados r
+                  JOIN document_recipients d2 ON d2.recipient_id = r.recipient_id
+                  WHERE LOWER(d2.email) COLLATE utf8mb4_unicode_ci =
+                        LOWER(dr.email) COLLATE utf8mb4_unicode_ci
+                    AND r.user_id <=> ? AND r.resultado = 'enviado'
+                    AND r.tipo = 'firma'
+                    AND r.created_at >= NOW() - INTERVAL ? HOUR) AS envios_firma,
                 -- CUANDO VUELVE A TENER HUECO.
                 --
                 -- No es cuando sale el mas viejo: es cuando salen los
@@ -141,6 +154,7 @@ async function estadoDocumento(db, documentId, userId) {
          ORDER BY dr.viewer_group_id, dr.signing_order`,
         [userId, userId, VENTANA_HORAS,
          userId, VENTANA_HORAS, userId, VENTANA_HORAS,
+         userId, VENTANA_HORAS,
          userId, VENTANA_HORAS, userId, documentId]
     );
 
@@ -186,6 +200,7 @@ async function estadoDocumento(db, documentId, userId) {
             // Por accion, para decidir mas abajo cual es el que frena.
             envios_crear: llevaCrear,
             envios_reenvio: llevaReenvio,
+            envios_firma: Number(f.envios_firma) || 0,
             // Lo que falta para volver a tener hueco, en segundos. La
             // pantalla lo convierte a horas o minutos segun cuanto sea.
             faltan_segundos: faltanSegundos,
@@ -208,8 +223,16 @@ async function estadoDocumento(db, documentId, userId) {
             persona.tiene_validacion = !!f.validacion_codigo;
             sinValidar.push(persona);
         } else {
-            // Valido pero no ha firmado: a estos les toca el enlace de firma
-            sinFirmar.push({ ...persona, validado_el: f.vi_validated_at });
+            // Valido pero no ha firmado: a estos les toca el enlace de firma,
+            // asi que su limite es el de FIRMA, no el de validacion.
+            const deFirma = Number(f.envios_firma) || 0;
+            sinFirmar.push({
+                ...persona,
+                validado_el: f.vi_validated_at,
+                puede_reenviarse: deFirma < ENVIOS_POR_DIA,
+                envios_hoy: deFirma,
+                faltan_segundos: deFirma < ENVIOS_POR_DIA ? 0 : persona.faltan_segundos
+            });
         }
     }
 

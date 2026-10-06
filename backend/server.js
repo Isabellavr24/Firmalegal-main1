@@ -5893,7 +5893,7 @@ app.post('/api/public/vi-callback', async (req, res) => {
                 `SELECT dr.recipient_id, dr.document_id, dr.vi_validated_at,
                         dr.custom_pdf_path, dr.personal_pdf_path, dr.email,
                         dr.viewer_group_id, dr.is_final_signer, dr.status,
-                        dr.vi_traza_path,
+                        dr.vi_traza_path, dr.name, dr.signing_order,
                         d.file_path, d.doc_only_path, d.filled_pdf_path, d.title, d.document_type
                  FROM document_recipients dr
                  INNER JOIN documents d ON dr.document_id = d.document_id
@@ -6280,6 +6280,54 @@ app.post('/api/public/vi-callback', async (req, res) => {
                 console.error('⚠️ [VI-CALLBACK] Error enviando email a firmante definitivo:', e.message);
             }
         }
+        // EL ENLACE DE FIRMA, AL CORREO.
+        //
+        // Al terminar la validacion, VI redirige al firmante a su pagare. Pero
+        // esa redireccion se pierde en cuanto cierra la pestana, y entonces no
+        // tiene por donde volver: el correo de validacion que recibio lleva al
+        // sistema de VI, no al documento.
+        //
+        // Asi que se le manda el enlace de firma al correo, de este pagare y
+        // de los demas suyos. Lo tiene fuera del sistema de validacion, que es
+        // lo que pidio el usuario y lo que hace que no dependa de haber dejado
+        // una pestana abierta.
+        if (!recipient.is_final_signer) {
+            try {
+                const [aun] = await db.promise().query(
+                    `SELECT COUNT(*) AS faltan FROM document_recipients
+                     WHERE document_id = ? AND viewer_group_id <=> ?
+                       AND signing_order < ? AND status <> 'completed'`,
+                    [recipient.document_id, recipient.viewer_group_id,
+                     recipient.signing_order || 1]
+                );
+                if (Number(aun[0]?.faltan) > 0) {
+                    // La firma es secuencial: si hay alguien antes que el que
+                    // todavia no ha firmado, su turno no ha llegado.
+                    console.log(`   ⏳ [VI-CALLBACK] ${recipient.email}: aun no le toca firmar aqui`);
+                } else {
+                    const r = await enviarRecordatorios(
+                        [{ recipient_id: recipient.recipient_id, email: recipient.email,
+                           nombre: recipient.name || recipient.email,
+                           es_firmante_definitivo: false }],
+                        'firma', recipient.document_id,
+                        recipient.title || 'Documento',
+                        { userId: null },
+                        true   // sin limite: es la consecuencia de validarse
+                    );
+                    if (r.enviados) {
+                        console.log(`   📧 [VI-CALLBACK] Enlace de firma enviado a ${recipient.email}`);
+                    } else {
+                        console.warn(`   ⚠️ [VI-CALLBACK] No se pudo enviar el enlace de firma: ` +
+                                     (r.errores?.[0]?.motivo || 'sin motivo'));
+                    }
+                }
+            } catch (e) {
+                // La validacion ya se completo y la traza ya esta puesta: que
+                // falle este correo no puede deshacer nada de eso.
+                console.error('⚠️ [VI-CALLBACK] No se pudo enviar el enlace de firma:', e.message);
+            }
+        }
+
         // Una validacion es de la PERSONA, no del documento. Si este firmante
         // tiene mas pagares pendientes, se marcan todos y se le manda el
         // enlace de firma de cada uno: no tiene sentido pedirle que se valide
