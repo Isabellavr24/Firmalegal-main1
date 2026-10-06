@@ -3884,19 +3884,24 @@ async function _validacionYaExistente(email) {
     const lista = await _pedirValidacionesAVI(
         codigo ? { codigos: [codigo] } : { emails: [correo] });
 
-    let v = lista.find(x => x && x.documento) || null;
+    // SOLO VALIDACIONES DE ESE CORREO.
+    //
+    // Es la salvaguarda que faltaba: sin ella, una validacion de otra persona
+    // podia colarse y acabar editandose la que no era. El 06-10 se corrigio
+    // sobre el renglon de un firmante y el PATCH fue a la validacion de otro,
+    // que acabo con la cedula y el nombre ajenos.
+    const esSuya = (x) => x && x.documento &&
+        String(x.email_firmante || '').toLowerCase() === correo;
+
+    let v = lista.find(esSuya) || null;
 
     // Si preguntamos por codigo, mirar tambien que dice VI por correo: puede
     // haber una posterior, creada al corregir los datos desde su panel.
     if (codigo) {
         try {
             const otras = await _pedirValidacionesAVI({ emails: [correo] });
-            const porCorreo = otras.find(x => x && x.documento);
+            const porCorreo = otras.find(esSuya);
             if (porCorreo && (!v || _esPosterior(porCorreo, v))) {
-                if (v && porCorreo.codigo !== v.codigo) {
-                    console.log(`   ℹ️ ${correo}: VI tiene una validacion posterior ` +
-                                `(${porCorreo.codigo}); se usan sus datos`);
-                }
                 v = porCorreo;
             }
         } catch (e) {
@@ -4355,6 +4360,20 @@ app.patch('/api/validaciones/:recipientId/datos', requireAuth, async (req, res) 
                 message: 'Esa persona no tiene una validacion activa. Creale una con ' +
                          '"Iniciar validacion" y se enviara con los datos que corrijas en el pagare.' });
         }
+        // UNA ULTIMA COMPROBACION ANTES DE TOCAR NADA.
+        //
+        // Editar la validacion de otra persona le pone a ESA la cedula y el
+        // nombre equivocados, y ademas se valida contra datos que no son los
+        // suyos. Es el peor fallo posible aqui, asi que se comprueba aunque
+        // ya se haya filtrado por correo mas arriba.
+        if (String(suya.email_firmante || '').toLowerCase() !==
+            String(p.email || '').toLowerCase()) {
+            console.error(`[VALIDACION-CORREGIR] La validacion ${suya.codigo} es de ` +
+                          `${suya.email_firmante}, no de ${p.email}. No se toca.`);
+            return res.status(409).json({ success: false,
+                message: 'La validacion encontrada es de otra persona. No se corrigio nada.' });
+        }
+
         if (suya.estado === 'completada') {
             return res.json({ success: false, ya_valido: true,
                 message: 'Ya valido su identidad. Los datos con los que se valido no se cambian.' });

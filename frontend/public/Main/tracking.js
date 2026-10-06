@@ -1249,7 +1249,11 @@ function abrirCorregirValidacion(recipient) {
   const valores = {
     nombre: v.nombre || csv.nombre || recipient.name || '',
     documento: v.documento || csv.documento || '',
-    celular: String(csv.celular || '').replace('+57', '')
+    // Solo los diez digitos: el indicativo lo pone Validacion de Identidad.
+    celular: (() => {
+      const d = String(csv.celular || '').replace(/[^0-9]/g, '');
+      return d.length === 12 && d.slice(0, 2) === '57' ? d.slice(2) : d;
+    })()
   };
 
   const fondo = document.createElement('div');
@@ -1282,7 +1286,7 @@ function abrirCorregirValidacion(recipient) {
                 'Es contra lo que la biometria compara su cedula')}
         ${campo('corr-documento', 'Cedula', valores.documento, '')}
         ${campo('corr-celular', 'Celular', valores.celular,
-                'Sin el +57. Es a donde le llega el codigo OTP')}
+                'A donde le llega el codigo de verificacion')}
         <div id="corr-aviso" style="display:none;font-size:11.5px;color:#b91c1c;
              line-height:1.5;margin-bottom:12px;"></div>
       </div>
@@ -1317,7 +1321,7 @@ function abrirCorregirValidacion(recipient) {
     }
     const soloDigitos = celular.replace(/[^0-9]/g, '');
     if (celular && !(soloDigitos.length === 10 && soloDigitos[0] === '3')) {
-      decir('El celular deberia tener 10 digitos y empezar por 3.'); return;
+      decir('El celular son 10 numeros y empieza por 3. Ejemplo: 3001234567'); return;
     }
     decir('');
 
@@ -1338,7 +1342,7 @@ function abrirCorregirValidacion(recipient) {
 
       if (res.success) {
         cerrar();
-        avisar(res.message || 'Datos corregidos', true);
+        avisar('success', res.message || 'Datos corregidos');
         const docId = new URLSearchParams(window.location.search).get('id');
         if (docId) loadRecipients(docId);
       } else {
