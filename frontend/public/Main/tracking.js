@@ -980,21 +980,19 @@ function datosDetectados(d) {
   // anular las que sobran desde el panel de VI.
   // Cuando ninguna de sus validaciones sirve, se dice eso y ya.
   //
-  // Antes se decia cuantas tenia -'Tiene 6 validaciones en VI'- y ese numero
-  // confundia: no hay nada que hacer con el, y parecia que algo quedaba vivo
-  // cuando no. Lo unico que el operador necesita saber es que no hay ninguna
-  // activa, porque eso explica por que el boton dice CREAR.
-  const cuantas = v && v.total_validaciones;
+  // NO SE DICE CUANTAS TIENE. `total_validaciones` cuenta TODAS las de VI,
+  // canceladas incluidas, asi que decir 'tiene 7 validaciones' cuando seis
+  // estan anuladas y solo una vive es falso y confunde. Y ya no hace falta
+  // avisar de duplicados: reenviar dejo de crearlos el 05-10, cuando VI
+  // anadio su ruta de reenvio. Los que quedan son rastro de antes.
+  //
+  // Lo unico que el operador necesita saber es si tiene una que sirva,
+  // porque eso explica por que el boton dice CREAR o REENVIAR.
   const avisoOtra = (!sirve && v && v.codigo && !v.vi_sin_respuesta)
     ? `<div style="font-size:10.5px;color:#9ca3af;line-height:1.5;margin-top:5px;">
          No hay validaciones activas.
        </div>`
-    : (cuantas > 1 && sirve
-      ? `<div style="font-size:10.5px;color:#92400e;line-height:1.5;margin-top:5px;">
-           Tiene ${cuantas} validaciones en VI. La vigente es esta;
-           las demas se pueden anular desde el panel.
-         </div>`
-      : '');
+    : '';
 
   return `<div style="min-width:190px;max-width:230px;">
       <div style="font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">Informacion detectada</div>
