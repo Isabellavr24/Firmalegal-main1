@@ -978,17 +978,21 @@ function datosDetectados(d) {
   //
   // Se dice para que el operador sepa que ese correo esta repetido y pueda
   // anular las que sobran desde el panel de VI.
-  // Solo tiene sentido decir 'la vigente es esta' cuando ESTA sirve. Con
-  // todas anuladas, la frase era falsa: no habia ninguna vigente.
+  // Cuando ninguna de sus validaciones sirve, se dice eso y ya.
+  //
+  // Antes se decia cuantas tenia -'Tiene 6 validaciones en VI'- y ese numero
+  // confundia: no hay nada que hacer con el, y parecia que algo quedaba vivo
+  // cuando no. Lo unico que el operador necesita saber es que no hay ninguna
+  // activa, porque eso explica por que el boton dice CREAR.
   const cuantas = v && v.total_validaciones;
-  const avisoOtra = (cuantas > 1 && sirve)
-    ? `<div style="font-size:10.5px;color:#92400e;line-height:1.5;margin-top:5px;">
-         Tiene ${cuantas} validaciones en VI. La vigente es esta;
-         las demas se pueden anular desde el panel.
+  const avisoOtra = (!sirve && v && v.codigo && !v.vi_sin_respuesta)
+    ? `<div style="font-size:10.5px;color:#9ca3af;line-height:1.5;margin-top:5px;">
+         No hay validaciones activas.
        </div>`
-    : (cuantas > 1
-      ? `<div style="font-size:10.5px;color:#9ca3af;line-height:1.5;margin-top:5px;">
-           Tiene ${cuantas} validaciones en VI, ninguna vigente.
+    : (cuantas > 1 && sirve
+      ? `<div style="font-size:10.5px;color:#92400e;line-height:1.5;margin-top:5px;">
+           Tiene ${cuantas} validaciones en VI. La vigente es esta;
+           las demas se pueden anular desde el panel.
          </div>`
       : '');
 
