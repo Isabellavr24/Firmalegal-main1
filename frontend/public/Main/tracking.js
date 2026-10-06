@@ -2756,7 +2756,7 @@ function pintarPanelRecordatorios(d) {
   const leyenda = hayBotones
     ? `<div style="font-size:11px;color:#b0a6b8;margin-top:16px;line-height:1.6;
                  padding-top:14px;border-top:1px solid var(--border-color, #ece7ee);">
-         Cada persona recibe como maximo
+         Desde aqui se puede enviar a cada persona
          <strong style="color:#8b7d93;">${d.envios_por_dia || 2} correos de validacion
          y ${d.envios_por_dia || 2} de firma</strong> cada 24 horas.
        </div>` : '';

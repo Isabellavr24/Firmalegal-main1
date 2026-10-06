@@ -229,7 +229,7 @@ async function estadoDocumento(db, documentId, userId) {
                 // DEV y el panel seguia diciendo 'Reenviar validaciones (1)'.
                 p.tiene_validacion = _estado.estaViva(comoDestinatarios[i].validacion);
 
-                // Y AHORA EL LIMITE, SOBRE LA ACCION QUE LE TOCA.
+                // Y AHORA EL LIMITE.
                 //
                 // SI SU VALIDACION YA NO SIRVE, LA CUENTA EMPIEZA DE CERO.
                 //
@@ -239,18 +239,20 @@ async function estadoDocumento(db, documentId, userId) {
                 // Frenar por ellos no protege a nadie, solo impide mandarle el
                 // unico que ya le serviria.
                 //
-                // Es lo que se vio el 06-10: se anularon las quince
-                // validaciones de DEV y el panel seguia diciendo que cuatro
-                // personas habian gastado su cupo, con el boton en Enviar (0).
+                // CON VALIDACION VIVA SE CUENTAN TODOS SUS CORREOS DE
+                // VALIDACION, no solo los marcados como reenvio. Lo que
+                // importa es cuantos ha recibido esa persona, no con que
+                // etiqueta se grabaron. Contando solo los reenvios se podia
+                // reenviar sin fin, porque los primeros envios estaban como
+                // 'validacion' y no frenaban nada.
                 if (!p.tiene_validacion) {
                     p.puede_reenviarse = true;
                     p.envios_hoy = 0;
                     p.faltan_segundos = 0;
                 } else {
-                    // Con validacion viva, lo que toca es reenviar: cuentan
-                    // sus reenvios, no las veces que se le creo.
-                    p.puede_reenviarse = p.envios_reenvio < ENVIOS_POR_DIA;
-                    p.envios_hoy = p.envios_reenvio;
+                    const suyos = p.envios_crear + p.envios_reenvio;
+                    p.puede_reenviarse = suyos < ENVIOS_POR_DIA;
+                    p.envios_hoy = suyos;
                     if (p.puede_reenviarse) p.faltan_segundos = 0;
                 }
             });
@@ -389,7 +391,20 @@ async function sePuedeEnviarValidacion(db, recipientId, userId, email) {
         return sePuedeEnviar(db, recipientId, userId);
     }
     if (!viva) return true;
-    return sePuedeEnviar(db, recipientId, userId, 'validacion_reenvio');
+
+    // SE CUENTAN TODOS LOS CORREOS DE VALIDACION DE LAS ULTIMAS 24 HORAS.
+    //
+    // Da igual con que etiqueta se grabaron: lo que protege al firmante es
+    // cuantos correos le han llegado, no como los llamamos nosotros.
+    // Contando solo `validacion_reenvio` se podia reenviar sin fin, porque
+    // los primeros envios estaban como `validacion` y no frenaban nada.
+    //
+    // Tampoco se corta por la fecha de la validacion: al crearle una nueva,
+    // esa fecha es POSTERIOR a los correos que ya recibio, asi que el corte
+    // los descartaba todos y el limite no llegaba a aplicarse nunca. La
+    // ventana de 24 horas ya hace ese trabajo.
+    return sePuedeEnviar(db, recipientId, userId,
+        ['validacion', 'validacion_reenvio']);
 }
 
 /**
@@ -398,7 +413,11 @@ async function sePuedeEnviarValidacion(db, recipientId, userId, email) {
  * entre que el operador abre el panel y pulsa el boton pueden pasar minutos, y
  * en una tanda larga el mismo destinatario podria repetirse.
  */
-async function sePuedeEnviar(db, recipientId, userId, tipo = null, desde = null) {
+async function sePuedeEnviar(db, recipientId, userId, tipos = null, desde = null) {
+    // Una lista separada por comas para FIND_IN_SET, o null para todos.
+    const lista = tipos
+        ? (Array.isArray(tipos) ? tipos.join(',') : String(tipos))
+        : null;
     try {
         // Se cuenta POR CORREO, no por fila: una persona con dos pagares
         // tiene dos recipient_id y recibiria el doble de correos.
@@ -421,9 +440,10 @@ async function sePuedeEnviar(db, recipientId, userId, tipo = null, desde = null)
                      FROM document_recipients WHERE recipient_id = ?)
                AND r.user_id <=> ? AND r.resultado = 'enviado'
                AND r.created_at >= NOW() - INTERVAL ? HOUR
-               AND (? IS NULL OR r.tipo = ?)
+               AND (? IS NULL OR FIND_IN_SET(r.tipo, ?))
                AND (? IS NULL OR r.created_at > ?)`,
-            [recipientId, userId || null, VENTANA_HORAS, tipo, tipo, desde, desde]
+            [recipientId, userId || null, VENTANA_HORAS,
+             lista, lista, desde, desde]
         );
         return (Number(filas[0]?.llevan) || 0) < ENVIOS_POR_DIA;
     } catch (e) {

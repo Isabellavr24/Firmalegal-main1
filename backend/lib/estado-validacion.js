@@ -464,6 +464,12 @@ async function soloValidaciones(destinatarios) {
             dias_restantes: dias,
             caducada: dias !== null && dias <= 0,
             intentos: v.intentos != null ? Number(v.intentos) : null,
+            // Cuando se creo y cuando vence. La fecha de creacion marca
+            // desde cuando cuentan sus correos: los de antes eran de otra
+            // validacion. Y expira_at deja que estaViva calcule la
+            // caducidad tambien por esta via.
+            creada_el: v.created_at || null,
+            expira_at: v.expira_at || null,
             total_validaciones: v.total_validaciones != null
                 ? Number(v.total_validaciones) : null,
             // De otro pagare, cuando lo sabemos. VI no devuelve el asunto,
