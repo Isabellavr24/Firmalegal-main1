@@ -67,25 +67,40 @@ async function estadoDocumento(db, documentId, userId) {
                 -- completar) y las ya completadas. Manda la pendiente, que es
                 -- la ultima que se le creo.
                 COALESCE(vp.validacion_codigo, v.validacion_codigo) AS validacion_codigo,
+                -- EL LIMITE ES POR PERSONA, NO POR FILA.
+                --
+                -- Un padre con dos hijos aparece dos veces -una por pagare-,
+                -- con recipient_id distinto. Contando por fila recibia el
+                -- doble de correos que los demas, y en el panel uno podia
+                -- reenviarse mientras los otros esperaban. El correo es lo
+                -- que ve quien lo recibe, asi que es lo que se cuenta.
                 (SELECT MAX(r.created_at) FROM recordatorios_enviados r
-                  WHERE r.recipient_id = dr.recipient_id
+                  JOIN document_recipients d2 ON d2.recipient_id = r.recipient_id
+                  WHERE LOWER(d2.email) COLLATE utf8mb4_unicode_ci =
+                        LOWER(dr.email) COLLATE utf8mb4_unicode_ci
                     AND r.user_id <=> ?
                     AND r.resultado = 'enviado') AS ultimo_mio,
                 -- Cuantos lleva en las ultimas 24 horas, que es el limite.
                 (SELECT COUNT(*) FROM recordatorios_enviados r
-                  WHERE r.recipient_id = dr.recipient_id
+                  JOIN document_recipients d2 ON d2.recipient_id = r.recipient_id
+                  WHERE LOWER(d2.email) COLLATE utf8mb4_unicode_ci =
+                        LOWER(dr.email) COLLATE utf8mb4_unicode_ci
                     AND r.user_id <=> ?
                     AND r.resultado = 'enviado'
                     AND r.created_at >= NOW() - INTERVAL ? HOUR) AS envios_hoy,
                 -- Cuando caduca el mas viejo de esos: el momento en que
                 -- vuelve a tener hueco.
                 (SELECT MIN(r.created_at) FROM recordatorios_enviados r
-                  WHERE r.recipient_id = dr.recipient_id
+                  JOIN document_recipients d2 ON d2.recipient_id = r.recipient_id
+                  WHERE LOWER(d2.email) COLLATE utf8mb4_unicode_ci =
+                        LOWER(dr.email) COLLATE utf8mb4_unicode_ci
                     AND r.user_id <=> ?
                     AND r.resultado = 'enviado'
                     AND r.created_at >= NOW() - INTERVAL ? HOUR) AS mas_viejo_mio,
                 (SELECT MAX(r.created_at) FROM recordatorios_enviados r
-                  WHERE r.recipient_id = dr.recipient_id
+                  JOIN document_recipients d2 ON d2.recipient_id = r.recipient_id
+                  WHERE LOWER(d2.email) COLLATE utf8mb4_unicode_ci =
+                        LOWER(dr.email) COLLATE utf8mb4_unicode_ci
                     AND NOT (r.user_id <=> ?)
                     AND r.resultado = 'enviado') AS ultimo_de_otro
          FROM document_recipients dr
@@ -146,6 +161,8 @@ async function estadoDocumento(db, documentId, userId) {
             // ya tiene una, solo REENVIARLE el correo. Una validacion nueva
             // llega con otro codigo y otra fecha de vencimiento, asi que
             // crearle una segunda a quien ya tiene seria un error.
+            // Lo que diga nuestra tabla es solo un punto de partida: no sabe
+            // si esa validacion sigue viva. Lo decide VI, mas abajo.
             persona.tiene_validacion = !!f.validacion_codigo;
             sinValidar.push(persona);
         } else {
@@ -168,11 +185,16 @@ async function estadoDocumento(db, documentId, userId) {
             const comoDestinatarios = pendientes.map(p => ({ email: p.email }));
             await _estado.soloValidaciones(comoDestinatarios);
             pendientes.forEach((p, i) => {
-                // Una anulada no cuenta: esa persona va al boton de
-                // CREAR, no al de reenviar.
-                if (_estado.estaViva(comoDestinatarios[i].validacion)) {
-                    p.tiene_validacion = true;
-                }
+                // LO QUE DIGA VI MANDA, EN LOS DOS SENTIDOS.
+                //
+                // Antes esto solo ponia `true`, nunca `false`: si nuestra
+                // tabla tenia un codigo y VI decia que esa validacion estaba
+                // anulada, el `true` de arriba se quedaba y el panel ofrecia
+                // REENVIAR algo que ya no existe.
+                //
+                // Paso el 06-10-2026: se anularon las quince validaciones de
+                // DEV y el panel seguia diciendo 'Reenviar validaciones (1)'.
+                p.tiene_validacion = _estado.estaViva(comoDestinatarios[i].validacion);
             });
         }
     } catch (e) {
@@ -270,11 +292,17 @@ async function registrar(db, { recipientId, documentId, userId, tipo, email, res
  */
 async function sePuedeEnviar(db, recipientId, userId) {
     try {
+        // Se cuenta POR CORREO, no por fila: una persona con dos pagares
+        // tiene dos recipient_id y recibiria el doble de correos.
         const [filas] = await db.promise().query(
             `SELECT COUNT(*) AS llevan
-             FROM recordatorios_enviados
-             WHERE recipient_id = ? AND user_id <=> ? AND resultado = 'enviado'
-               AND created_at >= NOW() - INTERVAL ? HOUR`,
+             FROM recordatorios_enviados r
+             JOIN document_recipients d2 ON d2.recipient_id = r.recipient_id
+             WHERE LOWER(d2.email) COLLATE utf8mb4_unicode_ci = (
+                     SELECT LOWER(email) COLLATE utf8mb4_unicode_ci
+                     FROM document_recipients WHERE recipient_id = ?)
+               AND r.user_id <=> ? AND r.resultado = 'enviado'
+               AND r.created_at >= NOW() - INTERVAL ? HOUR`,
             [recipientId, userId || null, VENTANA_HORAS]
         );
         return (Number(filas[0]?.llevan) || 0) < ENVIOS_POR_DIA;
@@ -304,12 +332,18 @@ async function sePuedeEnviar(db, recipientId, userId) {
  */
 async function esperaIndividual(db, recipientId, userId) {
     try {
+        // Por correo, como el resto: lo que cuenta es cuantos correos le
+        // han llegado a esa persona, no a cual de sus filas.
         const [filas] = await db.promise().query(
-            `SELECT COUNT(*) AS intentos, MAX(created_at) AS ultimo
-             FROM recordatorios_enviados
-             WHERE recipient_id = ? AND user_id <=> ?
-               AND resultado = 'enviado'
-               AND created_at >= NOW() - INTERVAL 24 HOUR`,
+            `SELECT COUNT(*) AS intentos, MAX(r.created_at) AS ultimo
+             FROM recordatorios_enviados r
+             JOIN document_recipients d2 ON d2.recipient_id = r.recipient_id
+             WHERE LOWER(d2.email) COLLATE utf8mb4_unicode_ci = (
+                     SELECT LOWER(email) COLLATE utf8mb4_unicode_ci
+                     FROM document_recipients WHERE recipient_id = ?)
+               AND r.user_id <=> ?
+               AND r.resultado = 'enviado'
+               AND r.created_at >= NOW() - INTERVAL 24 HOUR`,
             [recipientId, userId || null]
         );
 
@@ -321,11 +355,15 @@ async function esperaIndividual(db, recipientId, userId) {
         // primero de los envios salga de la ventana de 24 horas.
         if (intentos >= MAX_INDIVIDUAL_DIA) {
             const [primero] = await db.promise().query(
-                `SELECT MIN(created_at) AS primero
-                 FROM recordatorios_enviados
-                 WHERE recipient_id = ? AND user_id <=> ?
-                   AND resultado = 'enviado'
-                   AND created_at >= NOW() - INTERVAL 24 HOUR`,
+                `SELECT MIN(r.created_at) AS primero
+                 FROM recordatorios_enviados r
+                 JOIN document_recipients d2 ON d2.recipient_id = r.recipient_id
+                 WHERE LOWER(d2.email) COLLATE utf8mb4_unicode_ci = (
+                         SELECT LOWER(email) COLLATE utf8mb4_unicode_ci
+                         FROM document_recipients WHERE recipient_id = ?)
+                   AND r.user_id <=> ?
+                   AND r.resultado = 'enviado'
+                   AND r.created_at >= NOW() - INTERVAL 24 HOUR`,
                 [recipientId, userId || null]
             );
             const desde = primero[0]?.primero ? new Date(primero[0].primero).getTime() : Date.now();
