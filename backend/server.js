@@ -3799,6 +3799,12 @@ function _corregirValidacionVI(codigo, campos) {
     });
 }
 
+// El host de una URL, o null si no es una URL. No lanza: se usa para
+// comprobar lo que devuelve VI, y un dato raro no puede tumbar un envio.
+function _hostDe(url) {
+    try { return new URL(String(url)).hostname; } catch (e) { return null; }
+}
+
 /**
  * Reenvia el correo de una validacion que YA EXISTE, sin crear otra.
  *
@@ -4047,6 +4053,35 @@ async function crearValidacionVI(persona, docId, docTitle, req) {
         r.write(cuerpo);
         r.end();
     });
+
+    // ¿LA URL QUE DEVUELVE VI SIRVE DESDE UN TELEFONO?
+    //
+    // El 06-10-2026 VI construyo el enlace de retorno con el nombre del
+    // contenedor -http://firmalegal-app:3000- en vez de con el dominio
+    // publico. El padre completaba la validacion biometrica, pulsaba para ir
+    // a firmar, y el navegador le daba DNS_PROBE_FINISHED_NXDOMAIN.
+    //
+    // VI lo corrigio, pero su arreglo depende de que FIRMALEGAL_PUBLIC_URL
+    // este definida en su entorno: si falta, su codigo cae otra vez al nombre
+    // interno y nadie se entera hasta que alguien se queda tirado.
+    //
+    // Por eso se comprueba aqui, en cada validacion que se crea. No se puede
+    // impedir -la validacion ya existe en VI- pero queda registrado al
+    // momento, con el correo concreto, en vez de descubrirse por una llamada.
+    const urlVI = String(respuesta.validacion_url || '');
+    const hostVI = urlVI ? _hostDe(urlVI) : null;
+    if (hostVI && !hostVI.includes('.') && hostVI !== 'localhost') {
+        const aviso = `VI devolvio una URL que no sirve fuera de Docker: ` +
+                      `${hostVI}. El firmante no podra abrirla.`;
+        console.error(`❌ [VI] ${persona.email}: ${aviso}`);
+        registrarError({
+            tipo: 'vi_url_interna', gravedad: 'alta',
+            mensaje: aviso,
+            datos: { correo: persona.email, url: urlVI, codigo: respuesta.codigo || null,
+                     que_hacer: 'Revisar FIRMALEGAL_PUBLIC_URL en el entorno de VI' },
+            req
+        }).catch(() => {});
+    }
 
     // Guardar el codigo, para poder consultar despues su estado y sus intentos.
     //
