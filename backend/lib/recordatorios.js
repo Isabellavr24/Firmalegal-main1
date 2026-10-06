@@ -108,15 +108,24 @@ async function estadoDocumento(db, documentId, userId) {
                     AND r.user_id <=> ? AND r.resultado = 'enviado'
                     AND r.tipo = 'validacion_reenvio'
                     AND r.created_at >= NOW() - INTERVAL ? HOUR) AS envios_reenvio,
-                -- Cuando caduca el mas viejo de esos: el momento en que
-                -- vuelve a tener hueco.
-                (SELECT MIN(r.created_at) FROM recordatorios_enviados r
+                -- CUANDO VUELVE A TENER HUECO.
+                --
+                -- No es cuando sale el mas viejo: es cuando salen los
+                -- suficientes para bajar del limite. Con 4 correos y un
+                -- limite de 2, hacen falta que salgan TRES. Decir el del mas
+                -- viejo prometia un hueco que al llegar no existia.
+                --
+                -- Se toma el enesimo mas antiguo, con N = sobrantes + 1.
+                (SELECT r.created_at FROM recordatorios_enviados r
                   JOIN document_recipients d2 ON d2.recipient_id = r.recipient_id
                   WHERE LOWER(d2.email) COLLATE utf8mb4_unicode_ci =
                         LOWER(dr.email) COLLATE utf8mb4_unicode_ci
                     AND r.user_id <=> ?
                     AND r.resultado = 'enviado'
-                    AND r.created_at >= NOW() - INTERVAL ? HOUR) AS mas_viejo_mio,
+                    AND r.tipo IN ('validacion', 'validacion_reenvio')
+                    AND r.created_at >= NOW() - INTERVAL ? HOUR
+                  ORDER BY r.created_at
+                  LIMIT 1 OFFSET ${Math.max(0, ENVIOS_POR_DIA - 1)}) AS mas_viejo_mio,
                 (SELECT MAX(r.created_at) FROM recordatorios_enviados r
                   JOIN document_recipients d2 ON d2.recipient_id = r.recipient_id
                   WHERE LOWER(d2.email) COLLATE utf8mb4_unicode_ci =
