@@ -4468,11 +4468,15 @@ app.post('/api/validaciones/un-clic', requireAuth, async (req, res) => {
         // creada' sobre algo que esa persona no puede usar.
         let tieneValidacion = false;
         let estadoVI = null;
+        let vencida = false;
         try {
             const consulta = [{ email: p.email }];
             await _estadoValidacion.soloValidaciones(consulta);
             const vv = consulta[0].validacion;
             estadoVI = (vv && vv.estado) || null;
+            // Para poder decir POR QUE no se puede reenviar: una vencida no es
+            // lo mismo que una anulada, aunque se arreglen igual.
+            vencida = !!(vv && estadoVI !== 'completada' && _estadoValidacion.haCaducado(vv));
             // La misma definicion que usa la pantalla, para que el boton y el
             // servidor no puedan contradecirse.
             tieneValidacion = _estadoValidacion.estaViva(vv);
@@ -4501,10 +4505,16 @@ app.post('/api/validaciones/un-clic', requireAuth, async (req, res) => {
             // Distinguir las dos razones: 'no tiene ninguna' y 'la que tenia
             // fue anulada' se arreglan igual, pero el operador necesita
             // saber cual de las dos es.
-            return res.json({ success: false,
-                message: (estadoVI === 'cancelada' || estadoVI === 'anulada')
-                    ? 'Su validacion fue cancelada en Validacion de Identidad. Usa "Crear validacion nueva".'
-                    : 'Todavia no tiene ninguna validacion. Usa "Iniciar validacion" para crearsela.' });
+            // Tres razones distintas, el mismo arreglo: crearle otra. Pero el
+            // operador necesita saber cual de las tres es.
+            let porque = 'Todavia no tiene ninguna validacion. Usa "Iniciar validacion" para crearsela.';
+            if (estadoVI === 'cancelada' || estadoVI === 'anulada') {
+                porque = 'Su validacion fue cancelada en Validacion de Identidad. Usa "Crear validacion nueva".';
+            } else if (vencida) {
+                porque = 'Su enlace de validacion vencio: los enlaces duran 30 dias. ' +
+                         'Reenviarlo no serviria de nada. Usa "Crear validacion nueva".';
+            }
+            return res.json({ success: false, vencida: !!vencida, message: porque });
         }
 
 

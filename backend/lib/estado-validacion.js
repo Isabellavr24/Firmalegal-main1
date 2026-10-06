@@ -478,9 +478,17 @@ async function soloValidaciones(destinatarios) {
 /**
  * Si esa validacion sirve para algo.
  *
- * Una anulada en VI no sirve: su enlace no lleva a ninguna parte y
- * reenviarla no hace nada. Cuenta como no tener ninguna, y lo que hay que
- * hacer es crear otra.
+ * Tres cosas la dejan sin servir, y las tres se arreglan igual -creando otra-:
+ *
+ *   anulada    el operador la cancelo en VI
+ *   caducada   pasaron sus 30 dias de vigencia
+ *   completada no: esa SI vale, y ademas es definitiva
+ *
+ * La caducada importa en produccion: los enlaces de validacion vencen a los
+ * 30 dias y en el envio de la Universidad ya hay varios pasados de fecha. Su
+ * enlace no lleva a ninguna parte, asi que reenviarlo seria mandarle a un
+ * padre un correo que no le sirve. Lo que toca es crearle una validacion
+ * nueva, con enlace y vigencia nuevos.
  *
  * Vive aqui y no en cada sitio que lo pregunta porque ya paso: cuatro
  * lugares contestaban distinto a '¿tiene validacion?' y la pantalla se
@@ -491,7 +499,32 @@ async function soloValidaciones(destinatarios) {
  */
 function estaViva(v) {
     if (!v || !v.codigo) return false;
-    return v.estado !== 'cancelada' && v.estado !== 'anulada';
+    if (v.estado === 'cancelada' || v.estado === 'anulada') return false;
+    // Una ya completada vale aunque su fecha haya pasado: lo que importa es
+    // que esa persona se valido, y eso no caduca para este envio.
+    if (v.estado === 'completada') return true;
+    return !haCaducado(v);
 }
 
-module.exports = { conEstadoDeValidacion, soloValidaciones, queFalta, estaViva };
+/**
+ * Si a esa validacion se le paso la fecha.
+ *
+ * Se calcula aqui y no se confia en el campo `caducada` porque ese solo lo
+ * ponen conEstadoDeValidacion y soloValidaciones. Las otras vias -el reenvio
+ * y la correccion, que piden a VI por su cuenta- manejan el objeto CRUDO que
+ * VI devuelve, con `expira_at` pero sin `caducada`. Mirando solo el campo,
+ * una caducada pasaba por viva justo donde mas importa: al reenviar.
+ *
+ * @param {object|null} v
+ * @returns {boolean}  false si no se sabe: sin fecha no se da por caducada
+ */
+function haCaducado(v) {
+    if (!v) return false;
+    if (v.caducada === true) return true;
+    if (!v.expira_at) return false;
+    const vence = new Date(v.expira_at).getTime();
+    if (isNaN(vence)) return false;
+    return vence <= Date.now();
+}
+
+module.exports = { conEstadoDeValidacion, soloValidaciones, queFalta, estaViva, haCaducado };
