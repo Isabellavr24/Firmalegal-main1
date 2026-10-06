@@ -896,6 +896,27 @@ function showEtituloMasivoModal(docId, groupIds, triggerBtn) {
 // El NOMBRE se muestra a proposito: es contra lo que la biometria va a comparar
 // la cedula. Si esta mal escrito la validacion falla, y es mejor verlo antes de
 // enviar que despues.
+// Si esa validacion sirve para algo.
+//
+// Es la misma regla que `estaViva` en backend/lib/estado-validacion.js, y
+// tiene que seguir siendolo: si la pantalla y el servidor contestan distinto
+// a '¿esta viva?', el boton ofrece una cosa y el backend hace otra.
+//
+// No sirve si la anularon, si se le paso la fecha -los enlaces duran 30 dias-
+// o si no sabemos nada de ella. Una ya completada SI sirve, y ademas no
+// caduca: esa persona se valido y eso no se deshace.
+function validacionUtil(v) {
+  if (!v || !v.codigo || v.vi_sin_respuesta || v.no_encontrada) return false;
+  if (v.estado === 'cancelada' || v.estado === 'anulada') return false;
+  if (v.estado === 'completada') return true;
+  if (v.caducada) return false;
+  if (v.expira_at) {
+    const vence = new Date(v.expira_at).getTime();
+    if (!isNaN(vence) && vence <= Date.now()) return false;
+  }
+  return true;
+}
+
 function datosDetectados(d) {
   const csv = d.datos_csv;
   if (!csv) return '';
@@ -910,8 +931,15 @@ function datosDetectados(d) {
   //
   // Por eso se ensena como informacion, no como error: lo que importa es que
   // el operador sepa con que datos se va a validar esa persona de verdad.
+  // SOLO SI ESA VALIDACION SIRVE.
+  //
+  // Los datos de una validacion anulada o vencida no son 'los corregidos':
+  // son los de algo que ya no existe. Ensenarlos tachando el CSV hacia creer
+  // que la correccion sigue en pie cuando esa validacion esta muerta y hay
+  // que crear otra desde cero, con los datos del pagare.
+  const sirve = validacionUtil(v);
   const enVI = (campo) => {
-    if (!v || v.vi_sin_respuesta || v.no_encontrada) return null;
+    if (!sirve) return null;
     return v[campo] || null;
   };
 
@@ -950,13 +978,19 @@ function datosDetectados(d) {
   //
   // Se dice para que el operador sepa que ese correo esta repetido y pueda
   // anular las que sobran desde el panel de VI.
+  // Solo tiene sentido decir 'la vigente es esta' cuando ESTA sirve. Con
+  // todas anuladas, la frase era falsa: no habia ninguna vigente.
   const cuantas = v && v.total_validaciones;
-  const avisoOtra = (cuantas > 1)
+  const avisoOtra = (cuantas > 1 && sirve)
     ? `<div style="font-size:10.5px;color:#92400e;line-height:1.5;margin-top:5px;">
          Tiene ${cuantas} validaciones en VI. La vigente es esta;
          las demas se pueden anular desde el panel.
        </div>`
-    : '';
+    : (cuantas > 1
+      ? `<div style="font-size:10.5px;color:#9ca3af;line-height:1.5;margin-top:5px;">
+           Tiene ${cuantas} validaciones en VI, ninguna vigente.
+         </div>`
+      : '');
 
   return `<div style="min-width:190px;max-width:230px;">
       <div style="font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">Informacion detectada</div>
@@ -998,7 +1032,7 @@ function estadoValidacion(d) {
 
   // Vencida. Se arregla igual que la anulada -creando otra- pero se dice
   // distinto, porque no la cancelo nadie: se le paso la fecha.
-  if (v.caducada) {
+  if (!validacionUtil(v)) {
     return '<div style="font-size:11px;color:#b91c1c;margin-top:2px;text-align:center;">' +
            'Su enlace vencio. Hay que crearle otra</div>';
   }
@@ -1115,11 +1149,10 @@ function botonValidacion(d) {
   // nuevos. Se dice CREAR VALIDACION NUEVA y no INICIAR para que se vea que
   // hubo una antes.
   const yaValido = !!v && v.estado === 'completada';
-  // Los enlaces de validacion vencen a los 30 dias. Una ya completada no
-  // cuenta como caducada: esa persona se valido y eso no se deshace.
-  const seVencio = !!v && !yaValido && v.caducada;
+  // La misma regla de los datos y del backend: anulada, vencida o sin
+  // respuesta de VI no sirven, y las tres se arreglan creando otra.
   const anulada = !!v && (v.estado === 'cancelada' || v.estado === 'anulada');
-  const cancelada = anulada || seVencio;
+  const cancelada = !!v && !yaValido && !validacionUtil(v);
   const esReenvio = !!v && !v.no_encontrada && !yaValido && !cancelada;
 
   const deOtro = !!(v && v.de_otro_documento && !yaValido && !cancelada);
