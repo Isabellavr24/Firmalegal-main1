@@ -2738,9 +2738,10 @@ function pintarPanelRecordatorios(d) {
     : null;
   const espera = r.en_espera
     ? `<div style="font-size:12px;color:#8b7d93;margin-top:14px;line-height:1.5;">
-         ${r.en_espera} ${r.en_espera === 1 ? 'persona ya recibio' : 'personas ya recibieron'}
-         sus ${d.envios_por_dia || 2} correos${cuando ? ', el ultimo el ' + escHtml(cuando) : ''}.
-         ${faltan ? 'Se les puede volver a escribir en ' + faltan + '.' : ''}
+         A ${r.en_espera} ${r.en_espera === 1 ? 'persona' : 'personas'} ya se
+         ${r.en_espera === 1 ? 'le enviaron' : 'les enviaron'}
+         ${d.envios_por_dia || 2} correos de validacion${cuando ? ', el ultimo el ' + escHtml(cuando) : ''}.
+         ${faltan ? 'El boton se habilita en ' + faltan + '.' : ''}
        </div>` : '';
 
   // La leyenda de limites, siempre visible cuando hay botones.
@@ -2756,11 +2757,10 @@ function pintarPanelRecordatorios(d) {
   const leyenda = hayBotones
     ? `<div style="font-size:11px;color:#b0a6b8;margin-top:16px;line-height:1.6;
                  padding-top:14px;border-top:1px solid var(--border-color, #ece7ee);">
-         Desde aqui se puede enviar a cada persona
+         Para no saturar a los firmantes, desde aqui se envian como maximo
          <strong style="color:#8b7d93;">${d.envios_por_dia || 2} correos de validacion
-         y ${d.envios_por_dia || 2} de firma</strong>.
-         Cada correo ocupa un sitio durante 24 horas; cuando el primero
-         cumple ese dia, queda un sitio libre.
+         y ${d.envios_por_dia || 2} de firma</strong> a cada persona por dia.
+         Si hace falta escribirle antes, se puede desde su propio renglon.
        </div>` : '';
 
   caja.innerHTML = `
