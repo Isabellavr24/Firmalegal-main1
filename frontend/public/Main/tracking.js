@@ -917,6 +917,21 @@ function validacionUtil(v) {
   return true;
 }
 
+// El nombre con el que de verdad se va a validar esa persona.
+//
+// Si su validacion esta viva y lleva un nombre corregido, ese manda sobre el
+// del CSV: es con el que la biometria va a comparar su cedula. Si no, el del
+// pagare.
+//
+// Importa que sea el mismo en toda la pantalla. El 06-10 se veia 'Informacion
+// detectada: JUAN DIEGO ARRIETA HERRERA' con el nombre de debajo del correo
+// diciendo todavia 'DIEGO ARRIETA HERRERA', como si fueran dos personas.
+function nombreVigente(d) {
+  const v = d && d.validacion;
+  if (validacionUtil(v) && v.nombre) return v.nombre;
+  return (d && d.name) || '';
+}
+
 function datosDetectados(d) {
   const csv = d.datos_csv;
   if (!csv) return '';
@@ -1525,7 +1540,13 @@ function createRecipientCard(recipient) {
         ${badgeHtml}
         <div class="recipient-emails">
           <p class="recipient-email">${displayEmail}</p>
-          ${recipient.name && recipient.name !== recipient.email ? `<p class="recipient-name" style="font-size: 12px; color: #666; margin-top: 4px;">${recipient.name}</p>` : ''}
+          ${(() => {
+            // El nombre vigente, que es el de su validacion cuando la hay.
+            const n = nombreVigente(recipient);
+            return n && n !== recipient.email
+              ? `<p class="recipient-name" style="font-size: 12px; color: #666; margin-top: 4px;">${escHtml(n)}</p>`
+              : '';
+          })()}
           ${viInfoText}
         </div>
       </div>
