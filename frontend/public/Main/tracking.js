@@ -2743,16 +2743,18 @@ function pintarPanelRecordatorios(d) {
   //
   // Hasta ahora el operador no conocia los limites hasta que chocaba con
   // ellos: pulsaba y le decia que no, sin saber por que ni hasta cuando.
+  //
+  // Se dice lo justo. El detalle -que cada accion lleva su cuenta, que las
+  // esperas crecen a cada intento, que al anular una validacion los correos
+  // de antes dejan de contar- es como funciona por dentro, y quien usa la
+  // pantalla no tiene por que leerlo: cuando alguno de esos limites frena
+  // algo, el renglon de esa persona lo explica en su caso.
   const leyenda = hayBotones
     ? `<div style="font-size:11px;color:#b0a6b8;margin-top:16px;line-height:1.6;
                  padding-top:14px;border-top:1px solid var(--border-color, #ece7ee);">
-         Cada persona puede recibir
-         <strong style="color:#8b7d93;">${d.envios_por_dia || 2} correos de cada tipo</strong>
-         en 24 horas: enviar validacion, reenviarla y mandar el enlace de firma
-         llevan cuentas separadas.
-         Si su validacion se anula, los correos anteriores dejan de contar.
-         El reenvio individual tiene una espera que crece a cada intento
-         -1 minuto, 10, 30 y 60- y un tope de 6 al dia.
+         Cada persona recibe como maximo
+         <strong style="color:#8b7d93;">${d.envios_por_dia || 2} correos de validacion
+         y ${d.envios_por_dia || 2} de firma</strong> cada 24 horas.
        </div>` : '';
 
   caja.innerHTML = `
