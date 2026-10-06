@@ -2760,8 +2760,8 @@ function pintarPanelRecordatorios(d) {
          Para no saturar a los firmantes, estos botones envian como maximo
          <strong style="color:#8b7d93;">${d.envios_por_dia || 2} correos de validacion
          y ${d.envios_por_dia || 2} de firma</strong> a cada persona por dia.
-         Para escribirle a una sola persona, usa el boton que esta al lado de
-         su nombre en la lista de abajo.
+         Para reenviar a una sola persona en especifico, usa el boton que
+         esta al lado de su nombre en la lista de abajo.
        </div>` : '';
 
   caja.innerHTML = `
@@ -2963,7 +2963,7 @@ function filaInforme(p, tipo, diasVigencia) {
     : !p.puede_reenviarse
     ? '<span style="color:#8b7d93;">Espera ' + esperaEnPalabras(p.faltan_segundos) + '</span>'
     : p.aviso_otro_usuario
-      ? '<span style="color:#92400e;">Otro usuario le escribio</span>'
+      ? '<span style="color:#92400e;">Otro usuario ya le envio</span>'
       : seCrea
         ? '<span style="color:#166534;">Se crea nueva</span>'
         : '<span style="color:#166534;">Se reenvia</span>';
