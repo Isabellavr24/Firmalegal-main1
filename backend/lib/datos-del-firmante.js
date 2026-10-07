@@ -134,7 +134,12 @@ function porEtiqueta(campos) {
  *          `motivo` dice por que no se pudo, cuando no se pudo. Va a la
  *          pantalla tal cual, asi que esta escrito para leerlo.
  */
-function datosDeFirmante(campos, email) {
+// Dos nombres son el mismo si solo difieren en mayusculas, tildes o espacios.
+// El CSV de la universidad mezcla las dos formas: "NANCY ANGELICA LARA" y
+// "Nancy Angelica Lara" son la misma persona.
+const MISMO_NOMBRE = (t) => SIN_ACENTOS(t).replace(/[^0-9a-z]/g, '');
+
+function datosDeFirmante(campos, email, nombreFirmante) {
     if (!email) return { nombre: null, documento: null, celular: null, motivo: 'El destinatario no tiene correo' };
     if (!Array.isArray(campos) || !campos.length) {
         return { nombre: null, documento: null, celular: null, motivo: 'El pagare no tiene campos mapeados' };
@@ -147,10 +152,39 @@ function datosDeFirmante(campos, email) {
     // correo: la que mas correos distintos tenga manda. Hoy siempre son 1 o 2,
     // pero se comprueba en vez de darlo por hecho.
     let responsables = 0;
+    let hayCorreo = false;
     for (const g of grupos) {
         if (!ES_CORREO(g.etiqueta)) continue;
+        hayCorreo = true;
         const distintos = new Set(g.valores.filter(v => v.includes('@')).map(v => v.toLowerCase()));
         if (distintos.size > responsables) responsables = distintos.size;
+    }
+
+    // EL CORREO NO SIEMPRE DELATA CUANTOS SON.
+    //
+    // Cuando dos personas comparten correo -marido y mujer declarando el mismo-
+    // contar correos distintos da 1, y entonces la paridad es siempre 0: el
+    // codigo cree que hay un solo responsable, encuentra las dos cedulas en la
+    // misma posicion y bloquea.
+    //
+    // Los NOMBRES si los delatan: "Responsable 1" y "Responsable 2" existen
+    // aunque el correo se repita. Se toma el mayor de los dos recuentos.
+    if (hayCorreo) {
+        let porNombres = 0;
+        for (const g of grupos) {
+            if (!ES_NOMBRE(g.etiqueta) || NUMERO_DE_RESPONSABLE(g.etiqueta) !== null) continue;
+            const distintos = new Set(
+                g.valores.filter(v => v && !v.includes('@') && !PARECE_CEDULA(v))
+                         .map(v => MISMO_NOMBRE(v)).filter(Boolean));
+            if (distintos.size > porNombres) porNombres = distintos.size;
+        }
+        // Y las etiquetas numeradas, que son las mas fiables de todas
+        const numeradas = new Set();
+        for (const g of grupos) {
+            const n = NUMERO_DE_RESPONSABLE(g.etiqueta);
+            if (n !== null) numeradas.add(n);
+        }
+        responsables = Math.max(responsables, porNombres, numeradas.size);
     }
     if (responsables === 0) {
         return { nombre: null, documento: null, celular: null,
@@ -175,14 +209,46 @@ function datosDeFirmante(campos, email) {
         return { nombre: null, documento: null, celular: null,
                  motivo: 'Su correo no aparece entre los campos del pagare, no se puede saber cual es su cedula' };
     }
-    // Sale como primero en una pagina y como segundo en otra: el pagare se
-    // contradice y no se puede emparejar con certeza.
-    if (paridades.size > 1) {
-        return { nombre: null, documento: null, celular: null,
-                 motivo: 'Su correo aparece unas veces como primer responsable y otras como segundo, hay que revisar el pagare a mano' };
+    // CUANDO EL CORREO NO BASTA, SE USA EL NOMBRE.
+    //
+    // Pasa con los correos compartidos: dos personas -normalmente marido y
+    // mujer- declaran el mismo correo, asi que aparece en las dos paridades y
+    // emparejar por correo no distingue cual es cual. En produccion son 95 de
+    // 894 personas pendientes.
+    //
+    // El nombre si las distingue, y en el pagare va en el mismo orden que las
+    // cedulas: "Responsable 1" con la primera, "Responsable 2" con la segunda.
+    // Buscando en que paridad aparece SU nombre se sabe cual le toca.
+    let mia = paridades.size === 1 ? [...paridades][0] : null;
+
+    if (mia === null && nombreFirmante) {
+        const buscado = MISMO_NOMBRE(nombreFirmante);
+        const porNombre = new Set();
+        for (const g of grupos) {
+            // Las etiquetas numeradas dicen de quien son sin ambiguedad
+            const numero = NUMERO_DE_RESPONSABLE(g.etiqueta);
+            if (numero !== null) {
+                const v = g.valores[0];
+                if (v && MISMO_NOMBRE(v) === buscado) porNombre.add(numero - 1);
+                continue;
+            }
+            if (!ES_NOMBRE(g.etiqueta)) continue;
+            g.valores.forEach((v, i) => {
+                if (v && MISMO_NOMBRE(v) === buscado) porNombre.add(i % responsables);
+            });
+        }
+        // Solo vale si su nombre cae en UNA paridad. Si tambien se repite
+        // -dos personas con el mismo nombre y el mismo correo- seguimos sin
+        // poder distinguirlas.
+        if (porNombre.size === 1) mia = [...porNombre][0];
     }
 
-    const mia = [...paridades][0];
+    // Ni el correo ni el nombre desambiguan. Prefiero que un operador lo mire
+    // a que un padre reciba la validacion con la cedula de otro.
+    if (mia === null) {
+        return { nombre: null, documento: null, celular: null,
+                 motivo: 'Su correo aparece dos veces en el pagare y el nombre no permite distinguirlo, hay que revisarlo a mano' };
+    }
 
     // La cedula y el nombre que ocupan ESA misma paridad.
     const cedulas = new Set(), nombres = new Set(), celulares = new Set();
@@ -250,7 +316,19 @@ async function datosDeFirmanteDesdeBD(db, recipientId, email) {
          ORDER BY fv.field_id`,
         [recipientId]
     );
-    return datosDeFirmante(campos, email);
+
+    // Su nombre, que hace falta cuando dos personas comparten el correo: es
+    // lo unico que las distingue. Si no se puede leer se sigue sin el, y el
+    // emparejamiento por correo funciona como siempre.
+    let nombre = null;
+    try {
+        const [r] = await db.promise().query(
+            'SELECT name FROM document_recipients WHERE recipient_id = ?',
+            [recipientId]);
+        nombre = (r[0] && r[0].name) || null;
+    } catch (e) { /* se sigue sin el nombre */ }
+
+    return datosDeFirmante(campos, email, nombre);
 }
 
 module.exports = { datosDeFirmante, datosDeFirmanteDesdeBD };
