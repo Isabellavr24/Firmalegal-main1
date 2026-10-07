@@ -28,7 +28,10 @@ CREATE TABLE IF NOT EXISTS recordatorios_enviados (
     user_id         INT NULL
                     COMMENT 'Quien lo envio. El limite de dias se cuenta por este usuario',
 
-    tipo            ENUM('validacion','firma') NOT NULL
+    -- 'validacion' crea una nueva, 'validacion_reenvio' vuelve a mandar el
+    -- correo de la que ya existe. Son acciones distintas y llevan cuentas
+    -- separadas para el limite diario, asi que se distinguen al registrarlas.
+    tipo            ENUM('validacion','validacion_reenvio','firma') NOT NULL
                     COMMENT 'validacion = solicitud de validar identidad; firma = enlace para firmar',
     email           VARCHAR(255) NOT NULL
                     COMMENT 'Se guarda aparte porque el correo del destinatario puede corregirse despues',
