@@ -16,6 +16,7 @@ const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js'); // Para extracción 
 const mailer = require('../lib/email/mailer'); // 📧 NUEVO: Para envío de emails
 const crypto = require('crypto'); // 🔐 Para generar tokens
 const { PDFDocument } = require('pdf-lib'); // Para merge de trazas VI
+const _estadoValidacion = require('../lib/estado-validacion');
 
 // Copia de un VI trace solo las páginas cuyo tamaño difiere del contrato base,
 // descartando las copias del contrato que los VI traces incrustan.
@@ -2201,8 +2202,15 @@ router.post('/:id/send', requireAuth, async (req, res) => {
             }
 
             // Preparar email
-            const signatureUrl = `${req.protocol}://${req.get('host')}/public-sign.html?token=${token}`;
-            const appUrl = `${req.protocol}://${req.get('host')}`;
+            // La URL del enlace NO se arma con req.get('host'): esa cabecera la
+            // pone quien hace la peticion, asi que un Host interno -o uno
+            // falseado- acaba metido en el correo del firmante. Ya paso: a una
+            // firmante le llego un enlace a firmalegal-app:3000, el nombre del
+            // contenedor, que desde su movil no resuelve.
+            //
+            // APP_URL es la unica fuente fiable del dominio publico.
+            const appUrl = process.env.APP_URL || 'https://firmalegalonline.com';
+            const signatureUrl = `${appUrl}/public-sign.html?token=${token}`;
 
             const senderName = document.sender_name || `${document.first_name} ${document.last_name}`;
             const fromEmail = document.sender_email || document.owner_email;
@@ -2454,7 +2462,7 @@ router.get('/:id/recipients', requireAuth, async (req, res) => {
                         dr.sent_at, dr.opened_at, dr.completed_at, dr.rejected_at,
                         COALESCE(dr.vi_validated_at, vve.vi_validated_at) AS vi_validated_at,
                         dr.vi_traza_path, dr.custom_pdf_path,
-                        dr.is_final_signer, dr.viewer_group_id,
+                        dr.is_final_signer, dr.viewer_group_id, dr.document_id,
                         vve.celular AS celular_otp
                  FROM document_recipients dr
                  LEFT JOIN vi_verified_emails vve ON CONVERT(vve.email USING utf8mb4) = CONVERT(dr.email USING utf8mb4)
@@ -2469,6 +2477,21 @@ router.get('/:id/recipients', requireAuth, async (req, res) => {
         });
 
         console.log(`✅ [DOCUMENTS] ${recipients.length} destinatario(s) encontrado(s)`);
+
+        // Lo que se sabe de la validacion de cada uno: los datos de su CSV,
+        // el estado de su validacion y cuantas veces la ha intentado.
+        //
+        // Esto es lo que convierte la pantalla en algo util cuando un padre
+        // escribe diciendo que no le funciona: hoy hay que entrar al servidor
+        // a consultarlo a mano.
+        //
+        // Si falla, los destinatarios se devuelven igual: la lista tiene que
+        // seguir saliendo aunque VI no responda.
+        try {
+            await _estadoValidacion.conEstadoDeValidacion(db, recipients);
+        } catch (e) {
+            console.warn('[DOCUMENTS] No se pudo completar el estado de validacion: ' + e.message);
+        }
 
         // Verificar si el pagaré ya fue sellado (sin firmante definitivo)
         const [pagareMetaRows] = await new Promise((resolve, reject) => {

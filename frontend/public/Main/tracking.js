@@ -873,6 +873,543 @@ function showEtituloMasivoModal(docId, groupIds, triggerBtn) {
     });
   });
 }
+// =====================================================================
+// VALIDACION DE IDENTIDAD DESDE EL PAGARE
+// =====================================================================
+//
+// Lo que se ve al lado de cada persona: con que datos se va a crear su
+// validacion, en que estado esta y cuantas veces la ha intentado.
+//
+// POR QUE: mandar una validacion era una caja negra. Se enviaba y despues no
+// habia forma de saber desde la pantalla si llego, si la abrieron, si lo
+// intentaron ni por que fallo. Para responderle a un padre que escribia
+// diciendo que no le funcionaba, habia que entrar al servidor a consultarlo.
+//
+// Los INTENTOS son el dato que faltaba: distinguen a quien no le llego el
+// correo de quien lo abrio y no consigue completarlo. Son dos problemas
+// distintos y se arreglan de forma distinta.
+//
+// SOLO PAGARES: los datos salen del CSV, y el CSV solo existe en pagares.
+
+// Los datos detectados del CSV, a la derecha del renglon.
+//
+// El NOMBRE se muestra a proposito: es contra lo que la biometria va a comparar
+// la cedula. Si esta mal escrito la validacion falla, y es mejor verlo antes de
+// enviar que despues.
+// Si esa validacion sirve para algo.
+//
+// Es la misma regla que `estaViva` en backend/lib/estado-validacion.js, y
+// tiene que seguir siendolo: si la pantalla y el servidor contestan distinto
+// a '¿esta viva?', el boton ofrece una cosa y el backend hace otra.
+//
+// No sirve si la anularon, si se le paso la fecha -los enlaces duran 30 dias-
+// o si no sabemos nada de ella. Una ya completada SI sirve, y ademas no
+// caduca: esa persona se valido y eso no se deshace.
+function validacionUtil(v) {
+  if (!v || !v.codigo || v.vi_sin_respuesta || v.no_encontrada) return false;
+  if (v.estado === 'cancelada' || v.estado === 'anulada') return false;
+  if (v.estado === 'completada') return true;
+  if (v.caducada) return false;
+  if (v.expira_at) {
+    const vence = new Date(v.expira_at).getTime();
+    if (!isNaN(vence) && vence <= Date.now()) return false;
+  }
+  return true;
+}
+
+// El nombre con el que de verdad se va a validar esa persona.
+//
+// Si su validacion esta viva y lleva un nombre corregido, ese manda sobre el
+// del CSV: es con el que la biometria va a comparar su cedula. Si no, el del
+// pagare.
+//
+// Importa que sea el mismo en toda la pantalla. El 06-10 se veia 'Informacion
+// detectada: JUAN DIEGO ARRIETA HERRERA' con el nombre de debajo del correo
+// diciendo todavia 'DIEGO ARRIETA HERRERA', como si fueran dos personas.
+function nombreVigente(d) {
+  const v = d && d.validacion;
+  if (validacionUtil(v) && v.nombre) return v.nombre;
+  return (d && d.name) || '';
+}
+
+function datosDetectados(d) {
+  const csv = d.datos_csv;
+  if (!csv) return '';
+
+  const v = d.validacion;
+
+  // Con que datos se creo DE VERDAD la validacion en VI.
+  //
+  // Que no coincidan con los del CSV normalmente es BUENA señal: significa
+  // que alguien entro a "Corregir informacion" y los arreglo, porque el CSV
+  // venia mal. En ese caso el dato bueno es el de VI, no el del pagare.
+  //
+  // Por eso se ensena como informacion, no como error: lo que importa es que
+  // el operador sepa con que datos se va a validar esa persona de verdad.
+  // SOLO SI ESA VALIDACION SIRVE.
+  //
+  // Los datos de una validacion anulada o vencida no son 'los corregidos':
+  // son los de algo que ya no existe. Ensenarlos tachando el CSV hacia creer
+  // que la correccion sigue en pie cuando esa validacion esta muerta y hay
+  // que crear otra desde cero, con los datos del pagare.
+  const sirve = validacionUtil(v);
+  const enVI = (campo) => {
+    if (!sirve) return null;
+    return v[campo] || null;
+  };
+
+  const normaliza = (t) => String(t == null ? '' : t)
+    .replace(/[^0-9A-Za-z]/g, '').toUpperCase();
+
+  // La linea: el dato del CSV y, si VI tiene otro, el aviso debajo.
+  const linea = (etiqueta, valor, falta, campoVI) => {
+    const suyo = campoVI ? enVI(campoVI) : null;
+    const difiere = suyo && valor && normaliza(suyo) !== normaliza(valor);
+    // El dato de VI es el que se va a usar en la validacion, asi que cuando
+    // difiere se ensena ese como el vigente y el del CSV queda tachado.
+    return `<div style="font-size:11px;color:${falta ? '#b91c1c' : '#6b7280'};line-height:1.7;">
+       ${etiqueta}: ${falta ? '<strong>falta</strong>'
+         : difiere ? `<span style="text-decoration:line-through;opacity:.55;">${escHtml(valor)}</span>
+                      <strong style="color:#166534;">${escHtml(suyo)}</strong>`
+         : escHtml(valor)}
+     </div>`;
+  };
+
+  // Cuando no se pudo emparejar, el motivo se dice tal cual: esta escrito
+  // para leerlo, no para depurarlo.
+  if (csv.motivo && !csv.documento) {
+    return `<div style="min-width:190px;max-width:230px;">
+       <div style="font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">Informacion detectada</div>
+       <div style="font-size:11px;color:#b91c1c;line-height:1.6;">${escHtml(csv.motivo)}</div>
+     </div>`;
+  }
+
+  // CUANTAS VALIDACIONES TIENE ESA PERSONA EN VI.
+  //
+  // Mas de una es rastro de cuando reenviar creaba en vez de reenviar: cada
+  // pulsacion dejaba una validacion mas, con otro codigo y otro enlace. Eso ya
+  // no pasa -VI anadio la ruta de reenvio el 05-10-2026- pero las que se
+  // crearon siguen ahi, y esa persona tiene varios correos en su bandeja.
+  //
+  // Se dice para que el operador sepa que ese correo esta repetido y pueda
+  // anular las que sobran desde el panel de VI.
+  // Cuando ninguna de sus validaciones sirve, se dice eso y ya.
+  //
+  // NO SE DICE CUANTAS TIENE. `total_validaciones` cuenta TODAS las de VI,
+  // canceladas incluidas, asi que decir 'tiene 7 validaciones' cuando seis
+  // estan anuladas y solo una vive es falso y confunde. Y ya no hace falta
+  // avisar de duplicados: reenviar dejo de crearlos el 05-10, cuando VI
+  // anadio su ruta de reenvio. Los que quedan son rastro de antes.
+  //
+  // Lo unico que el operador necesita saber es si tiene una que sirva,
+  // porque eso explica por que el boton dice CREAR o REENVIAR.
+  const avisoOtra = (!sirve && v && v.codigo && !v.vi_sin_respuesta)
+    ? `<div style="font-size:10.5px;color:#9ca3af;line-height:1.5;margin-top:5px;">
+         No hay validaciones activas.
+       </div>`
+    : '';
+
+  return `<div style="min-width:190px;max-width:230px;">
+      <div style="font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">Informacion detectada</div>
+      ${linea('Cedula', csv.documento, !csv.documento, 'documento')}
+      ${linea('Nombre', csv.nombre || d.name, !csv.nombre && !d.name, 'nombre')}
+      ${linea('Celular', csv.celular, !csv.celular)}
+      ${avisoOtra}
+    </div>`;
+}
+
+// El estado de su validacion, en una linea. Es lo que convierte la pantalla en
+// algo util cuando alguien pregunta "y a esta señora que le pasa".
+function estadoValidacion(d) {
+  const v = d.validacion;
+  if (!v) return '';
+
+  if (v.vi_sin_respuesta) {
+    return `<div style="font-size:11px;color:#9ca3af;margin-top:2px;text-align:center;">No se pudo consultar el estado</div>`;
+  }
+  if (v.no_encontrada) {
+    return `<div style="font-size:11px;color:#b91c1c;margin-top:2px;text-align:center;">La validacion ya no existe</div>`;
+  }
+
+  const partes = [];
+
+
+  // Si ya la completo, eso es lo unico que importa decir.
+  if (v.estado === 'completada') {
+    return '<div style="font-size:11px;color:#166534;margin-top:2px;text-align:center;">' +
+           'Identidad verificada</div>';
+  }
+
+  // Anulada en VI. Tampoco hay mas que decir: sus intentos y su vigencia ya
+  // no significan nada, y lo unico que cabe hacer es crearle otra.
+  if (v.estado === 'cancelada' || v.estado === 'anulada') {
+    return '<div style="font-size:11px;color:#b91c1c;margin-top:2px;text-align:center;">' +
+           'Validacion cancelada en VI</div>';
+  }
+
+  // Vencida. Se arregla igual que la anulada -creando otra- pero se dice
+  // distinto, porque no la cancelo nadie: se le paso la fecha.
+  if (!validacionUtil(v)) {
+    return '<div style="font-size:11px;color:#b91c1c;margin-top:2px;text-align:center;">' +
+           'Su enlace vencio. Hay que crearle otra</div>';
+  }
+
+  // Los intentos: cero intentos y varios intentos son problemas distintos.
+  if (v.intentos != null) {
+    partes.push(v.intentos === 0
+      ? '<span style="color:#92400e;">No la ha intentado</span>'
+      : 'Intentos: <strong>' + v.intentos + '</strong>' +
+        (v.estado === 'en_proceso' ? ' <span style="color:#92400e;">(en proceso)</span>' : ''));
+  }
+
+  // La vigencia. Una caducada no se reenvia: hay que crearla de nuevo.
+  if (v.caducada) {
+    partes.push('<span style="color:#b91c1c;">Caducada</span>');
+  } else if (v.dias_restantes != null && v.dias_restantes <= 3) {
+    partes.push('<span style="color:#92400e;">Vence en ' + v.dias_restantes + ' dia(s)</span>');
+  }
+
+  if (!partes.length) return '';
+  return `<div style="font-size:11px;color:#6b7280;margin-top:2px;text-align:center;line-height:1.5;">${partes.join(' &middot; ')}</div>`;
+}
+
+// La leyenda de cuando la validacion viene de OTRO pagare de esa persona.
+//
+// Pasa cuando un padre tiene dos hijos en la universidad: firma dos pagares
+// pero su identidad es una sola. No se le crea otra validacion -no tiene
+// sentido pedirle que se valide dos veces con la misma cedula-, se reenvia la
+// que ya tiene, y al completarla vale para los dos.
+//
+// Decirlo importa porque al pulsar NO pasa lo que uno esperaria: el correo
+// que le llega es el del pagare de origen, no el de este. Y los enlaces de
+// firma le llegan despues, cuando complete la validacion.
+function leyendaValidacionCompartida(d) {
+  const v = d.validacion;
+  if (!v || !v.de_otro_documento) return '';
+  // Una cancelada o vencida no se reenvia a ninguna parte: hay que crear
+  // otra, y eso ya lo dice el boton. La leyenda aqui solo confundiria.
+  if (v.estado === 'cancelada' || v.estado === 'anulada') return '';
+  if (v.caducada && v.estado !== 'completada') return '';
+
+  const origen = v.pagare_origen;
+  const pendientes = Array.isArray(v.pagares_pendientes) ? v.pagares_pendientes : [];
+  const dondeSeHizo = origen
+    ? '<span style="color:#6b7280;">' + escHtml(origen) + '</span>'
+    : 'otro pagare suyo';
+
+  // Una linea pegada abajo a la izquierda, sin recuadro, sin padding y sin
+  // borde: es una aclaracion de como funciona el sistema, no un aviso, y no
+  // tiene que pesar en el diseno del renglon.
+  const ESTILO = 'margin:2px 0 0 2px;font-size:10.5px;color:#9ca3af;line-height:1.5;';
+
+  // Ya validada: no hay nada que reenviar, pero hay que decir igual que su
+  // validacion se hizo en otro pagare. Si no, el operador ve 'verificado' en
+  // un pagare al que esta persona nunca entro y no sabe de donde sale.
+  //
+  // Y si al validarse le corrigieron los datos, esa correccion es la que vale
+  // aqui tambien: es una sola validacion, compartida.
+  if (v.estado === 'completada') {
+    const csv = d.datos_csv || {};
+    const norm = (t) => String(t == null ? '' : t).replace(/[^0-9A-Za-z]/g, '').toUpperCase();
+    const corregidos = [];
+    if (v.documento && csv.documento && norm(v.documento) !== norm(csv.documento)) corregidos.push('la cedula');
+    if (v.nombre && csv.nombre && norm(v.nombre) !== norm(csv.nombre)) corregidos.push('el nombre');
+    const correccion = corregidos.length
+      ? ' Se le corrigio ' + corregidos.join(' y ') + ', y vale aqui tambien.'
+      : '';
+    return `<div style="${ESTILO}">Valido su identidad en ${dondeSeHizo}, y vale para este.${correccion}</div>`;
+  }
+
+  // Lo que pasa al pulsar, dicho entero: el correo de validacion sale para el
+  // pagare de origen, y los enlaces de firma llegan DESPUES, uno por pagare.
+  //
+  // `pendientes` son sus PAGARES sin firmar, este incluido. Antes decia
+  // "firmara sus N pagares", que sonaba a que iban a aparecer de la nada; lo
+  // que le llega al correo son los enlaces, y eso es lo que se nombra.
+  const cuantos = pendientes.length;
+  const luego = cuantos > 1
+    ? ` Al completarla le llegaran los enlaces de firma de sus ${cuantos} pagares.`
+    : ' Al completarla le llegara el enlace de firma.';
+
+  return `<div style="${ESTILO}">Su validacion es de ${dondeSeHizo}: al reenviarla le llega el correo de ese pagare.${luego}</div>`;
+}
+
+// El boton, segun lo que de verdad va a pasar al pulsarlo.
+//
+// Son dos acciones distintas y se llaman distinto: CREAR una validacion que no
+// existe no es lo mismo que REENVIAR una que ya existe. Una validacion nueva
+// llega con otro codigo y otra fecha de vencimiento.
+function botonValidacion(d) {
+  const csv = d.datos_csv;
+  const v = d.validacion;
+  const falta = (csv && csv.falta) || [];
+  const puede = csv && !falta.length;
+
+  // Sin cedula no hay nada contra que comparar; sin celular no llega el OTP.
+  // En los dos casos el boton no se puede pulsar y la pantalla dice que falta.
+  const motivoBloqueo = !csv
+    ? 'No se encontraron sus datos en el pagare'
+    : falta.length
+      ? 'Falta ' + falta.join(' y ') + ' en el pagare'
+      : null;
+
+  // Cuatro estados, cuatro botones distintos:
+  //
+  //   sin validacion        -> INICIAR VALIDACION    (se le crea una)
+  //   anulada o caducada    -> CREAR VALIDACION NUEVA
+  //   validacion pendiente  -> REENVIAR VALIDACION   (se le vuelve a mandar)
+  //   ya validada           -> ENVIAR ENLACE DE FIRMA
+  //
+  // La anulada y la caducada equivalen a no tener ninguna: su enlace no
+  // lleva a ninguna parte, asi que reenviarlo seria mandarle a un padre un
+  // correo que no le sirve. Hay que crear otra, con enlace y vigencia
+  // nuevos. Se dice CREAR VALIDACION NUEVA y no INICIAR para que se vea que
+  // hubo una antes.
+  const yaValido = !!v && v.estado === 'completada';
+  // La misma regla de los datos y del backend: anulada, vencida o sin
+  // respuesta de VI no sirven, y las tres se arreglan creando otra.
+  const anulada = !!v && (v.estado === 'cancelada' || v.estado === 'anulada');
+  const cancelada = !!v && !yaValido && !validacionUtil(v);
+  const esReenvio = !!v && !v.no_encontrada && !yaValido && !cancelada;
+
+  const deOtro = !!(v && v.de_otro_documento && !yaValido && !cancelada);
+  const texto = yaValido ? 'ENVIAR ENLACE DE FIRMA'
+    : cancelada ? 'CREAR VALIDACION NUEVA'
+    : esReenvio ? (deOtro ? 'REENVIAR LA DEL OTRO PAGARE' : 'REENVIAR VALIDACION')
+    : 'INICIAR VALIDACION';
+  const accion = yaValido ? 'firma' : esReenvio ? 'reenviar' : 'iniciar';
+
+  // El morado de siempre, el mismo de ENVIAR. El ambar de antes parecia una
+  // alarma, y el morado agrisado se veia deslavado al lado del resto.
+  // Que la validacion sea de otro pagare ya lo dice la leyenda de abajo.
+  const fondo = !puede ? '#e5e0e8' : '#2a0d31';
+
+  const btn = `
+    <button class="vi-un-clic-btn recipient-btn"
+      data-accion="${accion}" data-id="${d.id}"
+      ${puede ? '' : 'disabled'}
+      style="padding:13px 20px;border:none;border-radius:8px;font-size:13px;
+             font-weight:700;letter-spacing:.5px;width:100%;
+             display:flex;align-items:center;justify-content:center;
+             background:${fondo};
+             color:${puede ? '#fff' : '#a39aaa'};
+             cursor:${puede ? 'pointer' : 'not-allowed'};">
+      ${texto}
+    </button>`;
+
+  // Debajo del boton: el motivo si no se puede, los intentos si ya se envio, y
+  // siempre la via para corregir lo que este mal.
+  const debajo = motivoBloqueo
+    ? `<div style="font-size:11px;color:#b91c1c;text-align:center;line-height:1.5;">${escHtml(motivoBloqueo)}</div>`
+    : estadoValidacion(d);
+
+  return `
+    <div class="recipient-actions" style="flex-direction:column;align-items:center;gap:7px;min-width:210px;">
+      ${btn}
+      ${debajo}
+      <button class="vi-corregir-btn" data-id="${d.id}"
+        style="background:none;border:none;color:#8b7d93;font-size:11px;
+               cursor:pointer;padding:0;text-decoration:underline;
+               width:100%;text-align:center;">
+        Corregir informacion
+      </button>
+    </div>`;
+}
+
+function escHtml(t) {
+  return String(t == null ? '' : t).replace(/[&<>"']/g,
+    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Enviar o reenviar la validacion, sin salir de la pantalla.
+//
+// Antes habia que ir al panel de Validacion de Identidad, escribir los datos a
+// mano y volver. Ahora se toman del CSV, que es de donde salen de todos modos.
+// Corregir los datos de SU validacion, sin salir de la pantalla.
+//
+// Antes esto abria el panel de Validacion de Identidad, que CREA una
+// validacion nueva: la vieja se quedaba viva con los datos malos y esa persona
+// acababa con dos sin saber cual usar. Con la ruta PATCH que VI anadio el
+// 05-10-2026 se puede editar la que ya tiene.
+//
+// Si NO tiene validacion viva no hay nada que editar, y entonces se abre el
+// panel de VI como siempre: lo que toca es crearsela.
+function abrirCorregirValidacion(recipient) {
+  const v = recipient.validacion;
+  const hayQueEditar = v && v.codigo && !v.vi_sin_respuesta &&
+                       v.estado !== 'cancelada' && v.estado !== 'anulada' &&
+                       v.estado !== 'completada';
+
+  // Sin validacion viva: al panel de VI, que es donde se crea.
+  if (!hayQueEditar) { handleViStart(recipient); return; }
+
+  const csv = recipient.datos_csv || {};
+  // Lo que se ensena es lo que VI tiene AHORA, no lo del CSV: el operador
+  // viene a afinar lo que ya hay.
+  const valores = {
+    nombre: v.nombre || csv.nombre || recipient.name || '',
+    documento: v.documento || csv.documento || '',
+    // Solo los diez digitos: el indicativo lo pone Validacion de Identidad.
+    celular: (() => {
+      const d = String(csv.celular || '').replace(/[^0-9]/g, '');
+      return d.length === 12 && d.slice(0, 2) === '57' ? d.slice(2) : d;
+    })()
+  };
+
+  const fondo = document.createElement('div');
+  fondo.style.cssText = 'position:fixed;inset:0;background:rgba(20,8,24,.45);' +
+    'display:flex;align-items:center;justify-content:center;z-index:10000;padding:16px;';
+
+  const campo = (id, etiqueta, valor, ayuda) => `
+    <div style="margin-bottom:14px;">
+      <label for="${id}" style="display:block;font-size:11px;color:#6b7280;
+             text-transform:uppercase;letter-spacing:.04em;margin-bottom:5px;">${etiqueta}</label>
+      <input id="${id}" value="${escHtml(valor)}" autocomplete="off"
+             style="width:100%;padding:10px 12px;border:1px solid #e5e0e8;border-radius:8px;
+                    font-size:14px;color:#1f2937;box-sizing:border-box;">
+      ${ayuda ? `<div style="font-size:10.5px;color:#9ca3af;margin-top:4px;">${ayuda}</div>` : ''}
+    </div>`;
+
+  fondo.innerHTML = `
+    <div style="background:#fff;border-radius:14px;max-width:440px;width:100%;
+                box-shadow:0 20px 60px rgba(0,0,0,.25);overflow:hidden;">
+      <div style="padding:20px 24px 0;">
+        <div style="font-size:17px;font-weight:700;color:#2a0d31;">Corregir su validacion</div>
+        <div style="font-size:12px;color:#6b7280;margin-top:5px;line-height:1.5;">
+          Se corrigen los datos de la validacion que ya tiene
+          (<span style="color:#2a0d31;">${escHtml(v.codigo)}</span>).
+          No se le crea otra ni se le cambia el enlace.
+        </div>
+      </div>
+      <div style="padding:20px 24px 0;">
+        ${campo('corr-nombre', 'Nombre completo', valores.nombre,
+                'Es contra lo que la biometria compara su cedula')}
+        ${campo('corr-documento', 'Cedula', valores.documento, '')}
+        ${campo('corr-celular', 'Celular', valores.celular,
+                'A donde le llega el codigo de verificacion')}
+        <div id="corr-aviso" style="display:none;font-size:11.5px;color:#b91c1c;
+             line-height:1.5;margin-bottom:12px;"></div>
+      </div>
+      <div style="padding:6px 24px 20px;display:flex;gap:10px;justify-content:flex-end;">
+        <button id="corr-cancelar" style="padding:10px 18px;border:1px solid #e5e0e8;
+                background:#fff;border-radius:8px;font-size:13px;color:#6b7280;cursor:pointer;">
+          Cancelar</button>
+        <button id="corr-guardar" style="padding:10px 20px;border:none;background:#2a0d31;
+                border-radius:8px;font-size:13px;font-weight:700;color:#fff;cursor:pointer;">
+          Guardar</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(fondo);
+  const cerrar = () => fondo.remove();
+  fondo.addEventListener('click', (e) => { if (e.target === fondo) cerrar(); });
+  fondo.querySelector('#corr-cancelar').addEventListener('click', cerrar);
+
+  const aviso = fondo.querySelector('#corr-aviso');
+  const decir = (t) => { aviso.textContent = t; aviso.style.display = t ? 'block' : 'none'; };
+
+  const guardar = fondo.querySelector('#corr-guardar');
+  guardar.addEventListener('click', async () => {
+    const nombre = fondo.querySelector('#corr-nombre').value.trim();
+    const documento = fondo.querySelector('#corr-documento').value.trim();
+    const celular = fondo.querySelector('#corr-celular').value.trim();
+
+    // La cedula es contra lo que se compara: sin ella la validacion no sirve.
+    if (!documento) { decir('Sin cedula la validacion no sirve: no hay contra que comparar.'); return; }
+    if (!/^[0-9]{5,12}$/.test(documento.replace(/[.\s-]/g, ''))) {
+      decir('La cedula deberia ser solo numeros.'); return;
+    }
+    const soloDigitos = celular.replace(/[^0-9]/g, '');
+    if (celular && !(soloDigitos.length === 10 && soloDigitos[0] === '3')) {
+      decir('El celular son 10 numeros y empieza por 3. Ejemplo: 3001234567'); return;
+    }
+    decir('');
+
+    guardar.disabled = true;
+    guardar.textContent = 'Guardando...';
+    try {
+      const res = await fetch(`/api/validaciones/${recipient.id}/datos`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          nombre_completo: nombre || undefined,
+          documento: documento.replace(/[.\s-]/g, ''),
+          tipo_documento: 'CC',
+          celular: soloDigitos ? '+57' + soloDigitos : undefined
+        })
+      }).then(r => r.json());
+
+      if (res.success) {
+        cerrar();
+        avisar('success', res.message || 'Datos corregidos');
+        const docId = new URLSearchParams(window.location.search).get('id');
+        if (docId) loadRecipients(docId);
+      } else {
+        decir(res.message || 'No se pudo corregir');
+        guardar.disabled = false;
+        guardar.textContent = 'Guardar';
+      }
+    } catch (e) {
+      decir('No se pudo conectar: ' + e.message);
+      guardar.disabled = false;
+      guardar.textContent = 'Guardar';
+    }
+  });
+
+  setTimeout(() => { const n = fondo.querySelector('#corr-documento'); if (n) n.focus(); }, 50);
+}
+
+async function validacionUnClic(recipientId, accion, boton) {
+  const original = boton ? boton.textContent.trim() : '';
+  if (boton) { boton.disabled = true; boton.textContent = 'Enviando...'; }
+
+  try {
+    const res = await fetch('/api/validaciones/un-clic', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ recipient_id: recipientId, accion })
+    }).then(r => r.json());
+
+    if (res.success) {
+      avisar('success', res.message ||
+        (accion === 'iniciar' ? 'Validacion enviada' : 'Validacion reenviada'));
+      // Recargar para que el renglon pase a "REENVIAR" y aparezcan los intentos
+      const docId = new URLSearchParams(window.location.search).get('id');
+      if (docId) loadRecipients(docId);
+      return;
+    }
+
+    if (res.en_espera) {
+      // La cuenta atras en el propio boton, en vez de un error seco
+      if (boton && res.faltan_segundos) {
+        let faltan = res.faltan_segundos;
+        const tic = setInterval(() => {
+          faltan--;
+          if (faltan <= 0) {
+            clearInterval(tic);
+            boton.disabled = false;
+            boton.textContent = original;
+          } else {
+            const m = Math.floor(faltan / 60), s = faltan % 60;
+            boton.textContent = m ? `Espera ${m}:${String(s).padStart(2, '0')}`
+                                  : `Espera ${s}s`;
+          }
+        }, 1000);
+      }
+      avisar('warning', res.message);
+      return;   // el boton lo lleva la cuenta atras
+    }
+
+    avisar('error', res.message || 'No se pudo enviar la validacion');
+  } catch (e) {
+    avisar('error', 'Error de conexion al enviar la validacion');
+  }
+
+  if (boton) { boton.disabled = false; boton.textContent = original; }
+}
+
 
 
 function createRecipientCard(recipient) {
@@ -931,15 +1468,25 @@ function createRecipientCard(recipient) {
           : viValidatedBadge;
 
   // Botones a la derecha: VI cuando no verificado, normales cuando sí
+  // En PAGARES el renglon lleva los datos del CSV y el boton de un clic: se
+  // sabe con que cedula y celular se va a crear la validacion, y cuantas
+  // veces la ha intentado esa persona.
+  //
+  // En documentos normales no hay CSV de donde sacar esos datos, asi que se
+  // deja el boton de siempre, que lleva al panel de Validacion de Identidad.
+  const esPagare = !!recipient.viewer_group_id;
+
   const actionsHtml = showViBlock
-    ? `<div class="recipient-actions" style="flex-direction:column;align-items:center;gap:8px;min-width:220px;">
+    ? (esPagare
+      ? botonValidacion(recipient)
+      : `<div class="recipient-actions" style="flex-direction:column;align-items:center;gap:8px;min-width:220px;">
          <button class="vi-start-btn recipient-btn" style="padding:13px 20px;background:#2a0d31;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:0.5px;width:100%;text-align:center;">
            INICIAR VALIDACIÓN DE IDENTIDAD
          </button>
          <button class="vi-skip-btn" style="background:none;border:none;color:#888;font-size:12px;cursor:pointer;padding:0;text-decoration:underline;width:100%;text-align:center;">
            omitir validación de identidad
          </button>
-       </div>`
+       </div>`)
     : pagareViSinOtp
       ? `<div class="recipient-actions" style="flex-direction:column;align-items:center;gap:8px;min-width:200px;">
            <button class="otp-registrar-btn recipient-btn" data-email="${recipient.email}"
@@ -983,17 +1530,54 @@ function createRecipientCard(recipient) {
          </div>
        </div>`;
 
+  // Los datos que el sistema detecto del CSV, entre la informacion y los
+  // botones. Solo cuando hay algo que decidir: si ya valido, sobran.
+  const detectadosHtml = (esPagare && showViBlock) ? datosDetectados(recipient) : '';
+
+  // La leyenda va ABAJO, a lo ancho de la tarjeta: es una explicacion de lo
+  // que va a pasar, no una etiqueta del boton.
+  const leyendaHtml = (esPagare && showViBlock) ? leyendaValidacionCompartida(recipient) : '';
+
   card.innerHTML = `
-    <div class="recipient-info" style="flex:1;">
-      ${badgeHtml}
-      <div class="recipient-emails">
-        <p class="recipient-email">${displayEmail}</p>
-        ${recipient.name && recipient.name !== recipient.email ? `<p class="recipient-name" style="font-size: 12px; color: #666; margin-top: 4px;">${recipient.name}</p>` : ''}
-        ${viInfoText}
+    <div style="display:flex;align-items:flex-start;gap:16px;width:100%;flex-wrap:wrap;">
+      <div class="recipient-info" style="flex:1;">
+        ${badgeHtml}
+        <div class="recipient-emails">
+          <p class="recipient-email">${displayEmail}</p>
+          ${(() => {
+            // El nombre vigente, que es el de su validacion cuando la hay.
+            const n = nombreVigente(recipient);
+            return n && n !== recipient.email
+              ? `<p class="recipient-name" style="font-size: 12px; color: #666; margin-top: 4px;">${escHtml(n)}</p>`
+              : '';
+          })()}
+          ${viInfoText}
+        </div>
       </div>
+      ${detectadosHtml}
+      ${actionsHtml}
     </div>
-    ${actionsHtml}
+    ${leyendaHtml}
   `;
+  // A la izquierda y pegada abajo. Sin alignItems la tarjeta la centra, que
+  // es como se veia antes: un bloque en mitad del renglon.
+  if (leyendaHtml) {
+    card.style.flexDirection = 'column';
+    card.style.alignItems = 'flex-start';
+  }
+
+  // El boton de un clic: enviar o reenviar sin salir de la pantalla
+  const unClicBtn = card.querySelector('.vi-un-clic-btn');
+  if (unClicBtn && !unClicBtn.disabled) {
+    unClicBtn.addEventListener('click', () =>
+      validacionUnClic(recipient.id, unClicBtn.dataset.accion, unClicBtn));
+  }
+
+  // "Corregir informacion" hace lo que hacia el boton viejo: lleva al panel
+  // de Validacion de Identidad con los datos puestos, para arreglar lo que
+  // este mal antes de enviar.
+  const corregirBtn = card.querySelector('.vi-corregir-btn');
+  if (corregirBtn) corregirBtn.addEventListener('click', () => abrirCorregirValidacion(recipient));
 
   // Event listeners para botones de VI
   const startBtn = card.querySelector('.vi-start-btn');
@@ -2072,9 +2656,631 @@ async function checkDocumentFields(docId, docName) {
 }
 
 // ====== CARGAR DESTINATARIOS DESDE EL BACKEND ======
+// =====================================================================
+// PANEL DE RECORDATORIOS
+// =====================================================================
+//
+// El resumen que se ve arriba de los envios: cuantos correos salieron, cuantas
+// firmas y validaciones faltan, y cuantas estan hechas. Y los botones para
+// reenviar, que es lo que se hacia a mano cada lunes.
+
+async function cargarPanelRecordatorios(docId) {
+  const caja = document.getElementById('panelRecordatorios');
+  if (!caja || !docId) return;
+
+  try {
+    const resp = await fetch(`/api/documentos/${docId}/recordatorios`, { credentials: 'include' });
+    const d = await resp.json();
+    if (!d.success) { caja.style.display = 'none'; return; }
+
+    window._recordatoriosEstado = d;
+    pintarPanelRecordatorios(d);
+  } catch (e) {
+    // El panel es informativo: si falla, la pantalla sigue funcionando igual.
+    caja.style.display = 'none';
+  }
+}
+
+function pintarPanelRecordatorios(d) {
+  const caja = document.getElementById('panelRecordatorios');
+  if (!caja) return;
+
+  const r = d.resumen;
+  const enviados = r.total - r.sin_validar;   // a quien ya le llego algo del proceso
+
+  // Mismo lenguaje visual que el resto de la pagina: tarjeta blanca, radio 16,
+  // el borde y la sombra de las variables, y el padding de .section-header.
+  const dato = (n, etiqueta, color) =>
+    `<div style="flex:1 1 140px;min-width:0;">
+       <div style="font-size:26px;font-weight:700;color:${color};line-height:1;">${n}</div>
+       <div style="font-size:12px;color:#8b7d93;margin-top:6px;">${etiqueta}</div>
+     </div>`;
+
+  // Los botones solo salen si hay a quien escribir: uno que no hace nada
+  // confunde mas que ayuda.
+  // Enviar y reenviar se distinguen por el color, no solo por el texto.
+  //
+  // Crear una validacion nueva y reenviar una que ya existe son acciones
+  // distintas -la nueva llega con otro codigo y otra fecha de vencimiento- y
+  // dos botones identicos uno al lado del otro se confunden.
+  //
+  // El relleno morado es para crear, que es la accion principal. El contorno,
+  // para reenviar: mismo color de la marca, menos peso visual.
+  const btn = (id, texto, n, activo, estilo = 'solido') => !n ? '' :
+    `<button id="${id}" type="button" ${activo ? '' : 'disabled'}
+       style="padding:10px 18px;border-radius:10px;font-size:13px;font-weight:600;
+              font-family:inherit;cursor:${activo ? 'pointer' : 'not-allowed'};
+              border:1px solid ${!activo ? '#e5e0e8' : 'var(--brand-color, #2a0d31)'};
+              background:${!activo ? '#faf9fb'
+                : estilo === 'contorno' ? '#fff' : 'var(--brand-color, #2a0d31)'};
+              color:${!activo ? '#b0a6b8'
+                : estilo === 'contorno' ? 'var(--brand-color, #2a0d31)' : '#fff'};
+              transition:opacity .15s;"
+       ${activo ? 'onmouseover="this.style.opacity=0.85" onmouseout="this.style.opacity=1"' : ''}
+       >${texto}</button>`;
+
+  const hayBotones = r.sin_validar || r.validados_sin_firmar;
+
+  // Quien ya gasto sus envios de la ventana.
+  //
+  // Se dice CUANDO fue y CUANTO falta, no 'de hoy': la ventana es de 24
+  // horas rodantes, asi que un envio de ayer por la tarde sigue contando.
+  // Decir 'hoy' hacia pensar que el dato estaba mal.
+  const cuando = r.ultimo_envio
+    ? new Date(r.ultimo_envio).toLocaleString('es-CO',
+        { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+    : null;
+  const faltan = r.espera_min_segundos > 0
+    ? (r.espera_min_segundos >= 3600
+        ? Math.ceil(r.espera_min_segundos / 3600) + ' hora' +
+          (Math.ceil(r.espera_min_segundos / 3600) === 1 ? '' : 's')
+        : Math.ceil(r.espera_min_segundos / 60) + ' minutos')
+    : null;
+  const espera = r.en_espera
+    ? `<div style="font-size:12px;color:#8b7d93;margin-top:14px;line-height:1.5;">
+         A ${r.en_espera} ${r.en_espera === 1 ? 'persona' : 'personas'} ya se
+         ${r.en_espera === 1 ? 'le enviaron' : 'les enviaron'}
+         ${d.envios_por_dia || 2} correos de validacion${cuando ? ', el ultimo el ' + escHtml(cuando) : ''}.
+         ${faltan ? 'El boton se habilita en ' + faltan + '.' : ''}
+       </div>` : '';
+
+  // La leyenda de limites, siempre visible cuando hay botones.
+  //
+  // Hasta ahora el operador no conocia los limites hasta que chocaba con
+  // ellos: pulsaba y le decia que no, sin saber por que ni hasta cuando.
+  //
+  // Se dice lo justo. El detalle -que cada accion lleva su cuenta, que las
+  // esperas crecen a cada intento, que al anular una validacion los correos
+  // de antes dejan de contar- es como funciona por dentro, y quien usa la
+  // pantalla no tiene por que leerlo: cuando alguno de esos limites frena
+  // algo, el renglon de esa persona lo explica en su caso.
+  const leyenda = hayBotones
+    ? `<div style="font-size:11px;color:#b0a6b8;margin-top:16px;line-height:1.6;
+                 padding-top:14px;border-top:1px solid var(--border-color, #ece7ee);">
+         Para no saturar a los firmantes, estos botones envian como maximo
+         <strong style="color:#8b7d93;">${d.envios_por_dia || 2} correos de validacion
+         y ${d.envios_por_dia || 2} de firma</strong> a cada persona por dia.
+         Para reenviar a una sola persona en especifico, usa el boton que
+         esta al lado de su nombre en la lista de abajo.
+       </div>` : '';
+
+  caja.innerHTML = `
+    <div style="background:#fff;border:1px solid var(--border-color, #ece7ee);
+                border-radius:16px;box-shadow:var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.04));
+                padding:24px 32px;margin-bottom:32px;">
+      <div style="display:flex;flex-wrap:wrap;gap:20px;">
+        ${dato(enviados, 'Correos enviados', 'var(--brand-color, #2a0d31)')}
+        ${dato(r.validados_sin_firmar, 'Firmas pendientes', '#92400e')}
+        ${dato(r.sin_validar, 'Validaciones pendientes', '#b91c1c')}
+        ${dato(r.firmados, 'Firmas completadas', '#166534')}
+      </div>
+      ${hayBotones ? `
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:22px;
+                  padding-top:20px;border-top:1px solid var(--border-color, #ece7ee);">
+        ${btn('btnEnviarValidaciones',
+              `Enviar validaciones (${r.validaciones_por_crear || 0})`,
+              r.sin_validacion_creada, (r.validaciones_por_crear || 0) > 0)}
+        ${btn('btnReenviarValidaciones',
+              `Reenviar validaciones (${r.validaciones_por_reenviar || 0})`,
+              r.con_validacion_creada, (r.validaciones_por_reenviar || 0) > 0, 'contorno')}
+        ${btn('btnReenviarFirmas',
+              `Reenviar enlaces de firma (${r.firmas_enviables})`,
+              r.validados_sin_firmar, r.firmas_enviables > 0, 'contorno')}
+      </div>` : ''}
+      ${espera}
+      ${leyenda}
+    </div>`;
+  caja.style.display = 'block';
+
+  // Enviar y reenviar llaman a lo mismo, pero con `modo` distinto: el
+  // servidor filtra a quien le toca cada una.
+  document.getElementById('btnEnviarValidaciones')
+    ?.addEventListener('click', () => confirmarReenvio('validacion', 'crear'));
+  document.getElementById('btnReenviarValidaciones')
+    ?.addEventListener('click', () => confirmarReenvio('validacion', 'reenviar'));
+  document.getElementById('btnReenviarFirmas')
+    ?.addEventListener('click', () => confirmarReenvio('firma'));
+}
+
+// Los avisos del panel van como toast, no como alert(): el alert del navegador
+// bloquea la pagina, se ve como un error del sistema y sale con la IP delante,
+// que no es lo que uno quiere ensenarle a un operador.
+//
+// La libreria expone window.toast. OJO: por aqui habia llamadas a
+// ToastManager, que NO existe en esta pagina, asi que esos avisos nunca se
+// vieron y siempre caian al alert de respaldo.
+function avisar(tipo, mensaje) {
+  if (window.toast && typeof window.toast[tipo] === 'function') {
+    window.toast[tipo](mensaje);
+  } else {
+    // Si la libreria no cargo, mejor un alert que perder el mensaje.
+    alert(mensaje);
+  }
+}
+
+// =====================================================================
+// INFORME DE REENVIO
+// =====================================================================
+//
+// Antes de que salga un solo correo se abre este informe. No es un aviso de
+// "se enviaran 40": es el desglose de quien, con que validacion, con que
+// cedula y cuanto le queda de vigencia.
+//
+// Existe porque mandar a ciegas ya salio mal: se crearon validaciones sin
+// cedula y nadie lo vio hasta que el padre no pudo validarse. Aqui eso se ve
+// antes de pulsar, marcado en rojo.
+
+// Dos dias de margen para avisar de que una validacion esta por caducar: si
+// vence antes de que el padre la abra, reenviarla no sirve de nada.
+const DIAS_AVISO_CADUCIDAD = 2;
+
+// La espera, en palabras. Son segundos, pero decir "en 61200 segundos" no le
+// sirve a nadie: se redondea a la unidad que se entiende de un vistazo.
+function esperaEnPalabras(segundos) {
+  const s = Math.max(0, Number(segundos) || 0);
+  if (s < 60) return 'menos de 1 min';
+  const min = Math.ceil(s / 60);
+  if (min < 60) return min + ' min';
+  const horas = Math.round(s / 3600);
+  return horas + (horas === 1 ? ' hora' : ' horas');
+}
+
+function fechaCorta(iso) {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleDateString('es-CO',
+      { day: '2-digit', month: 'short', year: 'numeric' });
+  } catch (e) { return '—'; }
+}
+
+function escInf(t) {
+  return String(t == null ? '' : t).replace(/[&<>"']/g,
+    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Lo que hay que mirar de cada persona antes de reenviarle. Devuelve la
+// etiqueta y el color, o null si no hay nada que avisar.
+function reparoDeValidacion(v, p) {
+  // El bloqueo va primero: es el motivo por el que NO se le va a escribir.
+  if (p && p.bloqueo)     return { texto: p.bloqueo, color: '#b91c1c' };
+  // Sin celular no le llega el codigo OTP, asi que no puede completar la
+  // validacion aunque le llegue el correo. Se avisa antes de mandarla.
+  if (p && p.celulares_distintos)
+    return { texto: 'El pagare trae varios celulares suyos: el OTP no se enviara', color: '#b91c1c' };
+  if (p && p.cedula_del_pagare && !p.celular_del_pagare)
+    return { texto: 'Sin celular: no recibira el codigo OTP', color: '#b91c1c' };
+  // Quien no tiene validacion NO es un problema: se le crea una nueva, que
+  // es justo lo que hace falta. Se dice en la columna de estado, no aqui,
+  // para que no cuente como 'algo que revisar'.
+  if (!v)                 return null;
+  if (v.vi_sin_respuesta) return { texto: 'VI no respondio', color: '#8b7d93' };
+  if (v.no_encontrada)    return { texto: 'No existe en VI', color: '#b91c1c' };
+  if (v.caducada)         return { texto: 'Caducada: hay que crearla de nuevo', color: '#b91c1c' };
+  if (v.sin_cedula)       return { texto: 'Sin cedula', color: '#b91c1c' };
+  if (v.dias_restantes !== null && v.dias_restantes !== undefined &&
+      v.dias_restantes <= DIAS_AVISO_CADUCIDAD)
+    return { texto: 'Vence en ' + v.dias_restantes + ' dia(s)', color: '#92400e' };
+  return null;
+}
+
+// Una fila del informe. `tipo` decide que columnas importan: en validacion se
+// mira la vigencia y la cedula; en firma, cuando valido.
+function filaInforme(p, tipo, diasVigencia) {
+  const v = p.validacion;
+  const reparo = tipo === 'validacion' ? reparoDeValidacion(v, p) : null;
+
+  // El nombre con el que se creo la validacion puede no ser el del CSV. Si
+  // difieren se muestran los dos: es el aviso de que hay dos personas con el
+  // mismo correo, que ya nos paso.
+  // El nombre que se va a mandar sale del pagare, junto a la cedula.
+  const nombrePagare = p.nombre_del_pagare &&
+      p.nombre_del_pagare.trim().toLowerCase() !== String(p.nombre).trim().toLowerCase()
+    ? '<div style="font-size:11px;color:#92400e;margin-top:2px;">Se enviara como: ' +
+      escInf(p.nombre_del_pagare) + '</div>' : '';
+
+  const nombreVI = v && v.nombre &&
+      v.nombre.trim().toLowerCase() !== String(p.nombre).trim().toLowerCase()
+    ? '<div style="font-size:11px;color:#92400e;margin-top:2px;">En VI: ' +
+      escInf(v.nombre) + '</div>' : '';
+
+  const correoVI = v && v.email_vi &&
+      v.email_vi.toLowerCase() !== String(p.email).toLowerCase()
+    ? '<div style="font-size:11px;color:#b91c1c;margin-top:2px;">VI lo mandaria a ' +
+      escInf(v.email_vi) + '</div>' : '';
+
+  // Para una validacion, la cedula que se va a MANDAR sale del pagare. Para
+  // una firma, la que ya tiene su validacion en VI.
+  let cedula;
+  if (tipo === 'validacion') {
+    cedula = p.cedula_del_pagare
+      ? 'CC ' + escInf(p.cedula_del_pagare)
+      : '<span style="color:#b91c1c;">falta</span>';
+    // El celular va debajo: es lo que decide si le llega el OTP.
+    cedula += p.celular_del_pagare
+      ? '<div style="font-size:11px;color:#8b7d93;margin-top:2px;">' +
+        escInf(p.celular_del_pagare) + '</div>'
+      : '<div style="font-size:11px;color:#b91c1c;margin-top:2px;">sin celular</div>';
+    // Si VI ya tiene una cedula distinta de la del pagare, se avisa: alguna
+    // de las dos esta mal y hay que mirarlo antes de reenviar.
+    if (p.cedula_del_pagare && v && v.documento && v.documento !== p.cedula_del_pagare) {
+      cedula += '<div style="font-size:11px;color:#b91c1c;margin-top:2px;">' +
+                'En VI: ' + escInf(v.documento) + '</div>';
+    }
+  } else {
+    cedula = v && v.documento
+      ? escInf(v.tipo_documento || 'CC') + ' ' + escInf(v.documento)
+      : '—';
+  }
+
+  let vigencia;
+  if (tipo === 'validacion') {
+    if (v && v.expira_at) {
+      // Ya existe: su fecha real
+      const dias = (v.dias_restantes !== null && v.dias_restantes !== undefined && v.dias_restantes > 0)
+        ? ' <span style="color:#8b7d93;">(' + v.dias_restantes + 'd)</span>' : '';
+      vigencia = fechaCorta(v.expira_at) + dias;
+    } else if (diasVigencia) {
+      // Todavia no existe: se dice cuando vencera si se crea hoy. El
+      // operador necesita saberlo ANTES de enviar, para no mandar
+      // validaciones que caducan antes de que el padre las abra.
+      const vence = new Date(Date.now() + diasVigencia * 86400000);
+      vigencia = '<span style="color:#8b7d93;">' + fechaCorta(vence) + '</span>' +
+                 '<div style="font-size:10px;color:#b0a6b8;">estimado, ' + diasVigencia + ' dias</div>';
+    } else {
+      vigencia = '—';
+    }
+  } else {
+    vigencia = fechaCorta(p.validado_el);
+  }
+
+  // Por que no se le puede escribir, cuando no se puede.
+  // Si no tiene validacion, no se le reenvia: se le CREA una. Decirlo
+  // cambia lo que el operador espera que pase.
+  const seCrea = tipo === 'validacion' && !v;
+
+  const estado = p.bloqueo
+    ? '<span style="color:#b91c1c;">No se envia</span>'
+    : !p.puede_reenviarse
+    ? '<span style="color:#8b7d93;">Espera ' + esperaEnPalabras(p.faltan_segundos) + '</span>'
+    : p.aviso_otro_usuario
+      ? '<span style="color:#92400e;">Otro usuario ya le envio</span>'
+      : seCrea
+        ? '<span style="color:#166534;">Se crea nueva</span>'
+        : '<span style="color:#166534;">Se reenvia</span>';
+
+  const fondo = !p.puede_reenviarse ? '#faf9fb' : (reparo ? '#fffbf7' : '#fff');
+
+  return '' +
+    '<tr style="background:' + fondo + ';border-bottom:1px solid #f0ecf2;">' +
+      '<td style="padding:10px 12px;vertical-align:top;">' +
+        '<div style="font-weight:600;font-size:13px;color:#2a0d31;">' + escInf(p.nombre) + '</div>' +
+        '<div style="font-size:11px;color:#8b7d93;margin-top:2px;">' + escInf(p.email) + '</div>' +
+        nombrePagare + nombreVI + correoVI +
+      '</td>' +
+      '<td style="padding:10px 12px;vertical-align:top;font-size:12px;color:#5c5063;">' + cedula + '</td>' +
+      '<td style="padding:10px 12px;vertical-align:top;font-size:12px;color:#5c5063;">' + vigencia + '</td>' +
+      '<td style="padding:10px 12px;vertical-align:top;font-size:12px;">' + estado +
+        (reparo ? '<div style="font-size:11px;color:' + reparo.color +
+                  ';margin-top:3px;">' + escInf(reparo.texto) + '</div>' : '') +
+      '</td>' +
+      '<td style="padding:10px 12px;vertical-align:top;font-size:12px;color:#8b7d93;">' +
+        (p.ultimo_recordatorio ? fechaCorta(p.ultimo_recordatorio) : 'Nunca') +
+      '</td>' +
+      '<td style="padding:10px 12px;vertical-align:top;text-align:right;">' +
+        '<button type="button" data-rid="' + p.recipient_id + '" data-tipo="' + tipo + '" ' +
+          'class="btnReenvioFila" ' +
+          'style="padding:5px 11px;border-radius:7px;font-size:11px;font-family:inherit;' +
+                 'border:1px solid #e5e0e8;background:#fff;color:#5c5063;cursor:pointer;' +
+                 'white-space:nowrap;">Solo a este</button>' +
+      '</td>' +
+    '</tr>';
+}
+
+/**
+ * Abre el informe y espera. Devuelve true si el operador confirma el envio.
+ *
+ * @param {string} tipo       'validacion' | 'firma'
+ * @param {object[]} personas la lista completa, incluidas las que estan en espera
+ * @param {object} prev       lo que devolvio el servidor al preguntar sin confirmar
+ */
+function informeDeReenvio(tipo, personas, prev, modo = 'ambos') {
+  return new Promise((resolver) => {
+    const que = tipo === 'validacion' ? 'validaciones de identidad' : 'enlaces de firma';
+
+    // Primero los que se van a enviar; los que esperan, al final.
+    const orden = personas.slice().sort((a, b) =>
+      (b.puede_reenviarse ? 1 : 0) - (a.puede_reenviarse ? 1 : 0));
+
+    const conReparo = tipo === 'validacion'
+      ? orden.filter(p => reparoDeValidacion(p.validacion, p)).length : 0;
+
+    // Las que no existen se CREAN; las que existen se reenvian. Son dos
+    // cosas distintas y el operador tiene que saber cual va a pasar: una
+    // validacion nueva llega con otro codigo y otra fecha de vencimiento.
+    const seCrean = tipo === 'validacion'
+      ? orden.filter(p => p.puede_reenviarse && !p.bloqueo && !p.validacion).length : 0;
+
+    // Y cuantas se reenvian de verdad: las que ya existen.
+    const seReenvian = tipo === 'validacion'
+      ? orden.filter(p => p.puede_reenviarse && !p.bloqueo && p.validacion).length
+      : orden.filter(p => p.puede_reenviarse && !p.bloqueo).length;
+
+    const avisos = [];
+    // En modo 'crear' el titulo ya lo dice; el aviso solo hace falta cuando
+    // el envio mezcla las dos cosas.
+    if (seCrean && modo === 'ambos') {
+      avisos.push(seCrean === 1
+        ? '1 no tiene validacion todavia: se le va a CREAR una nueva, no reenviar.'
+        : seCrean + ' no tienen validacion todavia: se les va a CREAR una nueva, no reenviar.');
+    }
+    if (modo === 'crear') {
+      const d = prev.dias_de_vigencia;
+      let t = 'Son validaciones NUEVAS: cada una llega con su propio codigo.';
+      if (d) {
+        const vence = new Date(Date.now() + d * 86400000);
+        t += ' Caducan a los ' + d + ' dias, el ' + fechaCorta(vence) +
+             ': el padre tiene hasta esa fecha para validarse.';
+      }
+      avisos.push(t);
+    }
+    if (prev.en_espera) {
+      avisos.push(prev.en_espera + ' no entran: ya recibieron sus ' +
+                  (prev.envios_por_dia || 2) + ' recordatorios de las ultimas 24 horas.');
+    }
+    if (conReparo) {
+      avisos.push(conReparo + (conReparo === 1 ? ' tiene' : ' tienen') +
+                  ' algo que revisar. Sale marcado abajo, en rojo.');
+    }
+    if (prev.vi_error) {
+      avisos.push('No se pudo consultar VI, asi que no se ve la vigencia ni la cedula: ' +
+                  escInf(prev.vi_error));
+    }
+
+    const cabeceras = ['Persona', 'Documento',
+                       tipo === 'validacion' ? 'Vence' : 'Valido el',
+                       'Estado', 'Ultimo envio', ''];
+
+    const fondo = document.createElement('div');
+    fondo.style.cssText =
+      'position:fixed;inset:0;background:rgba(42,13,49,.45);z-index:10000;' +
+      'display:flex;align-items:center;justify-content:center;padding:24px;';
+
+    fondo.innerHTML = '' +
+      '<div role="dialog" aria-modal="true" aria-label="Informe de reenvio" ' +
+           'style="background:#fff;border-radius:16px;max-width:900px;width:100%;' +
+                  'max-height:88vh;display:flex;flex-direction:column;' +
+                  'box-shadow:0 20px 60px rgba(0,0,0,.25);">' +
+
+        '<div style="padding:22px 28px 16px;border-bottom:1px solid #ece7ee;">' +
+          '<div style="font-size:17px;font-weight:700;color:#2a0d31;">' +
+            (tipo !== 'validacion' ? 'Reenviar '
+              : modo === 'crear' ? 'Enviar '
+              : modo === 'reenviar' ? 'Reenviar '
+              // En 'ambos' se deduce: si todas se crean, el titulo lo dice.
+              : (seCrean && !seReenvian) ? 'Enviar ' : 'Reenviar ') +
+            que + '</div>' +
+          '<div style="font-size:13px;color:#8b7d93;margin-top:6px;">' +
+            'Saldra correo a <strong style="color:#2a0d31;">' + prev.se_enviarian +
+            '</strong> de ' + personas.length + ' ' +
+            (personas.length === 1 ? 'persona' : 'personas') + '.' +
+          '</div>' +
+          (avisos.length
+            ? '<div style="margin-top:14px;padding:12px 14px;background:#fffbf7;' +
+                   'border:1px solid #f5e6d3;border-radius:10px;">' +
+              avisos.map(a => '<div style="font-size:12px;color:#92400e;line-height:1.6;">' +
+                              a + '</div>').join('') +
+              '</div>'
+            : '') +
+        '</div>' +
+
+        '<div style="overflow:auto;flex:1;">' +
+          '<table style="width:100%;border-collapse:collapse;">' +
+            '<thead><tr style="background:#faf9fb;position:sticky;top:0;">' +
+              cabeceras.map(h =>
+                '<th style="padding:10px 12px;text-align:' + (h === '' ? 'right' : 'left') + ';' +
+                            'font-size:11px;font-weight:600;color:#8b7d93;' +
+                            'text-transform:uppercase;letter-spacing:.04em;' +
+                            'border-bottom:1px solid #ece7ee;white-space:nowrap;">' + h + '</th>').join('') +
+            '</tr></thead>' +
+            '<tbody>' + orden.map(p => filaInforme(p, tipo, prev.dias_de_vigencia)).join('') + '</tbody>' +
+          '</table>' +
+        '</div>' +
+
+        '<div style="padding:16px 28px;border-top:1px solid #ece7ee;display:flex;' +
+                    'gap:10px;justify-content:flex-end;align-items:center;">' +
+          '<div style="flex:1;font-size:11px;color:#b0a6b8;">' +
+            'Entre correo y correo se deja una pausa para no caer en spam.' +
+          '</div>' +
+          '<button type="button" id="infCancelar" ' +
+            'style="padding:10px 18px;border-radius:10px;font-size:13px;font-weight:600;' +
+                   'font-family:inherit;border:1px solid #e5e0e8;background:#fff;' +
+                   'color:#5c5063;cursor:pointer;">Cancelar</button>' +
+          '<button type="button" id="infEnviar" ' + (prev.se_enviarian ? '' : 'disabled') + ' ' +
+            'style="padding:10px 18px;border-radius:10px;font-size:13px;font-weight:600;' +
+                   'font-family:inherit;cursor:' + (prev.se_enviarian ? 'pointer' : 'not-allowed') + ';' +
+                   'border:1px solid ' + (prev.se_enviarian ? '#2a0d31' : '#e5e0e8') + ';' +
+                   'background:' + (prev.se_enviarian ? '#2a0d31' : '#faf9fb') + ';' +
+                   'color:' + (prev.se_enviarian ? '#fff' : '#b0a6b8') + ';">' +
+            (tipo !== 'validacion' ? 'Enviar ' + prev.se_enviarian
+              : modo === 'crear' ? 'Enviar ' + prev.se_enviarian
+              : modo === 'reenviar' ? 'Reenviar ' + prev.se_enviarian
+              // En 'ambos' el boton dice las dos cifras, que es lo unico
+              // honesto cuando el envio mezcla crear y reenviar.
+              : (seCrean && seReenvian) ? 'Crear ' + seCrean + ' y reenviar ' + seReenvian
+              : seCrean ? 'Crear ' + seCrean
+              : 'Reenviar ' + prev.se_enviarian) +
+          '</button>' +
+        '</div>' +
+      '</div>';
+
+    document.body.appendChild(fondo);
+    document.body.style.overflow = 'hidden';
+
+    let resuelto = false;
+    function alPulsarTecla(e) { if (e.key === 'Escape') cerrar(false); }
+    function cerrar(valor) {
+      if (resuelto) return;
+      resuelto = true;
+      document.removeEventListener('keydown', alPulsarTecla);
+      document.body.style.overflow = '';
+      fondo.remove();
+      resolver(valor);
+    }
+
+    document.addEventListener('keydown', alPulsarTecla);
+    fondo.querySelector('#infCancelar').addEventListener('click', function () { cerrar(false); });
+    fondo.querySelector('#infEnviar').addEventListener('click', function () { cerrar(true); });
+    // Clic fuera de la tarjeta = cancelar. Nunca enviar.
+    fondo.addEventListener('click', function (e) { if (e.target === fondo) cerrar(false); });
+
+    // "Solo a este": manda a uno sin cerrar el informe, para el caso del padre
+    // que llama por telefono. El informe queda abierto para seguir mirando.
+    fondo.querySelectorAll('.btnReenvioFila').forEach(function (b) {
+      b.addEventListener('click', function () {
+        reenviarIndividual(parseInt(b.dataset.rid, 10), b.dataset.tipo, b);
+      });
+    });
+
+    fondo.querySelector('#infEnviar').focus();
+  });
+}
+
+// Antes de mandar nada se abre el informe, con el desglose delante. Un clic no
+// puede sacar decenas de correos a padres reales sin vuelta atras, y menos sin
+// que se vea con que cedula y con que vigencia se creo cada validacion.
+async function confirmarReenvio(tipo, modo = 'ambos') {
+  const docId = new URLSearchParams(window.location.search).get('id');
+  if (!docId) return;
+
+  const btn = document.getElementById(
+    tipo !== 'validacion' ? 'btnReenviarFirmas'
+      : modo === 'crear' ? 'btnEnviarValidaciones' : 'btnReenviarValidaciones');
+  const textoOriginal = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Comprobando...'; }
+
+  try {
+    // Primero sin confirmar: solo devuelve lo que haria.
+    const prev = await fetch(`/api/documentos/${docId}/recordatorios`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      credentials: 'include', body: JSON.stringify({ tipo, modo, confirmar: false })
+    }).then(r => r.json());
+
+    if (!prev.success) {
+      avisar('error', prev.message || 'No se pudo comprobar a quien hay que reenviar.');
+      return;
+    }
+
+    // El informe se abre incluso si no hay a quien enviar ahora: saber POR QUE
+    // no se puede (todos en espera, o una validacion caducada) es justo lo que
+    // hace falta ver. Antes salia un "no hay a quien reenviar" y ahi se acababa.
+    const personas = prev.personas || [];
+    if (!personas.length) {
+      avisar('info', 'No hay a quien reenviar en este documento.');
+      return;
+    }
+
+    if (btn) { btn.disabled = false; btn.textContent = textoOriginal; }
+    const seguir = await informeDeReenvio(tipo, personas, prev, modo);
+    if (!seguir) return;
+
+    if (btn) { btn.disabled = true; btn.textContent = 'Enviando...'; }
+
+    const res = await fetch(`/api/documentos/${docId}/recordatorios`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      credentials: 'include', body: JSON.stringify({ tipo, modo, confirmar: true })
+    }).then(r => r.json());
+
+    if (res.success) {
+      const partes = [res.enviados + (res.enviados === 1 ? ' correo enviado' : ' correos enviados')];
+      if (res.fallidos) partes.push(res.fallidos + ' no se pudieron enviar');
+      if (res.saltados) partes.push(res.saltados + ' se saltaron por el limite diario');
+      // Si fallo alguno no es un exito limpio: se dice en amarillo.
+      avisar(res.fallidos ? 'warning' : 'success', partes.join('. ') + '.');
+      cargarPanelRecordatorios(docId);
+    } else {
+      avisar('error', res.message || 'No se pudieron enviar los recordatorios.');
+    }
+  } catch (e) {
+    avisar('error', 'Error de conexion al reenviar.');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = textoOriginal; }
+  }
+}
+
+// Reenvio a UNA persona. Sin limite de dias: si llama diciendo que no le llego,
+// hay que poder mandarselo. La espera que crece la pone el servidor.
+async function reenviarIndividual(recipientId, tipo, boton) {
+  const textoOriginal = boton ? boton.textContent : '';
+  if (boton) { boton.disabled = true; boton.textContent = 'Enviando...'; }
+
+  try {
+    const res = await fetch('/api/recordatorios/individual', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ recipient_id: recipientId, tipo })
+    }).then(r => r.json());
+
+    if (res.success) {
+      avisar('success', res.message);
+      const docId = new URLSearchParams(window.location.search).get('id');
+      if (docId) cargarPanelRecordatorios(docId);
+    } else if (res.en_espera) {
+      // La cuenta atras en el propio boton, en vez de un error seco.
+      if (boton) {
+        let faltan = res.faltan_segundos;
+        boton.disabled = true;
+        const tic = setInterval(() => {
+          faltan--;
+          if (faltan <= 0) {
+            clearInterval(tic);
+            boton.disabled = false;
+            boton.textContent = textoOriginal;
+          } else {
+            const m = Math.floor(faltan / 60), s = faltan % 60;
+            boton.textContent = m ? `Espera ${m}:${String(s).padStart(2, '0')}`
+                                  : `Espera ${s}s`;
+          }
+        }, 1000);
+      }
+      avisar('warning', res.message);
+      return;   // el finally no debe restaurar el boton: lo lleva la cuenta atras
+    } else {
+      avisar('error', res.message);
+    }
+  } catch (e) {
+    avisar('error', 'Error de conexion al reenviar.');
+  }
+
+  if (boton) { boton.disabled = false; boton.textContent = textoOriginal; }
+}
+window.reenviarIndividual = reenviarIndividual;
+
 async function loadRecipients(docId) {
   try {
     console.log('👥 Cargando destinatarios del documento:', docId);
+    // El resumen de arriba se refresca con cada carga de destinatarios, asi
+    // que sigue el estado real segun la gente va firmando.
+    cargarPanelRecordatorios(docId);
     
     const userStr = localStorage.getItem('currentUser');
     if (!userStr) {
@@ -4675,6 +5881,44 @@ async function handleViStart(recipient) {
       email: recipient.email,
       redirect_token: recipient.token
     });
+
+    // Los datos que ya sabemos, para no obligar a reescribirlos a mano. El
+    // operador entra a CORREGIR algo concreto, no a teclearlo todo.
+    //
+    // SI TIENE UNA VALIDACION QUE SIRVE, MANDAN SUS DATOS. SI NO, EL CSV.
+    //
+    // Quien entra aqui por segunda vez viene a afinar una correccion que ya
+    // hizo, asi que se le pone delante lo que VI tiene y no lo del pagare.
+    //
+    // Pero SOLO si esa validacion sigue viva. Los datos de una anulada o
+    // vencida no son 'los corregidos': son los de algo que ya no existe, y al
+    // crear la nueva lo que vale es el pagare. Se vio el 06-10: con todas las
+    // validaciones anuladas, el formulario se abria con la cedula y el nombre
+    // de una cancelada, distintos de los que la pantalla estaba ensenando.
+    const csv = recipient.datos_csv || {};
+    const v = recipient.validacion;
+    const hayValidacion = validacionUtil(v);
+
+    const documento = (hayValidacion && v.documento) || csv.documento;
+    const nombre    = (hayValidacion && v.nombre)    || csv.nombre;
+    // El celular no viene en lo que VI nos devuelve, asi que ese sigue
+    // saliendo del pagare.
+    const celular   = csv.celular;
+
+    if (documento) params.set('documento', documento);
+    if (nombre)    params.set('nombre', nombre);
+    if (celular)   params.set('celular', String(celular).replace('+57', ''));
+
+    // El codigo de la validacion que se esta corrigiendo, para que VI edite
+    // esa en vez de crear otra. Solo cuando hay una viva: sobre una anulada
+    // no hay nada que editar, lo que toca es crear una nueva.
+    if (hayValidacion) params.set('codigo', v.codigo);
+    // Lo que la universidad usa siempre, para que no haya que elegirlo cada vez
+    params.set('tipo_documento',
+      (hayValidacion && v.tipo_documento) || 'CC');
+    params.set('tipo_solicitud', 'validacion-completa');
+    params.set('notificacion', 'email');
+
     window.open(`${VI_BASE}?${params.toString()}`, '_blank');
 
   } catch (err) {

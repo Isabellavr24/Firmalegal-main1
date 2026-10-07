@@ -23,6 +23,8 @@ validatePaths();
 // =============================================
 const foldersController = require('./controllers/folders-controller');
 const documentsController = require('./controllers/documents-controller');
+const _datosFirmante = require('./lib/datos-del-firmante');
+const _estadoValidacion = require('./lib/estado-validacion');
 const signaturesController = require('./controllers/signatures-controller');
 const certificatesController = require('./controllers/certificates-controller');
 const { requestLogger } = require('./middleware/auth');
@@ -2818,19 +2820,83 @@ app.post('/api/integration/vi-iniciar', async (req, res) => {
         return res.status(401).json({ success: false, message: 'Sesión no encontrada' });
     }
 
-    const { signer_email, signer_name, document_title, firma_token } = req.body;
+    const { signer_email, signer_name, document_title, firma_token,
+            signer_documento, signer_tipo_documento } = req.body;
     if (!signer_email || !firma_token) {
         return res.status(400).json({ success: false, message: 'Faltan campos requeridos' });
+    }
+
+    // La cedula. Si el navegador no la manda, se saca de los campos del
+    // pagare emparejando por el correo del firmante.
+    //
+    // Antes esta ruta no la mandaba NUNCA, asi que a VI le llegaba el
+    // documento vacio y el padre abria una validacion sin nada contra que
+    // comparar. Es el fallo que ya costo rehacer validaciones a mano.
+    let cedula = signer_documento || null;
+    let nombreParaVI = signer_name;
+    let celular = req.body.signer_celular || null;
+    if (!cedula) {
+        try {
+            const [dest] = await db.promise().query(
+                'SELECT recipient_id FROM document_recipients WHERE token = ? LIMIT 1',
+                [firma_token]);
+            if (dest.length) {
+                const d = await _datosFirmante.datosDeFirmanteDesdeBD(
+                    db, dest[0].recipient_id, signer_email);
+                if (d.celular && !celular) celular = d.celular;
+                if (d.documento) {
+                    cedula = d.documento;
+                    if (d.nombre) nombreParaVI = d.nombre;
+                } else {
+                    console.warn(`[VI-INICIAR] Sin cedula para ${signer_email}: ${d.motivo}`);
+                }
+            }
+        } catch (e) {
+            // Que falle la busqueda no puede tumbar el envio: se sigue sin
+            // cedula, como se hacia antes, y queda el aviso en el log.
+            console.warn(`[VI-INICIAR] No se pudo buscar la cedula de ${signer_email}: ${e.message}`);
+        }
     }
 
     const VI_URL = process.env.VI_URL || 'http://validacion-identidad-app-1:3000';
     const VI_API_KEY = process.env.INTERNAL_API_KEY || '';
     const owner_firmalegal_user_id = jwtUser.userId || jwtUser.id || jwtUser.user_id;
 
+    // SI YA TIENE UNA VALIDACION VIVA, SE REENVIA LA SUYA.
+    //
+    // Lo mismo que en crearValidacionVI, porque esta es la OTRA via por la
+    // que se crean validaciones -la del flujo normal de documentos- y sin
+    // esto seguiria duplicando por su cuenta.
+    try {
+        const yaTiene = await _validacionYaExistente(signer_email);
+        if (_estadoValidacion.estaViva(yaTiene)) {
+            if (yaTiene.estado === 'completada') {
+                return res.json({ success: false, ya_valido: true,
+                    codigo: yaTiene.codigo,
+                    message: 'Esa persona ya valido su identidad.' });
+            }
+            const r = await _reenviarValidacionVI(yaTiene.codigo);
+            if (r.ok) {
+                return res.json({ success: true, reenviada: true, codigo: yaTiene.codigo,
+                    message: 'Se le reenvio su validacion (' + yaTiene.codigo + ').' });
+            }
+            return res.json({ success: false, codigo: yaTiene.codigo,
+                message: r.motivo || 'No se pudo reenviar su validacion' });
+        }
+    } catch (e) {
+        // Si no se puede comprobar, se sigue adelante: es peor dejar a alguien
+        // sin validacion que arriesgar un duplicado.
+        console.warn(`[VI-INICIAR] No se pudo comprobar si ya tiene validacion: ${e.message}`);
+    }
+
     try {
         const viUrlParsed = new URL(`${VI_URL}/validacion/api/firmalegal/iniciar-validacion`);
         const transport = viUrlParsed.protocol === 'https:' ? require('https') : require('http');
-        const body = JSON.stringify({ owner_firmalegal_user_id, signer_email, signer_name, document_title, firma_token });
+        const body = JSON.stringify({ owner_firmalegal_user_id, signer_email,
+            signer_name: nombreParaVI, document_title, firma_token,
+            signer_documento: cedula || undefined,
+            signer_tipo_documento: cedula ? (signer_tipo_documento || 'CC') : undefined,
+            signer_celular: celular || undefined });
 
         const viResp = await new Promise((resolve) => {
             const r = transport.request({
@@ -2852,6 +2918,13 @@ app.post('/api/integration/vi-iniciar', async (req, res) => {
         if (viResp.status === 409) {
             return res.json({ success: false, needsVinculacion: true, message: viResp.body.message });
         }
+        // OJO: VI no devuelve ningun campo `success` en esta ruta -su respuesta
+        // es { validacion_url, codigo }- asi que esta comprobacion siempre da
+        // error aunque la validacion se haya creado bien.
+        //
+        // No se ha corregido porque NADIE llama a esta ruta: se busco en todo el
+        // repositorio. El boton de la pantalla abre el panel de VI por su cuenta
+        // con window.open. Si algun dia se usa, hay que arreglar esto antes.
         if (!viResp.body.success) {
             return res.status(400).json({ success: false, message: viResp.body.message || 'Error al iniciar validación' });
         }
@@ -2914,8 +2987,15 @@ app.post('/api/integration/vi-skip', async (req, res) => {
         const signatureRequestTemplate = require('./lib/email/templates/signature-request-bulk');
         sendgrid.configureSendGrid(r.sendgrid_api_key);
 
-        const signatureUrl = `${req.protocol}://${req.get('host')}/public-sign.html?token=${r.token}`;
-        const appUrl = `${req.protocol}://${req.get('host')}`;
+        // La URL del enlace NO se arma con req.get('host'): esa cabecera la
+        // pone quien hace la peticion, asi que un Host interno -o uno
+        // falseado- acaba metido en el correo del firmante. Ya paso: a una
+        // firmante le llego un enlace a firmalegal-app:3000, el nombre del
+        // contenedor, que desde su movil no resuelve.
+        //
+        // APP_URL es la unica fuente fiable del dominio publico.
+        const appUrl = process.env.APP_URL || 'https://firmalegalonline.com';
+        const signatureUrl = `${appUrl}/public-sign.html?token=${r.token}`;
         const senderName = r.sender_name || `${r.first_name} ${r.last_name}`;
         const fromEmail = r.sender_email || r.owner_email;
 
@@ -3435,6 +3515,1109 @@ app.post('/api/registros/csv-rechazado', requireAuth, async (req, res) => {
         // nadie: el error ya se le mostro, esto es solo el registro.
         console.warn('[REGISTROS] No se pudo anotar el CSV rechazado:', e.message);
         res.json({ success: false });
+    }
+});
+
+// =====================================================================
+// RECORDATORIOS — reenviar validaciones y enlaces de firma
+// =====================================================================
+//
+// Automatiza lo que se hacia a mano cada lunes. Dos rutas:
+//   GET  /api/documentos/:id/recordatorios  — el estado: quien falta
+//   POST /api/documentos/:id/recordatorios  — enviar
+//
+// El POST con `confirmar: false` NO envia nada: devuelve lo que haria, para
+// que el operador lo vea antes. Sin esa confirmacion explicita, un clic podria
+// mandar cientos de correos a padres reales sin vuelta atras.
+
+const _recordatorios = require('./lib/recordatorios');
+
+/**
+ * Envia los recordatorios uno a uno, con pausa entre ellos.
+ *
+ * La pausa no es un adorno: mandar cientos de correos de golpe desde el mismo
+ * remitente es lo que hace que los proveedores empiecen a marcarlos como spam.
+ * Hasta ahora los lunes se enviaban a mano, poco a poco, y nunca cayeron en
+ * spam; este ritmo imita eso.
+ *
+ * Cada envio comprueba OTRA VEZ el limite de dias justo antes de salir: entre
+ * que el operador abre el panel y pulsa el boton pueden pasar minutos.
+ *
+ * No lanza: si uno falla, se anota y se sigue con los demas.
+ */
+// `sinLimite` lo pone el PRIMER envio de validaciones: ahi cada persona
+// recibe la suya una sola vez, asi que no hay nada que repetir ni que
+// limitar. Los reenvios si lo llevan.
+async function enviarRecordatorios(personas, tipo, docId, docTitle, req, sinLimite = false) {
+    const sendgrid = require('./lib/email/sendgrid');
+    const plantillaFirma = require('./lib/email/templates/signature-request-bulk');
+
+    // Remitente unico de FirmaLegal, el mismo de siempre.
+    const [cfg] = await db.promise().query(
+        `SELECT ec.email_from, ec.email_from_name, ec.sendgrid_api_key,
+                u.first_name, u.last_name, u.email AS owner_email
+         FROM users u LEFT JOIN email_config ec ON ec.user_id = 1
+         WHERE u.user_id = 1`);
+    if (!cfg.length || !cfg[0].sendgrid_api_key) {
+        return { enviados: 0, fallidos: personas.length, error: 'No hay SendGrid configurado' };
+    }
+    const c = cfg[0];
+    const senderName = c.email_from_name || `${c.first_name} ${c.last_name}`;
+    const fromEmail = c.email_from || c.owner_email;
+    sendgrid.configureSendGrid(c.sendgrid_api_key);
+
+    const appUrl = 'https://firmalegalonline.com';
+    let enviados = 0, fallidos = 0, saltados = 0;
+    const errores = [];
+
+    for (const p of personas) {
+        // Se vuelve a comprobar el limite: la pantalla pudo abrirse hace rato.
+        // En el primer envio no hay limite que comprobar.
+        // El limite de los correos de validacion depende de en que estado
+        // esta la suya: si se la anularon o se le vencio, la cuenta empieza
+        // de cero, porque le toca que le creen otra.
+        const puedeAhora = tipo === 'validacion'
+            ? await _recordatorios.sePuedeEnviarValidacion(db, p.recipient_id, req.userId, p.email)
+            : await _recordatorios.sePuedeEnviar(db, p.recipient_id, req.userId, 'firma');
+        if (!sinLimite && !puedeAhora) {
+            saltados++;
+            continue;
+        }
+
+        // Que accion fue de verdad, para contarla por separado.
+        //
+        // Crear una validacion y reenviarla no son lo mismo y no comparten
+        // limite: el operador puede enviar dos y reenviar dos, cada cosa con
+        // su cuenta. crearValidacionVI devuelve `reenviada` cuando esa persona
+        // ya tenia una y solo se le volvio a mandar el correo.
+        let tipoReal = tipo;
+        try {
+            if (tipo === 'validacion') {
+                // La validacion la crea el sistema de VI, que ademas manda su
+                // propio correo. Se reutiliza la misma ruta que usa el boton.
+                const rv = await crearValidacionVI(p, docId, docTitle, req);
+                tipoReal = (rv && rv.reenviada) ? 'validacion_reenvio' : 'validacion';
+            } else {
+                const [rec] = await db.promise().query(
+                    'SELECT token FROM document_recipients WHERE recipient_id = ?', [p.recipient_id]);
+                if (!rec.length || !rec[0].token) throw new Error('El destinatario no tiene enlace');
+
+                const html = plantillaFirma({
+                    recipientName: p.nombre,
+                    documentTitle: docTitle || 'Documento',
+                    senderName,
+                    signatureUrl: `${appUrl}/public-sign.html?token=${rec[0].token}`,
+                    appUrl
+                });
+                const r = await sendgrid.sendEmail({
+                    to: p.email, from: fromEmail, fromName: senderName,
+                    subject: `Recordatorio de firma: ${docTitle}`, html
+                });
+                if (!r || !r.success) throw new Error(r?.error || 'SendGrid no confirmo el envio');
+            }
+
+            enviados++;
+            await _recordatorios.registrar(db, {
+                recipientId: p.recipient_id, documentId: docId, userId: req.userId,
+                tipo: tipoReal, email: p.email, resultado: 'enviado'
+            });
+
+        } catch (e) {
+            fallidos++;
+            errores.push({ email: p.email, motivo: e.message });
+            await _recordatorios.registrar(db, {
+                recipientId: p.recipient_id, documentId: docId, userId: req.userId,
+                tipo, email: p.email, resultado: 'fallido', detalle: e.message
+            });
+            await registrarError({
+                documentId: docId, recipientId: p.recipient_id, userId: req.userId,
+                donde: 'recordatorio',
+                mensaje: `No se pudo reenviar el ${tipo} a ${p.email}: ${e.message}`,
+                req
+            });
+        }
+
+        // Pausa entre correos. Un segundo es suficiente para no parecer una
+        // rafaga y no hace la tanda inmanejable: 150 correos son 2 minutos y
+        // medio, que es menos de lo que se tardaba a mano.
+        await new Promise(r => setTimeout(r, 1000));
+    }
+
+    console.log(`[RECORDATORIOS] doc ${docId} (${tipo}): ${enviados} enviados, ${fallidos} fallidos, ${saltados} saltados por el limite`);
+
+    await registrarEvento({
+        tipo: 'email_sent', documentId: docId, userId: req.userId,
+        datos: { accion: 'recordatorio_masivo', tipo_recordatorio: tipo,
+                 enviados, fallidos, saltados },
+        req
+    });
+
+    return { enviados, fallidos, saltados, errores: errores.slice(0, 10) };
+}
+
+/**
+ * Crea la validacion de identidad en VI, que manda su propio correo.
+ *
+ * OJO: la ruta de VI devuelve el cuerpo vacio aunque la validacion se cree
+ * bien, asi que un 400 no significa que haya fallado. Se comprueba el
+ * resultado consultando VI, no por el codigo HTTP.
+ */
+/**
+ * Pide a VI un lote de validaciones. El cuerpo es { emails } o { codigos }.
+ *
+ * Devuelve [] si VI no contesta o contesta algo ilegible: quien llama decide
+ * que hacer sin eso, y nunca se queda el envio colgado por VI.
+ *
+ * @param {object} cuerpoObj
+ * @returns {Promise<object[]>}
+ */
+function _pedirValidacionesAVI(cuerpoObj) {
+    const VI_URL = process.env.VI_URL || 'http://validacion-identidad-app-1:3000';
+    const url = new URL(`${VI_URL}/validacion/api/firmalegal/validaciones/consultar`);
+    const transporte = url.protocol === 'https:' ? require('https') : require('http');
+    const cuerpo = JSON.stringify(cuerpoObj);
+
+    return new Promise((resolver, rechazar) => {
+        const peticion = transporte.request({
+            hostname: url.hostname,
+            port: url.port || (url.protocol === 'https:' ? 443 : 80),
+            path: url.pathname,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Internal-Api-Key': process.env.INTERNAL_API_KEY || '',
+                'Content-Length': Buffer.byteLength(cuerpo)
+            }
+        }, (respuesta) => {
+            let datos = '';
+            respuesta.on('data', t => { datos += t; });
+            respuesta.on('end', () => {
+                if (respuesta.statusCode !== 200) return resolver([]);
+                try {
+                    const json = JSON.parse(datos || '{}');
+                    const l = json.validaciones || json.data || json;
+                    resolver(Array.isArray(l) ? l : []);
+                } catch (e) { resolver([]); }
+            });
+        });
+        peticion.on('error', rechazar);
+        // No se deja colgado el envio esperando a VI.
+        peticion.setTimeout(5000, () => peticion.destroy(new Error('VI no respondio')));
+        peticion.write(cuerpo);
+        peticion.end();
+    });
+}
+
+/**
+ * La respuesta cuando no se le puede escribir todavia a esa persona.
+ *
+ * Vive aqui porque son tres los sitios que la devuelven -el enlace de firma, el
+ * reenvio de un clic y el individual- y ya habian empezado a divergir.
+ *
+ * Distingue dos casos que se arreglan distinto: esperar un rato, o esperar a
+ * que el primer envio salga de la ventana de 24 horas.
+ *
+ * @param {object} espera  lo que devuelve _recordatorios.esperaIndividual
+ */
+function _respuestaEnEspera(espera) {
+    if (espera.tope_alcanzado) {
+        const h = Math.ceil(espera.faltan_segundos / 3600);
+        return {
+            success: false, en_espera: true, tope_alcanzado: true,
+            faltan_segundos: espera.faltan_segundos,
+            message: `Ya se le enviaron ${espera.intentos} correos en las ultimas 24 ` +
+                     `horas, que es el maximo. Podras volver a intentarlo en ` +
+                     `${h} hora${h === 1 ? '' : 's'}.`
+        };
+    }
+    const m = Math.ceil(espera.faltan_segundos / 60);
+    return {
+        success: false, en_espera: true, faltan_segundos: espera.faltan_segundos,
+        message: m <= 1
+            ? 'Se acaba de enviar. Espera un minuto antes de volver a intentarlo.'
+            : `Se envio hace poco. Espera ${m} minutos antes de volver a intentarlo.`
+    };
+}
+
+/**
+ * Corrige los datos de una validacion que YA EXISTE, sin crear otra.
+ *
+ * Es la ruta PATCH que VI anadio el 05-10-2026. Antes corregir obligaba a
+ * crear una validacion nueva desde su panel, y la vieja se quedaba viva con
+ * los datos malos: quedaban dos y no se sabia cual valia.
+ *
+ * Mantiene el codigo, el enlace y los intentos. Solo sobre una validacion
+ * pendiente o en proceso: una completada no se toca, porque son los datos
+ * contra los que esa persona se valido biometricamente.
+ *
+ * @param {string} codigo  el codigo de la validacion (VAL-XXXX)
+ * @param {object} campos  nombre_completo, documento, tipo_documento, celular
+ * @returns {Promise<{ok:boolean, estado:number, validacion?:object, motivo?:string}>}
+ */
+function _corregirValidacionVI(codigo, campos) {
+    const VI_URL = process.env.VI_URL || 'http://validacion-identidad-app-1:3000';
+    const url = new URL(
+        `${VI_URL}/validacion/api/firmalegal/validaciones/${encodeURIComponent(codigo)}`);
+    const transporte = url.protocol === 'https:' ? require('https') : require('http');
+
+    // Solo los campos que vengan con valor: VI deja los demas como estaban.
+    const cuerpoObj = {};
+    for (const k of ['nombre_completo', 'documento', 'tipo_documento', 'celular']) {
+        if (campos && campos[k]) cuerpoObj[k] = String(campos[k]).trim();
+    }
+    const cuerpo = JSON.stringify(cuerpoObj);
+
+    return new Promise((resolver, rechazar) => {
+        const peticion = transporte.request({
+            hostname: url.hostname,
+            port: url.port || (url.protocol === 'https:' ? 443 : 80),
+            path: url.pathname,
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Internal-Api-Key': process.env.INTERNAL_API_KEY || '',
+                'Content-Length': Buffer.byteLength(cuerpo)
+            }
+        }, (respuesta) => {
+            let datos = '';
+            respuesta.on('data', t => { datos += t; });
+            respuesta.on('end', () => {
+                let json = null;
+                try { json = JSON.parse(datos || '{}'); } catch (e) {}
+                if (respuesta.statusCode === 200) {
+                    return resolver({ ok: true, estado: 200,
+                                      validacion: (json && json.validacion) || null });
+                }
+                resolver({ ok: false, estado: respuesta.statusCode,
+                           motivo: (json && json.message) || `VI respondio ${respuesta.statusCode}` });
+            });
+        });
+        peticion.on('error', rechazar);
+        peticion.setTimeout(8000, () => peticion.destroy(new Error('VI no respondio en 8 segundos')));
+        peticion.write(cuerpo);
+        peticion.end();
+    });
+}
+
+// El host de una URL, o null si no es una URL. No lanza: se usa para
+// comprobar lo que devuelve VI, y un dato raro no puede tumbar un envio.
+function _hostDe(url) {
+    try { return new URL(String(url)).hostname; } catch (e) { return null; }
+}
+
+/**
+ * Reenvia el correo de una validacion que YA EXISTE, sin crear otra.
+ *
+ * Es la ruta que VI anadio el 05-10-2026. Antes no habia ninguna: reenviar y
+ * crear eran la misma llamada, y cada intento dejaba a la persona con un
+ * enlace mas. Un mismo correo llego a tener cinco validaciones vivas.
+ *
+ * Mantiene el codigo, el enlace y la fecha de vencimiento.
+ *
+ * @param {string} codigo  el codigo de la validacion (VAL-XXXX)
+ * @returns {Promise<{ok:boolean, estado:number, motivo?:string}>}
+ */
+function _reenviarValidacionVI(codigo) {
+    const VI_URL = process.env.VI_URL || 'http://validacion-identidad-app-1:3000';
+    const url = new URL(
+        `${VI_URL}/validacion/api/firmalegal/validaciones/${encodeURIComponent(codigo)}/reenviar`);
+    const transporte = url.protocol === 'https:' ? require('https') : require('http');
+
+    return new Promise((resolver, rechazar) => {
+        const peticion = transporte.request({
+            hostname: url.hostname,
+            port: url.port || (url.protocol === 'https:' ? 443 : 80),
+            path: url.pathname,
+            method: 'POST',
+            headers: { 'X-Internal-Api-Key': process.env.INTERNAL_API_KEY || '' }
+        }, (respuesta) => {
+            let datos = '';
+            respuesta.on('data', t => { datos += t; });
+            respuesta.on('end', () => {
+                if (respuesta.statusCode === 200) return resolver({ ok: true, estado: 200 });
+                // VI explica por que no pudo -caducada, anulada, inexistente- y
+                // ese texto esta escrito para que lo lea un operador.
+                let motivo = null;
+                try { motivo = JSON.parse(datos || '{}').message; } catch (e) {}
+                resolver({ ok: false, estado: respuesta.statusCode,
+                           motivo: motivo || `VI respondio ${respuesta.statusCode}` });
+            });
+        });
+        peticion.on('error', rechazar);
+        peticion.setTimeout(8000, () => peticion.destroy(new Error('VI no respondio en 8 segundos')));
+        peticion.end();
+    });
+}
+
+/**
+ * La validacion que esa persona ya tiene en VI, si tiene alguna.
+ *
+ * Se pide POR CODIGO cuando lo tenemos guardado, porque una persona puede
+ * tener varias validaciones -cada correccion crea una nueva- y preguntando
+ * por correo VI devuelve la que ella elija, que no tiene por que ser la
+ * nuestra. Por correo se pregunta solo cuando no hay codigo: las creadas
+ * desde el panel de VI.
+ *
+ * Devuelve null si no tiene ninguna, si VI no contesta o si lo que llega no
+ * trae cedula: en todos esos casos se sigue con los datos del pagare.
+ *
+ * @param {string} email
+ * @returns {Promise<object|null>}
+ */
+async function _validacionYaExistente(email) {
+    const correo = String(email || '').toLowerCase();
+    if (!correo) return null;
+
+    let codigo = null;
+    try {
+        const [filas] = await db.promise().query(
+            `SELECT validacion_codigo FROM vi_validaciones_pendientes
+             WHERE email COLLATE utf8mb4_unicode_ci = ?
+             UNION
+             SELECT validacion_codigo FROM vi_verified_emails
+             WHERE LOWER(email) COLLATE utf8mb4_unicode_ci = ?
+               AND validacion_codigo IS NOT NULL
+             LIMIT 1`,
+            [correo, correo]
+        );
+        codigo = filas[0] && filas[0].validacion_codigo;
+    } catch (e) {
+        // Sin codigo se pregunta por correo, que es mejor que no preguntar.
+    }
+
+    // Se pregunta por codigo cuando lo tenemos: el correo puede tener varias
+    // validaciones y VI devolveria la que ella elija.
+    const lista = await _pedirValidacionesAVI(
+        codigo ? { codigos: [codigo] } : { emails: [correo] });
+
+    // SOLO VALIDACIONES DE ESE CORREO.
+    //
+    // Es la salvaguarda que faltaba: sin ella, una validacion de otra persona
+    // podia colarse y acabar editandose la que no era. El 06-10 se corrigio
+    // sobre el renglon de un firmante y el PATCH fue a la validacion de otro,
+    // que acabo con la cedula y el nombre ajenos.
+    const esSuya = (x) => x && x.documento &&
+        String(x.email_firmante || '').toLowerCase() === correo;
+
+    let v = lista.find(esSuya) || null;
+
+    // Si preguntamos por codigo, mirar tambien que dice VI por correo: puede
+    // haber una posterior, creada al corregir los datos desde su panel.
+    if (codigo) {
+        try {
+            const otras = await _pedirValidacionesAVI({ emails: [correo] });
+            const porCorreo = otras.find(esSuya);
+            if (porCorreo && (!v || _esPosterior(porCorreo, v))) {
+                v = porCorreo;
+            }
+        } catch (e) {
+            // Queda la del codigo, que es mejor que nada.
+        }
+    }
+
+    return v;
+}
+
+// Cual de las dos validaciones es mas reciente.
+function _esPosterior(a, b) {
+    const ta = a && a.created_at ? new Date(a.created_at).getTime() : 0;
+    const tb = b && b.created_at ? new Date(b.created_at).getTime() : 0;
+    return ta > tb;
+}
+
+async function crearValidacionVI(persona, docId, docTitle, req) {
+    const [rec] = await db.promise().query(
+        'SELECT token FROM document_recipients WHERE recipient_id = ?', [persona.recipient_id]);
+    if (!rec.length || !rec[0].token) throw new Error('El destinatario no tiene enlace');
+
+    // La cedula, sacada de los campos del pagare emparejando por su correo.
+    //
+    // SIN CEDULA NO SE CREA LA VALIDACION. Antes se mandaba solo el correo y
+    // el nombre, y a VI le llegaba el documento vacio: el padre recibia el
+    // enlace, lo abria y no habia nada contra que comparar su cedula. Un
+    // correo que no sirve para nada y que ademas hay que explicarle.
+    //
+    // Es mejor no enviarselo y decir por que, para que alguien lo resuelva.
+    const datos = await _datosFirmante.datosDeFirmanteDesdeBD(
+        db, persona.recipient_id, persona.email);
+    if (!datos.documento) {
+        throw new Error(datos.motivo || 'No se pudo determinar su cedula');
+    }
+
+    const VI_URL = process.env.VI_URL || 'http://validacion-identidad-app-1:3000';
+
+    // SI YA TIENE UNA VALIDACION, MANDAN SUS DATOS, NO LOS DEL CSV.
+    //
+    // VI no tiene ruta para reenviar ni para editar -solo `iniciar-validacion`,
+    // que crea una nueva cada vez-, asi que reenviar crea otra. Lo que si
+    // podemos es crearla CON LOS DATOS BUENOS.
+    //
+    // Importa porque el operador corrige la informacion en el panel de VI
+    // cuando el CSV viene mal. Si al reenviar volvemos a mandar lo del CSV, la
+    // correccion se pierde y la persona recibe otra vez el enlace con la
+    // cedula equivocada. Paso en DEV el 03/10: se corrigio una validacion el
+    // 02/10 y el reenvio creo otra con los datos de la plantilla.
+    let deVI = null;
+    try {
+        deVI = await _validacionYaExistente(persona.email);
+    } catch (e) {
+        // Si VI no contesta se sigue con los del pagare, que es lo que habia
+        // antes: mejor un correo con los datos del CSV que ningun correo.
+        console.warn(`[VI] No se pudo mirar su validacion anterior: ${e.message}`);
+    }
+
+    // SI YA TIENE UNA VALIDACION VIVA, SE REENVIA LA SUYA. NO SE CREA OTRA.
+    //
+    // Una persona tiene UNA validacion: enviar la crea, reenviar vuelve a
+    // mandar su correo. Antes las dos acciones llamaban a `iniciar-validacion`
+    // porque era lo unico que VI ofrecia, asi que cada reenvio dejaba a esa
+    // persona con un enlace mas. El 05/10 un mismo correo acabo con cinco
+    // validaciones vivas y nadie sabia cual valia.
+    //
+    // VI anadio la ruta de reenvio ese mismo dia: mantiene el codigo, el enlace
+    // y la fecha de vencimiento.
+    if (_estadoValidacion.estaViva(deVI)) {
+        // Una ya completada no necesita que le reenviemos nada: lo que le toca
+        // es el enlace de firma, que va por otra via.
+        if (deVI.estado === 'completada') {
+            const err = new Error(
+                'Esa persona ya valido su identidad. Lo que necesita es el enlace ' +
+                'de firma, no otra validacion.');
+            err.yaValido = true;
+            throw err;
+        }
+
+        const r = await _reenviarValidacionVI(deVI.codigo);
+        if (!r.ok) {
+            // VI dice por que no pudo -caducada, por ejemplo- y ese texto se
+            // devuelve tal cual: esta escrito para que lo lea un operador.
+            const err = new Error(r.motivo || 'No se pudo reenviar su validacion');
+            err.noSePudoReenviar = true;
+            err.codigoExistente = deVI.codigo;
+            throw err;
+        }
+        console.log(`   📧 ${persona.email}: reenviada su validacion ${deVI.codigo} (sin crear otra)`);
+        return { reenviada: true, codigo: deVI.codigo };
+    }
+
+    const documento = (deVI && deVI.documento) || datos.documento;
+    const nombre = (deVI && deVI.nombre_completo) || datos.nombre || persona.nombre;
+    const tipoDoc = (deVI && deVI.tipo_documento) || 'CC';
+    if (deVI && String(deVI.documento || '') !== String(datos.documento || '')) {
+        console.log(`   ℹ️ ${persona.email}: se reenvia con la cedula de su validacion ` +
+                    `(${deVI.documento}), no con la del pagare (${datos.documento})`);
+    }
+
+    const cuerpo = JSON.stringify({
+        owner_firmalegal_user_id: req.userId,
+        signer_email: persona.email,
+        // El nombre del pagare manda sobre el del destinatario: es el que
+        // esta junto a la cedula, asi que es el que concuerda con ella. Y si
+        // ya hay una validacion suya, mandan los datos de esa.
+        signer_name: nombre,
+        signer_documento: documento,
+        signer_tipo_documento: tipoDoc,
+        // Sin celular no le llega el codigo OTP y no puede completar la
+        // validacion. Va si el pagare lo trae; si no, la validacion se crea
+        // igual y el informe avisa de que el OTP no le va a llegar.
+        signer_celular: datos.celular || undefined,
+        document_title: docTitle || 'Documento',
+        firma_token: rec[0].token
+    });
+
+    const url = new URL(`${VI_URL}/validacion/api/firmalegal/iniciar-validacion`);
+    const transporte = url.protocol === 'https:' ? require('https') : require('http');
+
+    // Se LEE la respuesta, no se descarta: trae el codigo de la validacion
+    // recien creada, que es lo unico que permite despues preguntarle a VI por
+    // su estado y por los intentos de esa persona.
+    const respuesta = await new Promise((resolve, reject) => {
+        const r = transporte.request({
+            hostname: url.hostname, port: url.port || 80, path: url.pathname, method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Internal-Api-Key': process.env.INTERNAL_API_KEY || '',
+                'Content-Length': Buffer.byteLength(cuerpo)
+            }
+        }, resp => {
+            let datos = '';
+            resp.on('data', t => { datos += t; });
+            resp.on('end', () => {
+                // OJO: VI ha devuelto cuerpos vacios aunque la validacion se
+                // cree bien, asi que un cuerpo ilegible no significa que haya
+                // fallado. Se sigue adelante sin codigo.
+                try { resolve(JSON.parse(datos || '{}')); } catch (e) { resolve({}); }
+            });
+        });
+        r.on('error', reject);
+        r.write(cuerpo);
+        r.end();
+    });
+
+    // ¿LA URL QUE DEVUELVE VI SIRVE DESDE UN TELEFONO?
+    //
+    // El 06-10-2026 VI construyo el enlace de retorno con el nombre del
+    // contenedor -http://firmalegal-app:3000- en vez de con el dominio
+    // publico. El padre completaba la validacion biometrica, pulsaba para ir
+    // a firmar, y el navegador le daba DNS_PROBE_FINISHED_NXDOMAIN.
+    //
+    // VI lo corrigio, pero su arreglo depende de que FIRMALEGAL_PUBLIC_URL
+    // este definida en su entorno: si falta, su codigo cae otra vez al nombre
+    // interno y nadie se entera hasta que alguien se queda tirado.
+    //
+    // Por eso se comprueba aqui, en cada validacion que se crea. No se puede
+    // impedir -la validacion ya existe en VI- pero queda registrado al
+    // momento, con el correo concreto, en vez de descubrirse por una llamada.
+    const urlVI = String(respuesta.validacion_url || '');
+    const hostVI = urlVI ? _hostDe(urlVI) : null;
+    if (hostVI && !hostVI.includes('.') && hostVI !== 'localhost') {
+        const aviso = `VI devolvio una URL que no sirve fuera de Docker: ` +
+                      `${hostVI}. El firmante no podra abrirla.`;
+        console.error(`❌ [VI] ${persona.email}: ${aviso}`);
+        registrarError({
+            tipo: 'vi_url_interna', gravedad: 'alta',
+            mensaje: aviso,
+            datos: { correo: persona.email, url: urlVI, codigo: respuesta.codigo || null,
+                     que_hacer: 'Revisar FIRMALEGAL_PUBLIC_URL en el entorno de VI' },
+            req
+        }).catch(() => {});
+    }
+
+    // Guardar el codigo, para poder consultar despues su estado y sus intentos.
+    //
+    // Va en su propia tabla y no en `vi_verified_emails` porque esa tiene
+    // `vi_validated_at NOT NULL`: meter ahi una fila obligaria a poner una
+    // fecha de validacion falsa, y la pantalla diria que esta persona ya
+    // valido cuando acaba de recibir el correo.
+    if (respuesta.codigo) {
+        try {
+            await db.promise().query(
+                `INSERT INTO vi_validaciones_pendientes
+                   (email, validacion_codigo, recipient_id, document_id, owner_user_id)
+                 VALUES (?, ?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE
+                   validacion_codigo = VALUES(validacion_codigo),
+                   recipient_id = VALUES(recipient_id),
+                   -- EL DOCUMENTO TAMBIEN. La clave unica es el correo, asi
+                   -- que al crearle una validacion desde otro pagare esta
+                   -- fila se reutiliza; sin esto se quedaba apuntando al
+                   -- pagare viejo y la pantalla decia 'su validacion es de
+                   -- otro pagare' sobre el pagare donde se acababa de crear.
+                   document_id = VALUES(document_id),
+                   owner_user_id = VALUES(owner_user_id),
+                   created_at = CURRENT_TIMESTAMP`,
+                [String(persona.email).toLowerCase(), respuesta.codigo,
+                 persona.recipient_id, docId, req.userId || null]
+            );
+        } catch (e) {
+            // Que no se pueda guardar el codigo no invalida el envio: el correo
+            // ya salio. Se pierde la visibilidad, no la validacion.
+            console.warn(`[VI] No se pudo guardar el codigo de ${persona.email}: ${e.message}`);
+        }
+    } else {
+        console.warn(`[VI] La respuesta no traia codigo para ${persona.email}`);
+    }
+}
+
+// GET — cuantos faltan por validar, cuantos por firmar, a quien se puede
+// escribir hoy y a quien no (y por que).
+app.get('/api/documentos/:docId/recordatorios', requireAuth, async (req, res) => {
+    try {
+        const docId = parseInt(req.params.docId, 10);
+        if (!docId) return res.status(400).json({ success: false, message: 'Documento no valido' });
+
+        const [doc] = await db.promise().query(
+            'SELECT document_id, title, document_type, owner_id FROM documents WHERE document_id = ?',
+            [docId]
+        );
+        if (!doc.length) return res.status(404).json({ success: false, message: 'Documento no encontrado' });
+
+        const estado = await _recordatorios.estadoDocumento(db, docId, req.userId);
+
+        // Los datos de cada validacion (nombre, cedula, vigencia) viven en VI,
+        // no aqui. Se piden solo para quien falta por validar, que son los
+        // unicos a los que se les va a reenviar la validacion.
+        //
+        // Si VI no contesta el panel sigue sirviendo: cuantos faltan y a quien
+        // se puede escribir sale de nuestra base. Lo que falta es el detalle,
+        // y la pantalla avisa de que falta en vez de inventarlo.
+        await _recordatorios.conDatosDeValidacion(estado.sin_validar);
+        const viError = estado.sin_validar.vi_error || null;
+
+        res.json({
+            success: true,
+            documento: { id: doc[0].document_id, titulo: doc[0].title, tipo: doc[0].document_type },
+            envios_por_dia: _recordatorios.ENVIOS_POR_DIA,
+            vi_error: viError,
+            ...estado
+        });
+    } catch (e) {
+        console.error('[RECORDATORIOS] Error al consultar el estado:', e.message);
+        res.status(500).json({ success: false, message: 'No se pudo consultar el estado del documento' });
+    }
+});
+
+// POST — enviar los recordatorios.
+//
+// body: { tipo: 'validacion'|'firma', confirmar: true, recipients?: [ids] }
+//
+// Sin `confirmar: true` solo devuelve el resumen de lo que haria.
+// Con `recipients` se manda solo a esos; sin ellos, a todos los que toque.
+app.post('/api/documentos/:docId/recordatorios', requireAuth, async (req, res) => {
+    try {
+        const docId = parseInt(req.params.docId, 10);
+        // `modo` separa las dos acciones que antes iban juntas:
+        //   'crear'    — solo a quien NO tiene validacion todavia
+        //   'reenviar' — solo a quien YA tiene una creada
+        //   'ambos'    — las dos, que es como se comportaba antes
+        const { tipo, confirmar = false, recipients = null, modo = 'ambos' } = req.body || {};
+
+        if (!docId) return res.status(400).json({ success: false, message: 'Documento no valido' });
+        if (!['validacion', 'firma'].includes(tipo)) {
+            return res.status(400).json({ success: false, message: 'El tipo debe ser validacion o firma' });
+        }
+
+        const [doc] = await db.promise().query(
+            'SELECT document_id, title FROM documents WHERE document_id = ?', [docId]);
+        if (!doc.length) return res.status(404).json({ success: false, message: 'Documento no encontrado' });
+
+        const estado = await _recordatorios.estadoDocumento(db, docId, req.userId);
+
+        // A quien le toca segun el tipo. Los de firma salen de `sin_firmar`,
+        // que por construccion ya valido su identidad: nunca se manda el
+        // enlace de firma a quien no ha validado.
+        let candidatos = tipo === 'validacion' ? estado.sin_validar : estado.sin_firmar;
+
+        // El firmante definitivo no entra en los reenvios masivos: su correo
+        // sale solo cuando todos los demas han firmado.
+        candidatos = candidatos.filter(p => !p.es_firmante_definitivo);
+
+        // Crear una validacion nueva y reenviar la que ya existe son dos cosas
+        // distintas: la nueva llega con otro codigo y otra fecha de
+        // vencimiento. El boton dice cual de las dos va a hacer, y aqui se
+        // filtra para que haga exactamente eso.
+        if (tipo === 'validacion' && modo !== 'ambos') {
+            candidatos = candidatos.filter(p =>
+                modo === 'crear' ? !p.tiene_validacion : !!p.tiene_validacion);
+        }
+
+        if (Array.isArray(recipients) && recipients.length) {
+            const pedidos = new Set(recipients.map(Number));
+            candidatos = candidatos.filter(p => pedidos.has(p.recipient_id));
+        }
+
+        // Para una validacion hace falta la cedula, y sale de los campos del
+        // pagare. Se comprueba AQUI, antes de contar a quien se le envia, para
+        // que el informe lo diga antes y no se descubra al fallar el envio.
+        if (tipo === 'validacion') {
+            for (const p of candidatos) {
+                const d = await _datosFirmante.datosDeFirmanteDesdeBD(
+                    db, p.recipient_id, p.email);
+                p.cedula_del_pagare = d.documento;
+                p.nombre_del_pagare = d.nombre;
+                p.celular_del_pagare = d.celular;
+                p.celulares_distintos = !!d.celulares_distintos;
+                // Sin cedula no se le puede crear la validacion: queda fuera
+                // del envio y el informe dice por que.
+                if (!d.documento) {
+                    p.puede_reenviarse = false;
+                    p.bloqueo = d.motivo;
+                }
+            }
+        }
+
+        // El PRIMER envio no lleva limite diario: cada persona recibe su
+        // validacion una sola vez, asi que no hay nada que repetir. El limite
+        // esta para los REENVIOS, que son los que pueden saturar a un padre.
+        //
+        // Lo que si se respeta siempre es el bloqueo por falta de datos: sin
+        // cedula o sin celular la validacion no sirve, se envie cuando se envie.
+        const sinLimite = (tipo === 'validacion' && modo === 'crear');
+
+        const enviables = candidatos.filter(p => sinLimite ? !p.bloqueo : p.puede_reenviarse);
+        const enEspera = candidatos.filter(p => sinLimite ? false : !p.puede_reenviarse);
+        const conAviso = enviables.filter(p => p.aviso_otro_usuario);
+
+        // Sin confirmar: no se manda nada, se devuelve el desglose completo.
+        //
+        // Va la lista entera de candidatos, no solo un numero: el operador
+        // tiene que poder ver con que cedula y con que vigencia se creo cada
+        // validacion ANTES de que salga el correo. Mandar a ciegas ya nos
+        // costo validaciones creadas sin cedula que nadie vio hasta que el
+        // padre no pudo validarse.
+        //
+        // Y van los CANDIDATOS, no `estado.sin_validar`: aqui ya se quito al
+        // firmante definitivo, asi que la pantalla ensena exactamente a
+        // quien se le va a escribir.
+        if (!confirmar) {
+            if (tipo === 'validacion') {
+                await _recordatorios.conDatosDeValidacion(candidatos);
+            }
+            return res.json({
+                success: true,
+                simulacion: true,
+                se_enviarian: enviables.length,
+                en_espera: enEspera.length,
+                envios_por_dia: _recordatorios.ENVIOS_POR_DIA,
+                // Cuanto durara una validacion que se cree ahora. Es el plazo
+                // por defecto de VI (columna validaciones.plazo_dias), y sirve
+                // para decir en el informe cuando vence antes de crearla.
+                dias_de_vigencia: 30,
+                vi_error: candidatos.vi_error || null,
+                avisos: conAviso.map(p => ({
+                    nombre: p.nombre, email: p.email,
+                    nota: 'Otro usuario le escribio en las ultimas 24 horas'
+                })),
+                // El desglose que pinta el informe
+                personas: candidatos,
+                destinatarios: enviables.map(p => ({ nombre: p.nombre, email: p.email }))
+            });
+        }
+
+        if (!enviables.length) {
+            return res.json({ success: true, enviados: 0, fallidos: 0,
+                mensaje: 'No hay a quien reenviar ahora mismo' });
+        }
+
+        const resultado = await enviarRecordatorios(enviables, tipo, docId, doc[0].title, req, sinLimite);
+        res.json({ success: true, ...resultado, en_espera: enEspera.length });
+
+    } catch (e) {
+        console.error('[RECORDATORIOS] Error al enviar:', e.message);
+        res.status(500).json({ success: false, message: 'No se pudieron enviar los recordatorios' });
+    }
+});
+
+// POST /api/recordatorios/individual — reenviar a UNA persona.
+//
+// body: { recipient_id, tipo: 'validacion'|'firma' }
+//
+// A diferencia del masivo, este NO tiene limite de dias: si un padre llama
+// diciendo que no le llego, hay que poder mandarselo ahora mismo. Lo que lleva
+// es una espera que crece (1 min, 10, 30, 60) para que nadie lo fuerce a base
+// de clics, igual que el codigo OTP.
+app.post('/api/recordatorios/individual', requireAuth, async (req, res) => {
+    try {
+        const { recipient_id, tipo } = req.body || {};
+        const recipientId = parseInt(recipient_id, 10);
+
+        if (!recipientId) return res.status(400).json({ success: false, message: 'Destinatario no valido' });
+        if (!['validacion', 'firma'].includes(tipo)) {
+            return res.status(400).json({ success: false, message: 'El tipo debe ser validacion o firma' });
+        }
+
+        const [filas] = await db.promise().query(
+            `SELECT dr.recipient_id, dr.email, dr.name, dr.status, dr.vi_validated_at,
+                    dr.document_id, d.title
+             FROM document_recipients dr
+             JOIN documents d ON d.document_id = dr.document_id
+             WHERE dr.recipient_id = ?`,
+            [recipientId]
+        );
+        if (!filas.length) return res.status(404).json({ success: false, message: 'Destinatario no encontrado' });
+        const p = filas[0];
+
+        if (p.status === 'completed') {
+            return res.json({ success: false, message: 'Esa persona ya firmo' });
+        }
+        // La regla de siempre: el enlace de firma solo a quien ya valido.
+        if (tipo === 'firma' && !p.vi_validated_at) {
+            return res.json({ success: false,
+                message: 'Todavia no ha validado su identidad. Reenviale la validacion primero.' });
+        }
+
+        const espera = await _recordatorios.esperaIndividual(db, recipientId, req.userId);
+        if (!espera.puede) return res.json(_respuestaEnEspera(espera));
+
+        const persona = {
+            recipient_id: p.recipient_id, email: p.email,
+            nombre: p.name || p.email, es_firmante_definitivo: false
+        };
+        const r = await enviarRecordatorios([persona], tipo, p.document_id, p.title, req);
+
+        if (r.enviados) {
+            return res.json({ success: true,
+                message: `Correo de ${tipo === 'firma' ? 'firma' : 'validacion'} reenviado a ${p.email}` });
+        }
+        res.json({ success: false,
+            message: r.errores?.[0]?.motivo || 'No se pudo reenviar el correo' });
+
+    } catch (e) {
+        console.error('[RECORDATORIOS] Error en el reenvio individual:', e.message);
+        res.status(500).json({ success: false, message: 'No se pudo reenviar el correo' });
+    }
+});
+
+// PATCH /api/validaciones/:recipientId/datos — corregir SU validacion.
+//
+// body: { nombre_completo, documento, tipo_documento, celular }
+//
+// Corrige los datos DENTRO de la validacion que ya existe. No crea otra.
+//
+// POR QUE IMPORTA: antes corregir obligaba a ir al panel de VI y rellenar el
+// formulario, que CREA una validacion nueva. La vieja se quedaba viva con los
+// datos malos, asi que esa persona acababa con dos y nadie sabia cual valia.
+// Peor aun: por fecha no se puede distinguir cual lleva el dato bueno, porque
+// un reenvio posterior crea una mas nueva con los datos del CSV sin corregir.
+//
+// Una persona tiene UNA validacion. Corregir la edita; no la duplica.
+app.patch('/api/validaciones/:recipientId/datos', requireAuth, async (req, res) => {
+    try {
+        const recipientId = parseInt(req.params.recipientId, 10);
+        if (!recipientId) {
+            return res.status(400).json({ success: false, message: 'Falta el destinatario' });
+        }
+
+        const [filas] = await db.promise().query(
+            'SELECT recipient_id, email, name FROM document_recipients WHERE recipient_id = ?',
+            [recipientId]
+        );
+        if (!filas.length) {
+            return res.status(404).json({ success: false, message: 'Destinatario no encontrado' });
+        }
+        const p = filas[0];
+
+        // Cual es SU validacion. Se pide por el codigo que tenemos guardado,
+        // no por el correo: una persona puede tener varias y VI devolveria la
+        // que ella elija.
+        let suya = null;
+        try {
+            suya = await _validacionYaExistente(p.email);
+        } catch (e) {
+            return res.status(502).json({ success: false,
+                message: 'No se pudo consultar Validacion de Identidad: ' + e.message });
+        }
+
+        if (!_estadoValidacion.estaViva(suya)) {
+            // Sin validacion viva no hay nada que corregir: lo que toca es
+            // crearsela, y entonces los datos se toman del pagare.
+            return res.json({ success: false, sin_validacion: true,
+                message: 'Esa persona no tiene una validacion activa. Creale una con ' +
+                         '"Iniciar validacion" y se enviara con los datos que corrijas en el pagare.' });
+        }
+        // UNA ULTIMA COMPROBACION ANTES DE TOCAR NADA.
+        //
+        // Editar la validacion de otra persona le pone a ESA la cedula y el
+        // nombre equivocados, y ademas se valida contra datos que no son los
+        // suyos. Es el peor fallo posible aqui, asi que se comprueba aunque
+        // ya se haya filtrado por correo mas arriba.
+        if (String(suya.email_firmante || '').toLowerCase() !==
+            String(p.email || '').toLowerCase()) {
+            console.error(`[VALIDACION-CORREGIR] La validacion ${suya.codigo} es de ` +
+                          `${suya.email_firmante}, no de ${p.email}. No se toca.`);
+            return res.status(409).json({ success: false,
+                message: 'La validacion encontrada es de otra persona. No se corrigio nada.' });
+        }
+
+        if (suya.estado === 'completada') {
+            return res.json({ success: false, ya_valido: true,
+                message: 'Ya valido su identidad. Los datos con los que se valido no se cambian.' });
+        }
+
+        const { nombre_completo, documento, tipo_documento, celular } = req.body || {};
+        if (!nombre_completo && !documento && !tipo_documento && !celular) {
+            return res.status(400).json({ success: false,
+                message: 'No se recibio ningun dato que corregir' });
+        }
+
+        const r = await _corregirValidacionVI(suya.codigo,
+            { nombre_completo, documento, tipo_documento, celular });
+
+        if (!r.ok) {
+            // El motivo de VI se devuelve tal cual: esta escrito para leerlo.
+            return res.json({ success: false, codigo: suya.codigo,
+                message: r.motivo || 'No se pudo corregir la validacion' });
+        }
+
+        await registrarError({
+            tipo: 'vi_validacion_corregida', gravedad: 'info',
+            mensaje: `Datos corregidos en la validacion ${suya.codigo} de ${p.email}`,
+            datos: { correo: p.email, codigo: suya.codigo,
+                     documento: documento || null, nombre: nombre_completo || null },
+            req
+        }).catch(() => {});
+
+        res.json({ success: true, codigo: suya.codigo,
+            validacion: r.validacion || null,
+            message: 'Datos corregidos en su validacion (' + suya.codigo + ').' });
+
+    } catch (e) {
+        console.error('[VALIDACION-CORREGIR] Error:', e.message);
+        res.status(500).json({ success: false, message: 'No se pudo corregir la validacion' });
+    }
+});
+
+// POST /api/validaciones/un-clic — crear o reenviar la validacion de UNA persona.
+//
+// body: { recipient_id, accion: 'iniciar'|'reenviar' }
+//
+// Antes esto obligaba a salir de la pantalla: ir al panel de Validacion de
+// Identidad, escribir a mano la cedula, el nombre y el celular, y volver. Los
+// datos ya los tenemos -vienen del CSV del pagare- asi que se toman de ahi.
+//
+// SON DOS ACCIONES DISTINTAS y se piden por separado a proposito:
+//
+//   iniciar  — la persona no tiene validacion. Se le CREA una nueva.
+//   reenviar — ya tiene una. Se le vuelve a mandar el correo de la que existe.
+//
+// No es lo mismo: una validacion nueva llega con otro codigo y otra fecha de
+// vencimiento. Si el cliente pide "iniciar" para alguien que ya tiene una, se
+// le dice, en vez de crearle una segunda por descuido.
+app.post('/api/validaciones/un-clic', requireAuth, async (req, res) => {
+    try {
+        const { recipient_id, accion } = req.body || {};
+        const recipientId = parseInt(recipient_id, 10);
+
+        if (!recipientId) {
+            return res.status(400).json({ success: false, message: 'Destinatario no valido' });
+        }
+        if (!['iniciar', 'reenviar', 'firma'].includes(accion)) {
+            return res.status(400).json({ success: false, message: 'La accion debe ser iniciar, reenviar o firma' });
+        }
+
+        const [filas] = await db.promise().query(
+            `SELECT dr.recipient_id, dr.email, dr.name, dr.status, dr.vi_validated_at,
+                    dr.document_id, dr.viewer_group_id, d.title
+             FROM document_recipients dr
+             JOIN documents d ON d.document_id = dr.document_id
+             WHERE dr.recipient_id = ?`,
+            [recipientId]
+        );
+        if (!filas.length) {
+            return res.status(404).json({ success: false, message: 'Destinatario no encontrado' });
+        }
+        const p = filas[0];
+
+        // 'firma' es para quien YA valido: lo que necesita es el enlace para
+        // firmar, no otra validacion.
+        if (accion === 'firma') {
+            if (!p.vi_validated_at) {
+                return res.json({ success: false,
+                    message: 'Todavia no ha validado su identidad. La validacion va primero, siempre.' });
+            }
+            if (p.status === 'completed') {
+                return res.json({ success: false, message: 'Esa persona ya firmo' });
+            }
+
+            const espera = await _recordatorios.esperaIndividual(db, recipientId, req.userId);
+            if (!espera.puede) return res.json(_respuestaEnEspera(espera));
+
+            const r = await enviarRecordatorios([{
+                recipient_id: p.recipient_id, email: p.email,
+                nombre: p.name || p.email, es_firmante_definitivo: false
+            }], 'firma', p.document_id, p.title, req);
+
+            return r.enviados
+                ? res.json({ success: true, message: `Enlace de firma enviado a ${p.email}` })
+                : res.json({ success: false,
+                    message: r.errores?.[0]?.motivo || 'No se pudo enviar el enlace de firma' });
+        }
+
+        if (p.vi_validated_at) {
+            return res.json({ success: false,
+                message: 'Esta persona ya valido su identidad. Usa "Enviar enlace de firma".' });
+        }
+
+        // Que ya tiene una validacion creada, para comprobar que la accion
+        // pedida es la correcta.
+        //
+        // SE LE PREGUNTA A VI, no a nuestras tablas: el operador puede crear la
+        // validacion desde el panel de VI, y entonces nosotros no tenemos su
+        // codigo. Mirando solo nuestras tablas se decia 'todavia no tiene
+        // ninguna validacion' a alguien que si la tenia, y no dejaba reenviar.
+        //
+        // Es la misma fuente que usa la pantalla, asi que el boton y el
+        // servidor no pueden contradecirse.
+        // UNA VALIDACION ANULADA NO CUENTA COMO VALIDACION.
+        //
+        // Si el operador la anula en el panel de VI, su enlace deja de
+        // llevar a ninguna parte y reenviarla no hace nada. Tenerla en
+        // cuenta impedia crear otra: el boton decia 'ya tiene una validacion
+        // creada' sobre algo que esa persona no puede usar.
+        let tieneValidacion = false;
+        let estadoVI = null;
+        let vencida = false;
+        try {
+            const consulta = [{ email: p.email }];
+            await _estadoValidacion.soloValidaciones(consulta);
+            const vv = consulta[0].validacion;
+            estadoVI = (vv && vv.estado) || null;
+            // Para poder decir POR QUE no se puede reenviar: una vencida no es
+            // lo mismo que una anulada, aunque se arreglen igual.
+            vencida = !!(vv && estadoVI !== 'completada' && _estadoValidacion.haCaducado(vv));
+            // La misma definicion que usa la pantalla, para que el boton y el
+            // servidor no puedan contradecirse.
+            tieneValidacion = _estadoValidacion.estaViva(vv);
+        } catch (e) {
+            // Si VI no responde, se mira lo que haya en nuestras tablas antes
+            // de bloquear a nadie.
+            console.warn(`[VALIDACION-UN-CLIC] VI no respondio: ${e.message}`);
+            const [ya] = await db.promise().query(
+                `SELECT validacion_codigo FROM vi_verified_emails
+                 WHERE LOWER(email) COLLATE utf8mb4_unicode_ci = LOWER(?) COLLATE utf8mb4_unicode_ci
+                   AND validacion_codigo IS NOT NULL
+                 UNION
+                 SELECT validacion_codigo FROM vi_validaciones_pendientes
+                 WHERE LOWER(email) COLLATE utf8mb4_unicode_ci = LOWER(?) COLLATE utf8mb4_unicode_ci
+                 LIMIT 1`,
+                [p.email, p.email]
+            );
+            tieneValidacion = ya.length > 0;
+        }
+
+        if (accion === 'iniciar' && tieneValidacion) {
+            return res.json({ success: false,
+                message: 'Ya tiene una validacion creada. Usa "Reenviar validacion" para volver a mandarle el correo.' });
+        }
+        if (accion === 'reenviar' && !tieneValidacion) {
+            // Distinguir las dos razones: 'no tiene ninguna' y 'la que tenia
+            // fue anulada' se arreglan igual, pero el operador necesita
+            // saber cual de las dos es.
+            // Tres razones distintas, el mismo arreglo: crearle otra. Pero el
+            // operador necesita saber cual de las tres es.
+            let porque = 'Todavia no tiene ninguna validacion. Usa "Iniciar validacion" para crearsela.';
+            if (estadoVI === 'cancelada' || estadoVI === 'anulada') {
+                porque = 'Su validacion fue cancelada en Validacion de Identidad. Usa "Crear validacion nueva".';
+            } else if (vencida) {
+                porque = 'Su enlace de validacion vencio: los enlaces duran 30 dias. ' +
+                         'Reenviarlo no serviria de nada. Usa "Crear validacion nueva".';
+            }
+            return res.json({ success: false, vencida: !!vencida, message: porque });
+        }
+
+
+        // La misma espera que crece del reenvio individual: si un padre llama
+        // diciendo que no le llego hay que poder mandarselo ahora, pero que no
+        // salgan cinco correos seguidos a base de clics.
+        const espera = await _recordatorios.esperaIndividual(db, recipientId, req.userId);
+        if (!espera.puede) return res.json(_respuestaEnEspera(espera));
+
+        const persona = {
+            recipient_id: p.recipient_id, email: p.email,
+            nombre: p.name || p.email, es_firmante_definitivo: false
+        };
+
+        // `enviarRecordatorios` con tipo 'validacion' llama a crearValidacionVI,
+        // que ya saca la cedula y el celular del pagare y BLOQUEA si faltan. No
+        // se duplica esa comprobacion aqui: una sola fuente.
+        const r = await enviarRecordatorios([persona], 'validacion', p.document_id, p.title, req);
+
+        if (r.enviados) {
+            return res.json({ success: true,
+                message: accion === 'iniciar'
+                    ? `Validacion creada y enviada a ${p.email}`
+                    : `Validacion reenviada a ${p.email}` });
+        }
+
+        // El motivo real viene de crearValidacionVI: "el pagare no trae su
+        // cedula", "sin celular no recibira el OTP"... Se devuelve tal cual
+        // porque esta escrito para que lo lea un operador.
+        res.json({ success: false,
+            message: r.errores?.[0]?.motivo || 'No se pudo enviar la validacion' });
+
+    } catch (e) {
+        console.error('[VALIDACION-UN-CLIC] Error:', e.message);
+        res.status(500).json({ success: false, message: 'No se pudo enviar la validacion' });
     }
 });
 
@@ -4435,6 +5618,268 @@ app.get('/api/public/vi-status/:token', async (req, res) => {
     }
 });
 
+/**
+ * Reconstruye el PDF de un grupo de pagare incorporando las trazas de todos
+ * los que ya validaron.
+ *
+ * Se parte SIEMPRE de `personal_pdf_path`, que es la base limpia sin trazas, y
+ * se anexan las de todos los validados en orden de firma. Anexar sobre el
+ * acumulado duplicaria trazas cada vez que alguien valida.
+ *
+ * SI ALGUIEN DEL GRUPO YA FIRMO, NO SE TOCA NADA.
+ *
+ * El 22-09-2026 una reconstruccion sobre un grupo ya firmado borro las firmas
+ * de 8 pagares. Se recuperaron porque seguian en field_values, pero el
+ * documento estuvo mal. El interim ya anexa la traza de cada firmante cuando le
+ * toca firmar, asi que esperar no pierde nada: lo unico es que quien valide
+ * ahora vera su traza al firmar y no antes.
+ *
+ * @param {number} viewerGroupId  el grupo del pagare
+ * @param {object} extra  opcional: { recipientId, trazaRelPath } para incluir
+ *                        una traza que todavia no esta en la base
+ * @returns {Promise<{reconstruido:boolean, motivo?:string, anexadas?:number, ruta?:string}>}
+ */
+async function reconstruirPdfDeGrupo(viewerGroupId, extra = {}) {
+    if (!viewerGroupId) return { reconstruido: false, motivo: 'sin grupo' };
+
+    const { PDFDocument: PDFDocTraza } = require('pdf-lib');
+
+    const [grupo] = await db.promise().query(
+        `SELECT recipient_id, email, status, personal_pdf_path, custom_pdf_path,
+                vi_traza_path, vi_validated_at
+         FROM document_recipients
+         WHERE viewer_group_id = ? AND is_final_signer = 0
+         ORDER BY signing_order, recipient_id`,
+        [viewerGroupId]
+    );
+    if (!grupo.length) return { reconstruido: false, motivo: 'grupo vacio' };
+
+    // La regla que no se rompe: con firmas, no se reconstruye.
+    if (grupo.some(g => g.status === 'completed')) {
+        return { reconstruido: false, motivo: 'el grupo ya tiene firmas' };
+    }
+
+    const base = grupo.find(g => g.personal_pdf_path);
+    const baseRel = base ? String(base.personal_pdf_path).replace(/^\/+/, '') : '';
+    const baseAbs = baseRel ? resolveFromRoot(baseRel) : '';
+    if (!baseAbs || !fs.existsSync(baseAbs)) {
+        return { reconstruido: false, motivo: 'sin PDF base' };
+    }
+
+    const pdfNuevo = await PDFDocTraza.load(fs.readFileSync(baseAbs));
+    let anexadas = 0;
+
+    for (const g of grupo) {
+        // La traza de quien acaba de validar puede no estar aun en la base
+        const esElNuevo = extra.recipientId && g.recipient_id === extra.recipientId;
+        if (!g.vi_validated_at && !esElNuevo) continue;
+
+        const tRel = esElNuevo && extra.trazaRelPath
+            ? String(extra.trazaRelPath).replace(/^\/+/, '')
+            : String(g.vi_traza_path || '').replace(/^\/+/, '');
+        if (!tRel) continue;
+
+        const tAbs = resolveFromRoot(tRel);
+        if (!fs.existsSync(tAbs)) continue;
+
+        const tDoc = await PDFDocTraza.load(fs.readFileSync(tAbs));
+        const pgs = await pdfNuevo.copyPages(tDoc, tDoc.getPageIndices());
+        pgs.forEach(p => pdfNuevo.addPage(p));
+        anexadas++;
+    }
+
+    const relNuevo = `uploads/pagares/vi_personal_vg${viewerGroupId}_${Date.now()}.pdf`;
+    const dirPag = resolveFromRoot('uploads', 'pagares');
+    if (!fs.existsSync(dirPag)) fs.mkdirSync(dirPag, { recursive: true });
+    fs.writeFileSync(resolveFromRoot(relNuevo), Buffer.from(await pdfNuevo.save()));
+
+    // Solo a los NO definitivos: el firmante definitivo no ve trazas.
+    const idsGrupo = grupo.map(g => g.recipient_id);
+    await db.promise().query(
+        'UPDATE document_recipients SET custom_pdf_path = ? WHERE recipient_id IN (?)',
+        [relNuevo, idsGrupo]
+    );
+
+    return { reconstruido: true, anexadas, ruta: relNuevo, firmantes: idsGrupo.length };
+}
+
+/**
+ * Cuando alguien completa su validacion, marcarla en TODOS sus pagares y
+ * mandarle el enlace de firma de cada uno.
+ *
+ * POR QUE:
+ *
+ * Una validacion de identidad es de la PERSONA, no del documento. Un padre con
+ * dos hijos en la universidad firma dos pagares, y no tiene sentido pedirle que
+ * se valide dos veces con la misma cedula.
+ *
+ * El sistema ya reutiliza las validaciones de hasta un año cuando se envia un
+ * CSV nuevo, pero solo las COMPLETADAS. Si el padre tenia una pendiente y la
+ * completa despues, los otros pagares se quedaban esperando: aparecia como no
+ * verificado en unos y verificado en otro.
+ *
+ * Y ADEMAS EL ENLACE DE FIRMA:
+ *
+ * Al terminar la validacion, VI redirige al firmante para que firme ese
+ * documento. Pero los OTROS pagares suyos no se los ensena nadie, y el enlace
+ * no le llega al correo. Ahora si: recibe un correo por cada pagare que le
+ * quede pendiente, para que los tenga fuera del sistema de validacion.
+ *
+ * LO QUE NO HACE:
+ *
+ * - No manda el enlace del pagare que acaba de validar: de ese ya se encarga la
+ *   redireccion de VI. Solo los demas.
+ * - No manda nada a quien no le toque firmar todavia. En los pagares la firma
+ *   es secuencial: si el deudor no ha firmado, al codeudor no le toca.
+ * - No toca a quien ya firmo.
+ *
+ * @param {string} email          el correo que acaba de validar
+ * @param {number} documentoYaHecho  el pagare donde se valido, que se excluye
+ * @param {string} trazaPath     la traza generada, para copiarla
+ * @param {string} codigo        el codigo de la validacion
+ */
+async function propagarValidacion(email, documentoYaHecho, trazaPath, codigo) {
+    const correo = String(email || '').toLowerCase();
+    if (!correo) return;
+
+    // DESDE CUANDO vale esta validacion.
+    //
+    // Una validacion no puede alcanzar hacia atras. Si se creo el 02/10, los
+    // pagares que ya existian antes tuvieron su propio flujo -su propia
+    // validacion, su propio correo- y no es esta la que les corresponde.
+    // Solo los que se crearon DESPUES se apoyan en ella.
+    //
+    // Sin este corte, validarse una vez mandaba de golpe los enlaces de firma
+    // de todos los envios viejos que siguieran abiertos. En DEV eran cinco
+    // paquetes del mismo CSV, del 18-09 al 05-10: cinco correos de firma por
+    // una sola validacion.
+    let desde = null;
+    try {
+        const [[fila]] = await db.promise().query(
+            'SELECT created_at FROM vi_validaciones_pendientes WHERE email = ? LIMIT 1',
+            [correo]
+        );
+        if (fila && fila.created_at) desde = fila.created_at;
+    } catch (e) {
+        // Si no se sabe cuando se creo, se propaga a todos como hasta ahora:
+        // es preferible un enlace de mas que dejar a alguien sin el suyo.
+        console.warn(`   ⚠️ no se pudo saber desde cuando vale la validacion: ${e.message}`);
+    }
+
+    // A quien marcar: el mismo correo, en otros documentos, sin validar y sin
+    // firmar. Se excluye el documento que acaba de completarse.
+    const [pendientes] = await db.promise().query(
+        `SELECT dr.recipient_id, dr.document_id, dr.token, dr.name,
+                dr.signing_order, dr.viewer_group_id, dr.is_final_signer,
+                d.title, d.created_at AS documento_creado
+         FROM document_recipients dr
+         JOIN documents d ON d.document_id = dr.document_id
+         WHERE LOWER(dr.email) = ?
+           AND dr.document_id <> ?
+           AND dr.vi_validated_at IS NULL
+           AND dr.status NOT IN ('completed', 'rejected')
+           AND (? IS NULL OR d.created_at >= ?)`,
+        [correo, documentoYaHecho || 0, desde, desde]
+    );
+
+    if (!pendientes.length) return;
+
+    console.log(`🔗 [VI-CALLBACK] ${correo} valido: tiene ${pendientes.length} pagare(s) mas pendiente(s)`);
+
+    for (const p of pendientes) {
+        try {
+            // 1. Marcarlo como validado, con la misma traza
+            await db.promise().query(
+                `UPDATE document_recipients
+                 SET vi_validated_at = NOW(),
+                     vi_traza_path = COALESCE(vi_traza_path, ?)
+                 WHERE recipient_id = ?`,
+                [trazaPath || null, p.recipient_id]
+            );
+            console.log(`   ✅ marcado como validado en "${p.title}" (doc ${p.document_id})`);
+
+            // 2. SU TRAZA, DENTRO DEL PDF DE ESE PAGARE.
+            //
+            // Marcar vi_traza_path en la base NO basta: lo que tiene valor es
+            // el PDF que el firmante descarga. Si no se reconstruye, ese
+            // pagare sale sin su trazabilidad aunque la base diga que valido.
+            //
+            // Se reconstruye desde la base limpia con las trazas de todos los
+            // validados del grupo, igual que en el documento donde se valido.
+            // Si alguien del grupo ya firmo NO se toca: el interim ya anexa la
+            // traza al firmar, y reconstruir sobre firmas las borraria.
+            if (p.viewer_group_id) {
+                try {
+                    const r = await reconstruirPdfDeGrupo(p.viewer_group_id, {
+                        recipientId: p.recipient_id, trazaRelPath: trazaPath
+                    });
+                    if (r.reconstruido) {
+                        console.log(`   📄 "${p.title}": PDF reconstruido con ${r.anexadas} traza(s)`);
+                    } else {
+                        console.log(`   📄 "${p.title}": no se reconstruye (${r.motivo})`);
+                    }
+                } catch (e) {
+                    // Un pagare sin trazabilidad es justo lo que mas cuesta
+                    // detectar: tiene que quedar en los registros.
+                    //
+                    // Pero que falle la traza NO puede impedir el enlace de
+                    // firma: son dos cosas independientes, y dejar al padre
+                    // sin enlace es peor. Por eso el registro va en su propio
+                    // try: si tambien falla, se sigue adelante.
+                    console.error(`   ❌ "${p.title}": no se pudo meter la traza en el PDF: ${e.message}`);
+                    try {
+                        await registrarError({
+                            documentId: p.document_id, recipientId: p.recipient_id,
+                            donde: 'validacion de identidad',
+                            mensaje: `La validacion se propago pero la traza no entro en el PDF: ${e.message}`,
+                            datos: { correo, viewer_group_id: p.viewer_group_id, traza: trazaPath || null }
+                        });
+                    } catch (_) { /* el registro no puede tumbar el envio */ }
+                }
+            }
+
+            // 3. El enlace de firma, solo si le toca firmar ya.
+            //
+            // En los pagares la firma es secuencial: si hay alguien antes que
+            // el que todavia no ha firmado, su turno no ha llegado y mandarle
+            // el enlace solo le confundiria.
+            if (p.is_final_signer) continue;   // el definitivo va por su propia via
+
+            const [antes] = await db.promise().query(
+                `SELECT COUNT(*) AS faltan FROM document_recipients
+                 WHERE document_id = ? AND viewer_group_id <=> ?
+                   AND signing_order < ? AND status <> 'completed'`,
+                [p.document_id, p.viewer_group_id, p.signing_order || 1]
+            );
+            if (Number(antes[0]?.faltan) > 0) {
+                console.log(`   ⏳ "${p.title}": aun no le toca firmar, no se le manda el enlace`);
+                continue;
+            }
+
+            const r = await enviarRecordatorios(
+                [{ recipient_id: p.recipient_id, email: correo,
+                   nombre: p.name || correo, es_firmante_definitivo: false }],
+                'firma', p.document_id, p.title,
+                // No hay peticion: es el callback de VI. Se pasa lo minimo que
+                // enviarRecordatorios necesita.
+                { userId: null },
+                true   // sin limite: es la consecuencia de validarse, no un reenvio
+            );
+
+            if (r.enviados) {
+                console.log(`   📧 enlace de firma enviado para "${p.title}"`);
+            } else {
+                console.warn(`   ⚠️ no se pudo enviar el enlace de "${p.title}": ` +
+                             (r.errores?.[0]?.motivo || 'sin motivo'));
+            }
+        } catch (e) {
+            // Un pagare que falle no puede impedir los demas, ni tumbar el
+            // callback: la validacion ya se completo y eso es lo importante.
+            console.error(`   ❌ error propagando a doc ${p.document_id}: ${e.message}`);
+        }
+    }
+}
+
 // POST /api/public/vi-callback
 // Llamado server-to-server por VI cuando la validación es exitosa (fire-and-forget).
 // Marca vi_validated_at y descarga + inserta la trazabilidad al PDF del documento.
@@ -4483,7 +5928,7 @@ app.post('/api/public/vi-callback', async (req, res) => {
                 `SELECT dr.recipient_id, dr.document_id, dr.vi_validated_at,
                         dr.custom_pdf_path, dr.personal_pdf_path, dr.email,
                         dr.viewer_group_id, dr.is_final_signer, dr.status,
-                        dr.vi_traza_path,
+                        dr.vi_traza_path, dr.name, dr.signing_order,
                         d.file_path, d.doc_only_path, d.filled_pdf_path, d.title, d.document_type
                  FROM document_recipients dr
                  INNER JOIN documents d ON dr.document_id = d.document_id
@@ -4869,6 +6314,67 @@ app.post('/api/public/vi-callback', async (req, res) => {
             } catch (e) {
                 console.error('⚠️ [VI-CALLBACK] Error enviando email a firmante definitivo:', e.message);
             }
+        }
+        // EL ENLACE DE FIRMA, AL CORREO.
+        //
+        // Al terminar la validacion, VI redirige al firmante a su pagare. Pero
+        // esa redireccion se pierde en cuanto cierra la pestana, y entonces no
+        // tiene por donde volver: el correo de validacion que recibio lleva al
+        // sistema de VI, no al documento.
+        //
+        // Asi que se le manda el enlace de firma al correo, de este pagare y
+        // de los demas suyos. Lo tiene fuera del sistema de validacion, que es
+        // lo que pidio el usuario y lo que hace que no dependa de haber dejado
+        // una pestana abierta.
+        if (!recipient.is_final_signer) {
+            try {
+                const [aun] = await db.promise().query(
+                    `SELECT COUNT(*) AS faltan FROM document_recipients
+                     WHERE document_id = ? AND viewer_group_id <=> ?
+                       AND signing_order < ? AND status <> 'completed'`,
+                    [recipient.document_id, recipient.viewer_group_id,
+                     recipient.signing_order || 1]
+                );
+                if (Number(aun[0]?.faltan) > 0) {
+                    // La firma es secuencial: si hay alguien antes que el que
+                    // todavia no ha firmado, su turno no ha llegado.
+                    console.log(`   ⏳ [VI-CALLBACK] ${recipient.email}: aun no le toca firmar aqui`);
+                } else {
+                    const r = await enviarRecordatorios(
+                        [{ recipient_id: recipient.recipient_id, email: recipient.email,
+                           nombre: recipient.name || recipient.email,
+                           es_firmante_definitivo: false }],
+                        'firma', recipient.document_id,
+                        recipient.title || 'Documento',
+                        { userId: null },
+                        true   // sin limite: es la consecuencia de validarse
+                    );
+                    if (r.enviados) {
+                        console.log(`   📧 [VI-CALLBACK] Enlace de firma enviado a ${recipient.email}`);
+                    } else {
+                        console.warn(`   ⚠️ [VI-CALLBACK] No se pudo enviar el enlace de firma: ` +
+                                     (r.errores?.[0]?.motivo || 'sin motivo'));
+                    }
+                }
+            } catch (e) {
+                // La validacion ya se completo y la traza ya esta puesta: que
+                // falle este correo no puede deshacer nada de eso.
+                console.error('⚠️ [VI-CALLBACK] No se pudo enviar el enlace de firma:', e.message);
+            }
+        }
+
+        // Una validacion es de la PERSONA, no del documento. Si este firmante
+        // tiene mas pagares pendientes, se marcan todos y se le manda el
+        // enlace de firma de cada uno: no tiene sentido pedirle que se valide
+        // dos veces con la misma cedula.
+        try {
+            await propagarValidacion(
+                recipient.email, recipient.document_id,
+                trazaRelPathGuardada, trazaCodigoGuardado);
+        } catch (e) {
+            // La validacion ya se completo: que falle la propagacion no puede
+            // deshacer eso. Queda el aviso para poder repararlo a mano.
+            console.error('⚠️ [VI-CALLBACK] No se pudo propagar a otros pagares:', e.message);
         }
 
     } catch (error) {
