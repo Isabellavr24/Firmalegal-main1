@@ -205,7 +205,21 @@ function datosDeFirmante(campos, email, nombreFirmante) {
         });
     }
 
-    if (!paridades.size) {
+    // SI SU CORREO NO ESTA EN EL PAGARE, TODAVIA QUEDA EL NOMBRE.
+    //
+    // Pasa cuando alguien pide que le escribamos a otro correo: el del sistema
+    // cambia y el del pagare se queda como se declaro, que es lo correcto. Pero
+    // entonces emparejar por correo ya no encuentra nada.
+    //
+    // Antes se devolvia "no se puede saber cual es su cedula" y esa persona
+    // quedaba sin poder validarse, aunque su nombre estuviera en el pagare al
+    // lado de su cedula. El 07-10 le paso a una firmante que solo habia pedido
+    // cambiar de hotmail a gmail.
+    //
+    // No se inventa nada: se cae al emparejamiento por nombre de mas abajo, que
+    // es el mismo que ya resuelve los correos compartidos y que solo acepta un
+    // resultado si el nombre cae en UNA sola paridad.
+    if (!paridades.size && !nombreFirmante) {
         return { nombre: null, documento: null, celular: null,
                  motivo: 'Su correo no aparece entre los campos del pagare, no se puede saber cual es su cedula' };
     }
@@ -247,7 +261,9 @@ function datosDeFirmante(campos, email, nombreFirmante) {
     // a que un padre reciba la validacion con la cedula de otro.
     if (mia === null) {
         return { nombre: null, documento: null, celular: null,
-                 motivo: 'Su correo aparece dos veces en el pagare y el nombre no permite distinguirlo, hay que revisarlo a mano' };
+                 motivo: paridades.size
+                     ? 'Su correo aparece dos veces en el pagare y el nombre no permite distinguirlo, hay que revisarlo a mano'
+                     : 'Ni su correo ni su nombre aparecen en el pagare, hay que revisarlo a mano' };
     }
 
     // La cedula y el nombre que ocupan ESA misma paridad.
