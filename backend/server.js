@@ -12462,8 +12462,21 @@ app.post('/api/public/otp/verificar', async (req, res) => {
 
         // Registrar evento OTP verificado en trazabilidad
         try {
+            // El COLLATE no es un adorno: las dos tablas se crearon con
+            // colaciones distintas (utf8mb4_0900_ai_ci y utf8mb4_unicode_ci) y
+            // sin el, MySQL rechaza la comparacion con "Illegal mix of
+            // collations". Como el fallo quedaba atrapado en el catch de abajo,
+            // la verificacion seguia funcionando pero el evento NUNCA se
+            // guardaba: a 07-10-2026 no habia ni un solo `otp_verified` en la
+            // trazabilidad. Para un documento con valor legal, esa constancia
+            // es justo lo que hay que poder demostrar.
             const [recRows2] = await db.promise().query(
-                'SELECT dr.recipient_id, dr.document_id, vve.celular FROM document_recipients dr LEFT JOIN vi_verified_emails vve ON LOWER(vve.email) = LOWER(dr.email) WHERE dr.token = ?', [token]
+                `SELECT dr.recipient_id, dr.document_id, vve.celular
+                 FROM document_recipients dr
+                 LEFT JOIN vi_verified_emails vve
+                   ON LOWER(vve.email) COLLATE utf8mb4_unicode_ci =
+                      LOWER(dr.email) COLLATE utf8mb4_unicode_ci
+                 WHERE dr.token = ?`, [token]
             );
             if (recRows2.length) {
                 const maskedPhone2 = recRows2[0].celular
