@@ -1216,6 +1216,88 @@ function botonValidacion(d) {
     </div>`;
 }
 
+// Con que datos se va a validar esa persona, en DOCUMENTOS NORMALES.
+//
+// En un pagare esto sale del CSV. Aqui no hay CSV: los datos son los que el
+// operador escribio en el panel de VI, asi que se leen de la validacion.
+//
+// Sirve para lo mismo que en los pagares: ver con que cedula y con que nombre
+// se va a validar ANTES de reenviar nada, y darse cuenta si hay algo mal sin
+// tener que abrir el panel de Validacion de Identidad.
+function datosDeLaValidacion(d) {
+  const v = d.validacion;
+  if (!validacionUtil(v)) return '';
+  if (!v.nombre && !v.documento) return '';
+
+  const linea = (etiqueta, valor) => valor
+    ? `<div style="font-size:11px;color:#6b7280;line-height:1.7;">
+         ${etiqueta}: ${escHtml(valor)}
+       </div>`
+    : '';
+
+  return `
+    <div style="min-width:180px;text-align:left;">
+      <div style="font-size:10px;color:#9ca3af;text-transform:uppercase;
+                  letter-spacing:.04em;margin-bottom:3px;">Se validara con</div>
+      ${linea('Cedula', v.documento)}
+      ${linea('Nombre', v.nombre)}
+    </div>`;
+}
+
+// El mismo boton, para DOCUMENTOS NORMALES.
+//
+// Se separa del de pagares porque lo que cambia es de donde salen los datos:
+// aqui no hay CSV, asi que crear la validacion es irse al panel de VI y
+// teclearlos. Lo que NO cambia es que el boton tiene que decir en que punto
+// esta esa persona, y que una vez creada se pueda reenviar con un clic.
+//
+// No se pinta el aviso de "falta cedula en el pagare": en un documento normal
+// no hay pagare del que falte nada.
+function botonValidacionNormal(d) {
+  const v = d.validacion;
+
+  const yaValido  = !!v && v.estado === 'completada';
+  // Anulada o vencida equivale a no tener ninguna: su enlace no lleva a
+  // ninguna parte, hay que crear otra desde el panel.
+  const inservible = !!v && !yaValido && !validacionUtil(v);
+  const sePuedeReenviar = !!v && !v.no_encontrada && !yaValido && !inservible;
+
+  const texto = yaValido ? 'ENVIAR ENLACE DE FIRMA'
+    : inservible ? 'CREAR VALIDACIÓN NUEVA'
+    : sePuedeReenviar ? 'REENVIAR VALIDACIÓN'
+    : 'INICIAR VALIDACIÓN DE IDENTIDAD';
+
+  // 'reenviar' y 'firma' se resuelven de un clic. Crear hay que hacerlo en el
+  // panel de VI, porque los datos los escribe el operador.
+  const clase = yaValido || sePuedeReenviar ? 'vi-un-clic-btn' : 'vi-start-btn';
+  const accion = yaValido ? 'firma' : 'reenviar';
+
+  return `
+    <div class="recipient-actions" style="flex-direction:column;align-items:center;gap:7px;min-width:210px;">
+      <button class="${clase} recipient-btn" data-accion="${accion}" data-id="${d.id}"
+        style="padding:13px 20px;border:none;border-radius:8px;font-size:13px;
+               font-weight:700;letter-spacing:.5px;width:100%;
+               display:flex;align-items:center;justify-content:center;
+               background:#2a0d31;color:#fff;cursor:pointer;">
+        ${texto}
+      </button>
+      ${estadoValidacion(d)}
+      ${v && v.codigo ? `
+      <button class="vi-corregir-btn" data-id="${d.id}"
+        style="background:none;border:none;color:#8b7d93;font-size:11px;
+               cursor:pointer;padding:0;text-decoration:underline;
+               width:100%;text-align:center;">
+        Corregir informacion
+      </button>` : `
+      <button class="vi-skip-btn"
+        style="background:none;border:none;color:#888;font-size:12px;
+               cursor:pointer;padding:0;text-decoration:underline;
+               width:100%;text-align:center;">
+        omitir validación de identidad
+      </button>`}
+    </div>`;
+}
+
 function escHtml(t) {
   return String(t == null ? '' : t).replace(/[&<>"']/g,
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1472,21 +1554,31 @@ function createRecipientCard(recipient) {
   // sabe con que cedula y celular se va a crear la validacion, y cuantas
   // veces la ha intentado esa persona.
   //
-  // En documentos normales no hay CSV de donde sacar esos datos, asi que se
-  // deja el boton de siempre, que lleva al panel de Validacion de Identidad.
+  // EN DOCUMENTOS NORMALES EL BOTON TAMBIEN TIENE QUE SEGUIR EL ESTADO.
+  //
+  // Antes el texto era FIJO: decia INICIAR VALIDACION DE IDENTIDAD siempre,
+  // incluso despues de haberla creado. El operador entraba al panel de VI,
+  // rellenaba los datos a mano, y al volver el renglon seguia ofreciendo
+  // iniciarla, asi que la creaba otra vez sin saberlo. Visto el 12-10-2026.
+  //
+  // La diferencia con un pagare no es el estado, es de DONDE salen los datos:
+  //
+  //   pagare           el CSV trae cedula, nombre y celular -> se crea sola
+  //   documento normal no hay CSV -> el operador los teclea en el panel de VI
+  //
+  // Pero una vez creada, las dos son iguales: se puede corregir y se puede
+  // reenviar con un clic, porque eso no necesita ningun dato del CSV.
+  //
+  //   sin validacion   -> INICIAR VALIDACION (abre el panel de VI, a mano)
+  //   ya creada        -> REENVIAR VALIDACION (un clic) + corregir informacion
+  //   caducada/anulada -> CREAR VALIDACION NUEVA (otra vez al panel)
+  //   ya validada      -> ENVIAR ENLACE DE FIRMA
   const esPagare = !!recipient.viewer_group_id;
 
   const actionsHtml = showViBlock
     ? (esPagare
       ? botonValidacion(recipient)
-      : `<div class="recipient-actions" style="flex-direction:column;align-items:center;gap:8px;min-width:220px;">
-         <button class="vi-start-btn recipient-btn" style="padding:13px 20px;background:#2a0d31;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:0.5px;width:100%;text-align:center;">
-           INICIAR VALIDACIÓN DE IDENTIDAD
-         </button>
-         <button class="vi-skip-btn" style="background:none;border:none;color:#888;font-size:12px;cursor:pointer;padding:0;text-decoration:underline;width:100%;text-align:center;">
-           omitir validación de identidad
-         </button>
-       </div>`)
+      : botonValidacionNormal(recipient))
     : pagareViSinOtp
       ? `<div class="recipient-actions" style="flex-direction:column;align-items:center;gap:8px;min-width:200px;">
            <button class="otp-registrar-btn recipient-btn" data-email="${recipient.email}"
@@ -1532,7 +1624,12 @@ function createRecipientCard(recipient) {
 
   // Los datos que el sistema detecto del CSV, entre la informacion y los
   // botones. Solo cuando hay algo que decidir: si ya valido, sobran.
-  const detectadosHtml = (esPagare && showViBlock) ? datosDetectados(recipient) : '';
+  // En el pagare, los datos salen del CSV. En un documento normal salen de la
+  // validacion, que es donde el operador los escribio. En los dos casos el
+  // operador ve con que cedula y con que nombre se va a validar esa persona.
+  const detectadosHtml = !showViBlock ? ''
+    : esPagare ? datosDetectados(recipient)
+               : datosDeLaValidacion(recipient);
 
   // La leyenda va ABAJO, a lo ancho de la tarjeta: es una explicacion de lo
   // que va a pasar, no una etiqueta del boton.

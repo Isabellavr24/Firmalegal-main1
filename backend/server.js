@@ -3940,9 +3940,17 @@ async function crearValidacionVI(persona, docId, docTitle, req) {
     // Es mejor no enviarselo y decir por que, para que alguien lo resuelva.
     const datos = await _datosFirmante.datosDeFirmanteDesdeBD(
         db, persona.recipient_id, persona.email);
-    if (!datos.documento) {
-        throw new Error(datos.motivo || 'No se pudo determinar su cedula');
-    }
+    // La cedula solo hace falta para CREAR. Si esa persona ya tiene una
+    // validacion viva, lo que toca es reenviarsela, y para eso basta su
+    // codigo: los datos ya estan dentro de esa validacion.
+    //
+    // Comprobarlo antes rompia los DOCUMENTOS NORMALES, donde no hay CSV del
+    // que sacar la cedula: decia "el pagare no tiene campos mapeados" y no
+    // dejaba reenviar una validacion que existia y funcionaba. Visto el
+    // 12-10-2026 con un documento normal cuyo firmante ya tenia la suya.
+    //
+    // Mas abajo, antes de crear, se vuelve a exigir.
+    const faltaCedula = !datos.documento;
 
     const VI_URL = process.env.VI_URL || 'http://validacion-identidad-app-1:3000';
 
@@ -3998,6 +4006,12 @@ async function crearValidacionVI(persona, docId, docTitle, req) {
         }
         console.log(`   📧 ${persona.email}: reenviada su validacion ${deVI.codigo} (sin crear otra)`);
         return { reenviada: true, codigo: deVI.codigo };
+    }
+
+    // Aqui si: se va a CREAR una validacion, y sin cedula no hay nada contra
+    // que comparar la cara del firmante. Mejor no crearla y decir por que.
+    if (faltaCedula && !(deVI && deVI.documento)) {
+        throw new Error(datos.motivo || 'No se pudo determinar su cedula');
     }
 
     const documento = (deVI && deVI.documento) || datos.documento;
