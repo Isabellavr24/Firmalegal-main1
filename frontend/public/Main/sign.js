@@ -3316,6 +3316,14 @@ async function saveFieldsToBackend(skipRedirect = false) {
       // devuelto sigue funcionando igual que antes.
       return { ok: true, guardados: fieldsData.length };
 
+    } else if (data.ya_firmado) {
+      // No es un fallo: el backend se nego a propósito porque ya hay firmas, y
+      // guardar las habria borrado. Se muestra tal cual, sin "Error al
+      // guardar" delante, porque el motivo ya viene explicado.
+      console.warn('⛔ No se guarda: el documento ya tiene firmas');
+      toast.error(data.error);
+      return { ok: false, ya_firmado: true, error: data.error };
+
     } else {
       throw new Error(data.error || 'Error al guardar campos');
     }

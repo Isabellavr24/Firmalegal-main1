@@ -18,6 +18,51 @@ const crypto = require('crypto'); // 🔐 Para generar tokens
 const { PDFDocument } = require('pdf-lib'); // Para merge de trazas VI
 const _estadoValidacion = require('../lib/estado-validacion');
 
+// CUANTAS FIRMAS TIENE YA ESTE DOCUMENTO.
+//
+// Se usa para no dejar modificar ni borrar los campos de un documento firmado.
+// Hace falta porque las dos rutas que tocan los campos hacen
+// `DELETE FROM document_fields`, y field_values cuelga de document_fields en
+// CASCADE: borrar los campos se lleva por delante las firmas, sin aviso y sin
+// vuelta atras.
+//
+// Ademas de perder el dato, estaria mal: una firma dice "acepto este documento,
+// con estos campos". Si los campos cambian despues, esa firma pasa a decir algo
+// que la persona nunca acepto.
+//
+// Se cuentan las firmas de field_values y NO el estado del destinatario: el
+// estado se desincroniza, las firmas no. El sellado comprueba lo mismo asi.
+function contarFirmas(db, documentId) {
+    return new Promise((resolve, reject) => {
+        db.query(
+            `SELECT COUNT(*) AS n
+               FROM field_values fv
+               JOIN document_fields df ON df.field_id = fv.field_id
+              WHERE df.document_id = ?
+                AND fv.value_type IN ('signature_image', 'stamp_data')`,
+            [documentId],
+            (err, results) => {
+                if (err) reject(err);
+                else resolve((results && results[0] && results[0].n) || 0);
+            }
+        );
+    });
+}
+
+// El mismo mensaje en las dos rutas. Dice que hacer, no solo que no se puede:
+// para una version distinta de un documento ya firmado, lo correcto es CLONAR.
+function respuestaYaFirmado(firmas) {
+    return {
+        ok: false,
+        success: false,
+        ya_firmado: true,
+        firmas,
+        error: 'Este documento ya tiene firmas, asi que no se pueden modificar ' +
+               'sus campos: cambiarlos haria que esas firmas dijeran algo que ' +
+               'la persona no acepto. Si necesita una version distinta, use CLONAR.'
+    };
+}
+
 // Copia de un VI trace solo las páginas cuyo tamaño difiere del contrato base,
 // descartando las copias del contrato que los VI traces incrustan.
 async function copyViTracePages(targetDoc, trazaDoc, basePageSize) {
@@ -1244,13 +1289,21 @@ router.get('/:id/fields', requireAuth, async (req, res) => {
 
         console.log(`✅ [DOCUMENTS] ${fields.length} campo(s) encontrado(s)`);
 
+        // Si ya hay firmas, estos campos son de solo lectura: guardarlos las
+        // borraria. Se dice aqui para que la pantalla pueda desactivar el boton
+        // de editar en vez de dejar que el usuario llegue hasta Guardar y ahi
+        // se lleve un no. El que manda sigue siendo el POST.
+        const firmas = await contarFirmas(db, documentId);
+
         res.json({
             ok: true,
             success: true,
             data: {
                 document_id: documentId,
                 fields: fields,
-                count: fields.length
+                count: fields.length,
+                firmas,
+                editable: firmas === 0
             }
         });
 
@@ -1312,6 +1365,14 @@ router.post('/:id/fields', requireAuth, async (req, res) => {
                 success: false,
                 error: 'Documento no encontrado o sin permisos'
             });
+        }
+
+        // SI YA HAY UNA FIRMA, AQUI NO SE TOCA NADA. Ver contarFirmas().
+        const yaFirmado = await contarFirmas(db, documentId);
+        if (yaFirmado > 0) {
+            console.warn(`   [CAMPOS] El documento ${documentId} ya tiene ` +
+                         `${yaFirmado} firma(s). No se modifican sus campos.`);
+            return res.status(409).json(respuestaYaFirmado(yaFirmado));
         }
 
         // 🔥 NUEVO: Cargar las partes del documento para mapear roleId → part_id
@@ -1568,6 +1629,15 @@ router.delete('/:id/fields', requireAuth, async (req, res) => {
                 success: false,
                 error: 'Documento no encontrado o sin permisos'
             });
+        }
+
+        // Igual que al guardar: si ya hay firmas, no se borran los campos.
+        // Sin esto, el bloqueo del POST se esquiva llamando aqui.
+        const yaFirmado = await contarFirmas(db, documentId);
+        if (yaFirmado > 0) {
+            console.warn(`   [CAMPOS] El documento ${documentId} ya tiene ` +
+                         `${yaFirmado} firma(s). No se borran sus campos.`);
+            return res.status(409).json(respuestaYaFirmado(yaFirmado));
         }
 
         // Eliminar campos
