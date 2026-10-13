@@ -12472,6 +12472,20 @@ app.post('/api/public/otp/verificar', async (req, res) => {
         const redisClient2 = redis.createClient({ url: 'redis://firmalegal-redis:6379' });
         await redisClient2.connect();
         await redisClient2.del(`otp:${token}`);
+
+        // Y BORRAR TAMBIEN LA CUENTA DE REENVIOS.
+        //
+        // La espera entre codigos crece con cada reenvio (0s, 30s, 60s, 120s,
+        // 300s) para que nadie inunde el numero. Pero el contador solo se
+        // borraba al cumplir su hora: quien acertaba el codigo lo dejaba vivo,
+        // y al volver a entrar -tras firmar, o en otro documento- arrastraba
+        // la espera de antes y le tocaba esperar minutos o picar varias veces.
+        //
+        // Si acerto el codigo, ya demostro que el telefono es suyo: la cuenta
+        // vuelve a cero. La proteccion sigue intacta para quien NO acierta,
+        // que es de quien protege.
+        await redisClient2.del(`otp_intentos:${token}`);
+        await redisClient2.del(`otp_ultimo:${token}`);
         await redisClient2.quit();
 
         // Registrar evento OTP verificado en trazabilidad
