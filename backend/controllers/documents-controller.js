@@ -32,6 +32,15 @@ const _estadoValidacion = require('../lib/estado-validacion');
 //
 // Se cuentan las firmas de field_values y NO el estado del destinatario: el
 // estado se desincroniza, las firmas no. El sellado comprueba lo mismo asi.
+//
+// NO BASTA CON MIRAR value_type. Al enviar, bulk-send-controller crea una fila
+// por cada campo asignado a cada destinatario, con el tipo ya puesto
+// ('signature_image') pero SIN contenido: son huecos reservados, esperando a
+// que la persona firme. Contarlos daba por firmado un documento que nadie
+// habia tocado.
+//
+// Lo que distingue una firma de un hueco es que tenga algo dentro:
+// signature_path lleva el base64 de la imagen. Un hueco lo tiene NULL o vacio.
 function contarFirmas(db, documentId) {
     return new Promise((resolve, reject) => {
         db.query(
@@ -39,7 +48,9 @@ function contarFirmas(db, documentId) {
                FROM field_values fv
                JOIN document_fields df ON df.field_id = fv.field_id
               WHERE df.document_id = ?
-                AND fv.value_type IN ('signature_image', 'stamp_data')`,
+                AND fv.value_type IN ('signature_image', 'stamp_data')
+                AND fv.signature_path IS NOT NULL
+                AND fv.signature_path <> ''`,
             [documentId],
             (err, results) => {
                 if (err) reject(err);
