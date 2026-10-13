@@ -983,7 +983,14 @@ async function loadExistingFields(docId) {
         required: field.required !== false,
         signed: false,
         dataUrl: null,
-        roleId: field.partId || null,
+        // roleId es la POSICION de la parte (1, 2, 3...), no su part_id: asi lo
+        // espera el guardado, que traduce posicion -> part_id. Aqui se ponia
+        // field.partId, de modo que al reabrir un documento ya guardado se
+        // devolvia el part_id (p.ej. 6635) como si fuera la posicion y guardar
+        // fallaba con "no tiene parte valida". Solo se notaba al editar un
+        // documento existente, que es lo que no se podia hacer hasta ahora.
+        roleId: field.roleOrder || null,
+        partId: field.partId || null,
         roleName: field.roleName || null,
         roleColor: field.roleColor || null,
         format: field.format || null

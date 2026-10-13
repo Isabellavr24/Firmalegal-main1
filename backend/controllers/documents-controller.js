@@ -1265,9 +1265,14 @@ router.get('/:id/fields', requireAuth, async (req, res) => {
     try {
         const results = await new Promise((resolve, reject) => {
             db.query(
+                // dp.order_position hace falta para poder reabrir el documento
+                // en el editor: ahi los campos se identifican por la POSICION de
+                // la parte (1, 2, 3...), no por su part_id. Sin esto, al volver a
+                // guardar se mandaba el part_id como si fuera la posicion y el
+                // guardado lo rechazaba ("no tiene parte valida").
                 `SELECT df.field_id, df.field_type, df.page_number, df.x_position, df.y_position,
                         df.width, df.height, df.required, df.field_label, df.created_at,
-                        df.part_id, df.field_config, dp.role_name, dp.color
+                        df.part_id, df.field_config, dp.role_name, dp.color, dp.order_position
                  FROM document_fields df
                  LEFT JOIN document_parts dp ON df.part_id = dp.part_id
                  WHERE df.document_id = ?
@@ -1293,6 +1298,10 @@ router.get('/:id/fields', requireAuth, async (req, res) => {
             label: f.field_label,
             created_at: f.created_at,
             partId: f.part_id || null,
+            // La posicion de la parte (1, 2, 3...), que es lo que el editor
+            // usa como roleId. Va aparte de partId a proposito: son dos cosas
+            // distintas y confundirlas es justo lo que fallaba.
+            roleOrder: f.order_position || null,
             roleName: f.role_name || null,
             roleColor: f.color || null,
             format: f.field_config ? JSON.parse(f.field_config) : null
