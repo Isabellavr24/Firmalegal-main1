@@ -3940,9 +3940,17 @@ async function crearValidacionVI(persona, docId, docTitle, req) {
     // Es mejor no enviarselo y decir por que, para que alguien lo resuelva.
     const datos = await _datosFirmante.datosDeFirmanteDesdeBD(
         db, persona.recipient_id, persona.email);
-    if (!datos.documento) {
-        throw new Error(datos.motivo || 'No se pudo determinar su cedula');
-    }
+    // La cedula solo hace falta para CREAR. Si esa persona ya tiene una
+    // validacion viva, lo que toca es reenviarsela, y para eso basta su
+    // codigo: los datos ya estan dentro de esa validacion.
+    //
+    // Comprobarlo antes rompia los DOCUMENTOS NORMALES, donde no hay CSV del
+    // que sacar la cedula: decia "el pagare no tiene campos mapeados" y no
+    // dejaba reenviar una validacion que existia y funcionaba. Visto el
+    // 12-10-2026 con un documento normal cuyo firmante ya tenia la suya.
+    //
+    // Mas abajo, antes de crear, se vuelve a exigir.
+    const faltaCedula = !datos.documento;
 
     const VI_URL = process.env.VI_URL || 'http://validacion-identidad-app-1:3000';
 
@@ -3998,6 +4006,12 @@ async function crearValidacionVI(persona, docId, docTitle, req) {
         }
         console.log(`   📧 ${persona.email}: reenviada su validacion ${deVI.codigo} (sin crear otra)`);
         return { reenviada: true, codigo: deVI.codigo };
+    }
+
+    // Aqui si: se va a CREAR una validacion, y sin cedula no hay nada contra
+    // que comparar la cara del firmante. Mejor no crearla y decir por que.
+    if (faltaCedula && !(deVI && deVI.documento)) {
+        throw new Error(datos.motivo || 'No se pudo determinar su cedula');
     }
 
     const documento = (deVI && deVI.documento) || datos.documento;
@@ -8619,7 +8633,16 @@ app.post('/api/public/sign/:token', async (req, res) => {
                 //   - Si NO tiene vi_traza_path → su custom_pdf_path = PDF base con firmas (sin traza)
                 const vgRecipientsForInterim = await new Promise((resolve, reject) => {
                     db.query(
-                        'SELECT recipient_id, email, vi_traza_path FROM document_recipients WHERE viewer_group_id = ?',
+                        // La traza vive en dos sitios: la fila del envio o
+                        // `vi_verified_emails`, que guarda la validacion de la
+                        // persona. Mirando solo la fila, quien valido en un
+                        // envio anterior se quedaba sin su trazabilidad.
+                        `SELECT dr.recipient_id, dr.email,
+                                COALESCE(dr.vi_traza_path, v.vi_traza_path) AS vi_traza_path
+                         FROM document_recipients dr
+                         LEFT JOIN vi_verified_emails v
+                           ON LOWER(v.email) COLLATE utf8mb4_unicode_ci = LOWER(dr.email) COLLATE utf8mb4_unicode_ci
+                         WHERE dr.viewer_group_id = ?`,
                         [recipient.viewer_group_id],
                         (err, rows) => { if (err) reject(err); else resolve(rows); }
                     );
@@ -8693,8 +8716,15 @@ app.post('/api/public/sign/:token', async (req, res) => {
                 // Si tienen PDFs distintos (bulk-send personalizado), hay que dibujar las firmas en el PDF de CADA UNO
                 const allDocRecipients = await new Promise((resolve, reject) => {
                     db.query(
-                        `SELECT recipient_id, email, custom_pdf_path, personal_pdf_path, vi_traza_path
-                         FROM document_recipients WHERE document_id = ?`,
+                        // La traza vive en dos sitios: la fila del envio o
+                        // `vi_verified_emails`, que guarda la validacion de la
+                        // persona y sobrevive a que se recreen los destinatarios.
+                        `SELECT dr.recipient_id, dr.email, dr.custom_pdf_path, dr.personal_pdf_path,
+                                COALESCE(dr.vi_traza_path, v.vi_traza_path) AS vi_traza_path
+                         FROM document_recipients dr
+                         LEFT JOIN vi_verified_emails v
+                           ON LOWER(v.email) COLLATE utf8mb4_unicode_ci = LOWER(dr.email) COLLATE utf8mb4_unicode_ci
+                         WHERE dr.document_id = ?`,
                         [recipient.document_id],
                         (err, rows) => { if (err) reject(err); else resolve(rows); }
                     );
@@ -9639,8 +9669,15 @@ app.post('/api/public/sign/:token', async (req, res) => {
                 // Recuperar todos los destinatarios con su PDF actual
                 const allDocRecipientsFinal = await new Promise((resolve, reject) => {
                     db.query(
-                        `SELECT recipient_id, email, custom_pdf_path, personal_pdf_path, vi_traza_path
-                         FROM document_recipients WHERE document_id = ?`,
+                        // La traza vive en dos sitios: la fila del envio o
+                        // `vi_verified_emails`, que guarda la validacion de la
+                        // persona y sobrevive a que se recreen los destinatarios.
+                        `SELECT dr.recipient_id, dr.email, dr.custom_pdf_path, dr.personal_pdf_path,
+                                COALESCE(dr.vi_traza_path, v.vi_traza_path) AS vi_traza_path
+                         FROM document_recipients dr
+                         LEFT JOIN vi_verified_emails v
+                           ON LOWER(v.email) COLLATE utf8mb4_unicode_ci = LOWER(dr.email) COLLATE utf8mb4_unicode_ci
+                         WHERE dr.document_id = ?`,
                         [recipient.document_id],
                         (err, rows) => { if (err) reject(err); else resolve(rows); }
                     );
@@ -11020,9 +11057,12 @@ async function generateAndCacheCompletePagare(docId, viewerGroupId, docTitle) {
     if (!vgRecipients.length) throw new Error('No se encontraron recipients del viewer_group');
 
     const [finalSignerRows] = await db.promise().query(
-        `SELECT recipient_id, email, name, vi_traza_path, completed_at
-         FROM document_recipients
-         WHERE document_id = ? AND is_final_signer = 1 AND status = 'completed'
+        `SELECT dr.recipient_id, dr.email, dr.name, dr.completed_at,
+                COALESCE(dr.vi_traza_path, v.vi_traza_path) AS vi_traza_path
+         FROM document_recipients dr
+         LEFT JOIN vi_verified_emails v
+           ON LOWER(v.email) COLLATE utf8mb4_unicode_ci = LOWER(dr.email) COLLATE utf8mb4_unicode_ci
+         WHERE dr.document_id = ? AND dr.is_final_signer = 1 AND dr.status = 'completed'
          LIMIT 1`,
         [docId]
     );
@@ -11319,11 +11359,20 @@ app.get('/api/documents/:docId/pagares/:viewerGroupId/download-complete', requir
         }
 
         // 2. Obtener recipients del viewer_group
+        // La traza se busca en los DOS sitios: la fila del envio y
+        // `vi_verified_emails`, que guarda la validacion de la persona y
+        // sobrevive a que se recreen los destinatarios. Sin esto, quien valido
+        // en un envio anterior tiene NULL en su fila y el pagare completo sale
+        // sin su trazabilidad.
         const [vgRecipients] = await db.promise().query(
-            `SELECT recipient_id, email, name, status, personal_pdf_path, custom_pdf_path, vi_traza_path
-             FROM document_recipients
-             WHERE viewer_group_id = ? AND is_final_signer = 0
-             ORDER BY completed_at ASC`,
+            `SELECT dr.recipient_id, dr.email, dr.name, dr.status,
+                    dr.personal_pdf_path, dr.custom_pdf_path,
+                    COALESCE(dr.vi_traza_path, v.vi_traza_path) AS vi_traza_path
+             FROM document_recipients dr
+             LEFT JOIN vi_verified_emails v
+               ON LOWER(v.email) COLLATE utf8mb4_unicode_ci = LOWER(dr.email) COLLATE utf8mb4_unicode_ci
+             WHERE dr.viewer_group_id = ? AND dr.is_final_signer = 0
+             ORDER BY dr.completed_at ASC`,
             [viewerGroupId]
         );
         if (!vgRecipients.length) return res.status(404).json({ success: false, message: 'Pagaré no encontrado' });
@@ -11335,9 +11384,12 @@ app.get('/api/documents/:docId/pagares/:viewerGroupId/download-complete', requir
 
         // 4. Firmante definitivo (opcional)
         const [finalSignerRows] = await db.promise().query(
-            `SELECT recipient_id, email, name, status, vi_traza_path
-             FROM document_recipients
-             WHERE document_id = ? AND is_final_signer = 1 AND status = 'completed'
+            `SELECT dr.recipient_id, dr.email, dr.name, dr.status,
+                    COALESCE(dr.vi_traza_path, v.vi_traza_path) AS vi_traza_path
+             FROM document_recipients dr
+             LEFT JOIN vi_verified_emails v
+               ON LOWER(v.email) COLLATE utf8mb4_unicode_ci = LOWER(dr.email) COLLATE utf8mb4_unicode_ci
+             WHERE dr.document_id = ? AND dr.is_final_signer = 1 AND dr.status = 'completed'
              LIMIT 1`,
             [docId]
         );
@@ -12424,8 +12476,21 @@ app.post('/api/public/otp/verificar', async (req, res) => {
 
         // Registrar evento OTP verificado en trazabilidad
         try {
+            // El COLLATE no es un adorno: las dos tablas se crearon con
+            // colaciones distintas (utf8mb4_0900_ai_ci y utf8mb4_unicode_ci) y
+            // sin el, MySQL rechaza la comparacion con "Illegal mix of
+            // collations". Como el fallo quedaba atrapado en el catch de abajo,
+            // la verificacion seguia funcionando pero el evento NUNCA se
+            // guardaba: a 07-10-2026 no habia ni un solo `otp_verified` en la
+            // trazabilidad. Para un documento con valor legal, esa constancia
+            // es justo lo que hay que poder demostrar.
             const [recRows2] = await db.promise().query(
-                'SELECT dr.recipient_id, dr.document_id, vve.celular FROM document_recipients dr LEFT JOIN vi_verified_emails vve ON LOWER(vve.email) = LOWER(dr.email) WHERE dr.token = ?', [token]
+                `SELECT dr.recipient_id, dr.document_id, vve.celular
+                 FROM document_recipients dr
+                 LEFT JOIN vi_verified_emails vve
+                   ON LOWER(vve.email) COLLATE utf8mb4_unicode_ci =
+                      LOWER(dr.email) COLLATE utf8mb4_unicode_ci
+                 WHERE dr.token = ?`, [token]
             );
             if (recRows2.length) {
                 const maskedPhone2 = recRows2[0].celular
