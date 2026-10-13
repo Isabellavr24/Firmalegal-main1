@@ -18,6 +18,62 @@ const crypto = require('crypto'); // 🔐 Para generar tokens
 const { PDFDocument } = require('pdf-lib'); // Para merge de trazas VI
 const _estadoValidacion = require('../lib/estado-validacion');
 
+// CUANTAS FIRMAS TIENE YA ESTE DOCUMENTO.
+//
+// Se usa para no dejar modificar ni borrar los campos de un documento firmado.
+// Hace falta porque las dos rutas que tocan los campos hacen
+// `DELETE FROM document_fields`, y field_values cuelga de document_fields en
+// CASCADE: borrar los campos se lleva por delante las firmas, sin aviso y sin
+// vuelta atras.
+//
+// Ademas de perder el dato, estaria mal: una firma dice "acepto este documento,
+// con estos campos". Si los campos cambian despues, esa firma pasa a decir algo
+// que la persona nunca acepto.
+//
+// Se cuentan las firmas de field_values y NO el estado del destinatario: el
+// estado se desincroniza, las firmas no. El sellado comprueba lo mismo asi.
+//
+// NO BASTA CON MIRAR value_type. Al enviar, bulk-send-controller crea una fila
+// por cada campo asignado a cada destinatario, con el tipo ya puesto
+// ('signature_image') pero SIN contenido: son huecos reservados, esperando a
+// que la persona firme. Contarlos daba por firmado un documento que nadie
+// habia tocado.
+//
+// Lo que distingue una firma de un hueco es que tenga algo dentro:
+// signature_path lleva el base64 de la imagen. Un hueco lo tiene NULL o vacio.
+function contarFirmas(db, documentId) {
+    return new Promise((resolve, reject) => {
+        db.query(
+            `SELECT COUNT(*) AS n
+               FROM field_values fv
+               JOIN document_fields df ON df.field_id = fv.field_id
+              WHERE df.document_id = ?
+                AND fv.value_type IN ('signature_image', 'stamp_data')
+                AND fv.signature_path IS NOT NULL
+                AND fv.signature_path <> ''`,
+            [documentId],
+            (err, results) => {
+                if (err) reject(err);
+                else resolve((results && results[0] && results[0].n) || 0);
+            }
+        );
+    });
+}
+
+// El mismo mensaje en las dos rutas. Dice que hacer, no solo que no se puede:
+// para una version distinta de un documento ya firmado, lo correcto es CLONAR.
+function respuestaYaFirmado(firmas) {
+    return {
+        ok: false,
+        success: false,
+        ya_firmado: true,
+        firmas,
+        error: 'Este documento ya tiene firmas, asi que no se pueden modificar ' +
+               'sus campos: cambiarlos haria que esas firmas dijeran algo que ' +
+               'la persona no acepto. Si necesita una version distinta, use CLONAR.'
+    };
+}
+
 // Copia de un VI trace solo las páginas cuyo tamaño difiere del contrato base,
 // descartando las copias del contrato que los VI traces incrustan.
 async function copyViTracePages(targetDoc, trazaDoc, basePageSize) {
@@ -1209,9 +1265,14 @@ router.get('/:id/fields', requireAuth, async (req, res) => {
     try {
         const results = await new Promise((resolve, reject) => {
             db.query(
+                // dp.order_position hace falta para poder reabrir el documento
+                // en el editor: ahi los campos se identifican por la POSICION de
+                // la parte (1, 2, 3...), no por su part_id. Sin esto, al volver a
+                // guardar se mandaba el part_id como si fuera la posicion y el
+                // guardado lo rechazaba ("no tiene parte valida").
                 `SELECT df.field_id, df.field_type, df.page_number, df.x_position, df.y_position,
                         df.width, df.height, df.required, df.field_label, df.created_at,
-                        df.part_id, df.field_config, dp.role_name, dp.color
+                        df.part_id, df.field_config, dp.role_name, dp.color, dp.order_position
                  FROM document_fields df
                  LEFT JOIN document_parts dp ON df.part_id = dp.part_id
                  WHERE df.document_id = ?
@@ -1237,6 +1298,10 @@ router.get('/:id/fields', requireAuth, async (req, res) => {
             label: f.field_label,
             created_at: f.created_at,
             partId: f.part_id || null,
+            // La posicion de la parte (1, 2, 3...), que es lo que el editor
+            // usa como roleId. Va aparte de partId a proposito: son dos cosas
+            // distintas y confundirlas es justo lo que fallaba.
+            roleOrder: f.order_position || null,
             roleName: f.role_name || null,
             roleColor: f.color || null,
             format: f.field_config ? JSON.parse(f.field_config) : null
@@ -1244,13 +1309,21 @@ router.get('/:id/fields', requireAuth, async (req, res) => {
 
         console.log(`✅ [DOCUMENTS] ${fields.length} campo(s) encontrado(s)`);
 
+        // Si ya hay firmas, estos campos son de solo lectura: guardarlos las
+        // borraria. Se dice aqui para que la pantalla pueda desactivar el boton
+        // de editar en vez de dejar que el usuario llegue hasta Guardar y ahi
+        // se lleve un no. El que manda sigue siendo el POST.
+        const firmas = await contarFirmas(db, documentId);
+
         res.json({
             ok: true,
             success: true,
             data: {
                 document_id: documentId,
                 fields: fields,
-                count: fields.length
+                count: fields.length,
+                firmas,
+                editable: firmas === 0
             }
         });
 
@@ -1312,6 +1385,14 @@ router.post('/:id/fields', requireAuth, async (req, res) => {
                 success: false,
                 error: 'Documento no encontrado o sin permisos'
             });
+        }
+
+        // SI YA HAY UNA FIRMA, AQUI NO SE TOCA NADA. Ver contarFirmas().
+        const yaFirmado = await contarFirmas(db, documentId);
+        if (yaFirmado > 0) {
+            console.warn(`   [CAMPOS] El documento ${documentId} ya tiene ` +
+                         `${yaFirmado} firma(s). No se modifican sus campos.`);
+            return res.status(409).json(respuestaYaFirmado(yaFirmado));
         }
 
         // 🔥 NUEVO: Cargar las partes del documento para mapear roleId → part_id
@@ -1568,6 +1649,15 @@ router.delete('/:id/fields', requireAuth, async (req, res) => {
                 success: false,
                 error: 'Documento no encontrado o sin permisos'
             });
+        }
+
+        // Igual que al guardar: si ya hay firmas, no se borran los campos.
+        // Sin esto, el bloqueo del POST se esquiva llamando aqui.
+        const yaFirmado = await contarFirmas(db, documentId);
+        if (yaFirmado > 0) {
+            console.warn(`   [CAMPOS] El documento ${documentId} ya tiene ` +
+                         `${yaFirmado} firma(s). No se borran sus campos.`);
+            return res.status(409).json(respuestaYaFirmado(yaFirmado));
         }
 
         // Eliminar campos
@@ -2568,6 +2658,35 @@ router.post('/:id/parts', requireAuth, async (req, res) => {
             });
         }
 
+        // A QUE POSICION PERTENECIA CADA DESTINATARIO, ANTES DE BORRAR NADA.
+        //
+        // Aqui abajo se borran las partes y se reinsertan con ids NUEVOS, pero
+        // document_recipients.part_id apunta a las viejas con ON DELETE SET
+        // NULL: sin esto, los destinatarios se quedan sin parte. En un pagare
+        // eso es grave, porque el orden de firma sale de ahi (Firmante N1,
+        // Firmante N2); y en un documento con partes, quien firma que.
+        //
+        // Se guarda la POSICION, no el part_id, porque es lo unico que
+        // sobrevive al borrado: la parte 1 sigue siendo la parte 1 aunque
+        // cambie su id.
+        const vinculos = await new Promise((resolve, reject) => {
+            db.query(
+                `SELECT dr.recipient_id, dp.order_position
+                   FROM document_recipients dr
+                   JOIN document_parts dp ON dp.part_id = dr.part_id
+                  WHERE dr.document_id = ?`,
+                [documentId],
+                (err, results) => {
+                    if (err) reject(err);
+                    else resolve(results || []);
+                }
+            );
+        });
+        if (vinculos.length) {
+            console.log(`   [PARTS] ${vinculos.length} destinatario(s) con parte; ` +
+                        `se reconectaran por su posicion`);
+        }
+
         // Eliminar partes anteriores del documento (si existen)
         await new Promise((resolve, reject) => {
             db.query(
@@ -2605,6 +2724,34 @@ router.post('/:id/parts', requireAuth, async (req, res) => {
             });
 
             console.log(`✅ [PARTS] Parte "${part.name}" guardada con ID ${result.insertId}`);
+        }
+
+        // DEVOLVER A CADA DESTINATARIO SU PARTE.
+        //
+        // Se empareja por posicion: quien estaba en la parte 1 vuelve a la
+        // parte 1, aunque ahora tenga otro id. Si una parte desaparecio (el
+        // documento se guardo con menos), ese destinatario se queda sin ella y
+        // se avisa en el registro, que es mejor que asignarle una que no es la
+        // suya.
+        if (vinculos.length) {
+            const porPosicion = {};
+            insertedParts.forEach(p => { porPosicion[p.order] = p.partId; });
+
+            let reconectados = 0, huerfanos = 0;
+            for (const v of vinculos) {
+                const nuevoPartId = porPosicion[v.order_position];
+                if (!nuevoPartId) { huerfanos++; continue; }
+                await new Promise((resolve, reject) => {
+                    db.query(
+                        'UPDATE document_recipients SET part_id = ? WHERE recipient_id = ?',
+                        [nuevoPartId, v.recipient_id],
+                        (err) => { if (err) reject(err); else resolve(); }
+                    );
+                });
+                reconectados++;
+            }
+            console.log(`   [PARTS] ${reconectados} destinatario(s) reconectado(s)` +
+                        (huerfanos ? `; ${huerfanos} sin parte (su posicion ya no existe)` : ''));
         }
 
         res.json({

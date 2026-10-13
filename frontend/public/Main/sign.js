@@ -918,15 +918,82 @@ async function loadDocumentFromServer(docId) {
     console.log('   - currentFile:', currentFile?.name);
     updateDocInfo();
     
+    // Las partes van ANTES que los campos: al pintar un campo se busca su parte
+    // para ponerle nombre y color, y si el panel no la conoce todavia el campo
+    // sale como "Firma" a secas.
+    await loadExistingParts(docId);
+
     // ✅ Cargar campos existentes desde el servidor
     await loadExistingFields(docId);
-    
+
     console.log('✅ PDF cargado exitosamente en modo PREPARE');
 
   } catch (error) {
     console.error('❌ Error al cargar documento desde servidor:', error);
     toast.error(`Error al cargar el documento: ${error.message}`);
     hideLoadingIndicator();
+  }
+}
+
+// ===== Cargar las partes que el documento YA tiene =====
+//
+// Al abrir un documento existente, el panel lateral arrancaba vacio: nadie
+// consultaba sus partes. Eso tenia dos consecuencias, las dos vistas en DEV:
+//
+//   1. Los campos salian como "Firma" a secas, sin el nombre de su parte,
+//      porque al pintarlos se busca la parte en el panel y no estaba.
+//   2. Peor: GUARDAR borra las partes y reinserta SOLO las del panel. Con el
+//      panel vacio, las partes del documento desaparecian y los campos se
+//      guardaban con part_id NULL, perdiendo a quien pertenecia cada firma.
+//
+// Por eso esto corre antes de loadExistingFields.
+async function loadExistingParts(docId) {
+  try {
+    const userStr = localStorage.getItem('currentUser');
+    if (!userStr) return;
+    const user = JSON.parse(userStr);
+
+    const response = await fetch(`/api/documents/${docId}/parts?user_id=${user.user_id}`);
+    if (!response.ok) {
+      console.warn('No se pudieron obtener las partes del documento');
+      return;
+    }
+
+    const data = await response.json();
+    const partes = data.parts || [];
+    if (!partes.length) {
+      console.log('El documento no tiene partes guardadas');
+      return;
+    }
+
+    if (!window.rolesSystem || !Array.isArray(window.rolesSystem.roles)) {
+      console.warn('El sistema de partes no esta listo: no se cargan');
+      return;
+    }
+
+    // Se reemplaza el contenido del panel, no se reasigna el array: otras
+    // partes del editor guardan una referencia a el.
+    window.rolesSystem.roles.length = 0;
+    partes.forEach((p, idx) => {
+      window.rolesSystem.roles.push({
+        // roleId es la POSICION (1, 2, 3...), igual que en el resto del editor.
+        roleId: p.order || (idx + 1),
+        partId: p.partId,          // el id real, para reconectar los campos
+        name: p.name,
+        order: p.order || (idx + 1),
+        color: p.color || (window.rolesSystem.roleColors || [])[idx % 5],
+        isTemp: false              // ya existen en la base: no son temporales
+      });
+    });
+
+    if (typeof window.rolesSystem.renderRoleSelector === 'function') {
+      window.rolesSystem.renderRoleSelector();
+    }
+    console.log(`${partes.length} parte(s) cargada(s): ` +
+                partes.map(p => p.name).join(', '));
+
+  } catch (error) {
+    console.warn('Error al cargar las partes:', error.message);
   }
 }
 
@@ -983,7 +1050,14 @@ async function loadExistingFields(docId) {
         required: field.required !== false,
         signed: false,
         dataUrl: null,
-        roleId: field.partId || null,
+        // roleId es la POSICION de la parte (1, 2, 3...), no su part_id: asi lo
+        // espera el guardado, que traduce posicion -> part_id. Aqui se ponia
+        // field.partId, de modo que al reabrir un documento ya guardado se
+        // devolvia el part_id (p.ej. 6635) como si fuera la posicion y guardar
+        // fallaba con "no tiene parte valida". Solo se notaba al editar un
+        // documento existente, que es lo que no se podia hacer hasta ahora.
+        roleId: field.roleOrder || null,
+        partId: field.partId || null,
         roleName: field.roleName || null,
         roleColor: field.roleColor || null,
         format: field.format || null
@@ -3315,6 +3389,14 @@ async function saveFieldsToBackend(skipRedirect = false) {
       // ya en la base antes de pedirlos al backend. Quien no mire el valor
       // devuelto sigue funcionando igual que antes.
       return { ok: true, guardados: fieldsData.length };
+
+    } else if (data.ya_firmado) {
+      // No es un fallo: el backend se nego a propósito porque ya hay firmas, y
+      // guardar las habria borrado. Se muestra tal cual, sin "Error al
+      // guardar" delante, porque el motivo ya viene explicado.
+      console.warn('⛔ No se guarda: el documento ya tiene firmas');
+      toast.error(data.error);
+      return { ok: false, ya_firmado: true, error: data.error };
 
     } else {
       throw new Error(data.error || 'Error al guardar campos');

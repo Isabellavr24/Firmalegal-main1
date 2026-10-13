@@ -2721,6 +2721,10 @@ async function checkDocumentFields(docId, docName) {
 
     console.log(`📋 Campos encontrados: ${fields.length}`);
 
+    // El boton EDITAR lleva al editor de campos, salvo que ya haya firmas.
+    // Se aprovecha esta misma consulta, que ya se hace al abrir la pantalla.
+    configurarBotonEditar(docId, docName, data.data || {});
+
     // 🔥 CAMBIO: Verificar si hay destinatarios antes de mostrar el banner
     const recipientsResponse = await fetch(`/api/documents/${docId}/recipients?user_id=${user.user_id}`);
     const recipientsData = await recipientsResponse.json();
@@ -4193,40 +4197,120 @@ document.getElementById('cloneBtn')?.addEventListener('click', async (e) => {
   }
 });
 
-// Botón EDITAR (renombrar)
-document.getElementById('editBtn')?.addEventListener('click', async (e) => {
-  e.preventDefault();
-  e.stopPropagation();
-  
-  const docData = getDocumentDataFromURL();
-  const titleEl = document.getElementById('documentTitle');
-  
-  // Usar modal personalizado en lugar de prompt
-  const newName = await showEditModal(docData.name);
-  
-  if (newName && newName !== docData.name) {
-    const success = await updateDocument(docData.id, { title: newName });
-    if (success) {
-      if (titleEl) titleEl.textContent = newName;
-      // Actualizar URL también
-      const newUrl = new URL(window.location.href);
-      newUrl.searchParams.set('name', newName);
-      window.history.replaceState({}, '', newUrl);
-      
+// ====== BOTON EDITAR: ABRE EL EDITOR DE CAMPOS ======
+//
+// Antes este boton renombraba, igual que el de la tarjeta del documento en la
+// carpeta: dos botones con el mismo nombre haciendo lo mismo, y ninguno hacia
+// lo que su sitio sugiere. El de fuera sigue renombrando; este abre el editor.
+//
+// Se reutiliza el editor que ya existe (mode=prepare), el mismo al que lleva
+// "EDITAR Y ASIGNAR CAMPOS" cuando el documento no tiene campos. Guardar desde
+// ahi NO crea un documento nuevo: POST /api/documents/:id/fields escribe sobre
+// el mismo document_id, asi que el PDF, los destinatarios y los tokens se
+// quedan como estan.
+//
+// `info` es lo que devolvio GET /:id/fields: trae `editable` y `firmas`.
+function configurarBotonEditar(docId, docName, info) {
+  const boton = document.getElementById('editBtn');
+  if (!boton) return;
+
+  const firmas = info.firmas || 0;
+  // Si el backend es viejo y no manda `editable`, se asume que si: el POST
+  // bloquea igualmente, y asi la pantalla no se queda muerta.
+  const editable = info.editable !== false;
+
+  if (!editable) {
+    boton.disabled = true;
+    boton.style.opacity = '0.5';
+    boton.style.cursor = 'not-allowed';
+    boton.title = `Ya hay ${firmas} firma(s): los campos no se pueden modificar`;
+    boton.onclick = (e) => {
+      e.preventDefault();
       ToastManager.show({
-        type: 'success',
-        title: 'Documento renombrado',
-        message: 'El nombre se actualizó correctamente'
+        type: 'warning',
+        title: 'Este documento ya tiene firmas',
+        message: 'No se pueden modificar sus campos, porque cambiarlos haria ' +
+                 'que esas firmas dijeran algo que la persona no acepto. Si ' +
+                 'necesita una version distinta, use CLONAR.'
       });
-    } else {
-      ToastManager.show({
-        type: 'error',
-        title: 'Error',
-        message: 'No se pudo renombrar el documento'
-      });
-    }
+    };
+    return;
   }
-});
+
+  boton.disabled = false;
+  boton.style.opacity = '';
+  boton.style.cursor = '';
+  boton.title = 'Editar los campos del documento';
+
+  boton.onclick = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Si ya salieron correos conviene avisar: nadie ha firmado, asi que editar
+    // es legitimo, pero quien abra su enlace vera los campos nuevos. El enlace
+    // y el token no cambian.
+    const enviados = await contarEnviados(docId);
+    if (enviados > 0) {
+      const sigue = await confirmarEdicionConEnvios(enviados);
+      if (!sigue) return;
+    }
+
+    const tipo = currentDocumentType || 'normal';
+    window.location.href = `/sign.html?id=${docId}` +
+      `&name=${encodeURIComponent(docName)}&mode=prepare&documentType=${tipo}`;
+  };
+}
+
+// Cuantos destinatarios tienen ya su correo enviado. Solo para el aviso: si
+// falla, no se bloquea la edicion por eso.
+async function contarEnviados(docId) {
+  try {
+    const userStr = localStorage.getItem('currentUser');
+    if (!userStr) return 0;
+    const user = JSON.parse(userStr);
+    const r = await fetch(`/api/documents/${docId}/recipients?user_id=${user.user_id}`);
+    if (!r.ok) return 0;
+    const d = await r.json();
+    const lista = d.data?.recipients || [];
+    return lista.filter(x => x.status && x.status !== 'pending').length;
+  } catch (e) {
+    console.warn('No se pudo contar los envios:', e.message);
+    return 0;
+  }
+}
+
+function confirmarEdicionConEnvios(enviados) {
+  return new Promise((resolve) => {
+    const fondo = document.createElement('div');
+    fondo.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);' +
+      'display:flex;align-items:center;justify-content:center;z-index:10000;';
+    fondo.innerHTML = `
+      <div style="background:#fff;border-radius:16px;padding:28px 32px;max-width:460px;
+                  box-shadow:0 10px 40px rgba(0,0,0,.2);font-family:inherit;">
+        <h3 style="margin:0 0 12px;font-size:18px;color:#2a0d31;">
+          Este documento ya se envio</h3>
+        <p style="margin:0 0 20px;font-size:14px;line-height:1.6;color:#55505a;">
+          Ya salieron <strong>${enviados} correo(s)</strong>. Nadie ha firmado
+          todavia, asi que puede editar los campos; quienes abran su enlace
+          veran el documento con los campos nuevos.<br><br>
+          El enlace y el documento no cambian: no hay que reenviar nada.
+        </p>
+        <div style="display:flex;gap:10px;justify-content:flex-end;">
+          <button id="edCancelar" style="padding:10px 18px;border-radius:8px;
+                  border:1px solid #ddd;background:#fff;cursor:pointer;font-size:14px;">
+            Cancelar</button>
+          <button id="edSeguir" style="padding:10px 18px;border-radius:8px;border:none;
+                  background:#2a0d31;color:#fff;cursor:pointer;font-size:14px;">
+            Editar los campos</button>
+        </div>
+      </div>`;
+    document.body.appendChild(fondo);
+    const cerrar = (v) => { fondo.remove(); resolve(v); };
+    fondo.querySelector('#edCancelar').onclick = () => cerrar(false);
+    fondo.querySelector('#edSeguir').onclick = () => cerrar(true);
+    fondo.onclick = (ev) => { if (ev.target === fondo) cerrar(false); };
+  });
+}
 
 
 // ====== GESTIÓN DE PLANTILLA CSV PARA SUBIR LISTA ======
