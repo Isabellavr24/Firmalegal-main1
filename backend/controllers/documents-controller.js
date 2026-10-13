@@ -2658,6 +2658,35 @@ router.post('/:id/parts', requireAuth, async (req, res) => {
             });
         }
 
+        // A QUE POSICION PERTENECIA CADA DESTINATARIO, ANTES DE BORRAR NADA.
+        //
+        // Aqui abajo se borran las partes y se reinsertan con ids NUEVOS, pero
+        // document_recipients.part_id apunta a las viejas con ON DELETE SET
+        // NULL: sin esto, los destinatarios se quedan sin parte. En un pagare
+        // eso es grave, porque el orden de firma sale de ahi (Firmante N1,
+        // Firmante N2); y en un documento con partes, quien firma que.
+        //
+        // Se guarda la POSICION, no el part_id, porque es lo unico que
+        // sobrevive al borrado: la parte 1 sigue siendo la parte 1 aunque
+        // cambie su id.
+        const vinculos = await new Promise((resolve, reject) => {
+            db.query(
+                `SELECT dr.recipient_id, dp.order_position
+                   FROM document_recipients dr
+                   JOIN document_parts dp ON dp.part_id = dr.part_id
+                  WHERE dr.document_id = ?`,
+                [documentId],
+                (err, results) => {
+                    if (err) reject(err);
+                    else resolve(results || []);
+                }
+            );
+        });
+        if (vinculos.length) {
+            console.log(`   [PARTS] ${vinculos.length} destinatario(s) con parte; ` +
+                        `se reconectaran por su posicion`);
+        }
+
         // Eliminar partes anteriores del documento (si existen)
         await new Promise((resolve, reject) => {
             db.query(
@@ -2695,6 +2724,34 @@ router.post('/:id/parts', requireAuth, async (req, res) => {
             });
 
             console.log(`✅ [PARTS] Parte "${part.name}" guardada con ID ${result.insertId}`);
+        }
+
+        // DEVOLVER A CADA DESTINATARIO SU PARTE.
+        //
+        // Se empareja por posicion: quien estaba en la parte 1 vuelve a la
+        // parte 1, aunque ahora tenga otro id. Si una parte desaparecio (el
+        // documento se guardo con menos), ese destinatario se queda sin ella y
+        // se avisa en el registro, que es mejor que asignarle una que no es la
+        // suya.
+        if (vinculos.length) {
+            const porPosicion = {};
+            insertedParts.forEach(p => { porPosicion[p.order] = p.partId; });
+
+            let reconectados = 0, huerfanos = 0;
+            for (const v of vinculos) {
+                const nuevoPartId = porPosicion[v.order_position];
+                if (!nuevoPartId) { huerfanos++; continue; }
+                await new Promise((resolve, reject) => {
+                    db.query(
+                        'UPDATE document_recipients SET part_id = ? WHERE recipient_id = ?',
+                        [nuevoPartId, v.recipient_id],
+                        (err) => { if (err) reject(err); else resolve(); }
+                    );
+                });
+                reconectados++;
+            }
+            console.log(`   [PARTS] ${reconectados} destinatario(s) reconectado(s)` +
+                        (huerfanos ? `; ${huerfanos} sin parte (su posicion ya no existe)` : ''));
         }
 
         res.json({
