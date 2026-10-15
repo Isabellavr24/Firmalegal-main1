@@ -258,11 +258,28 @@ function getRowValue(row, possibleKeys) {
  * Parsear archivo CSV
  */
 function parseCSV(fileBuffer) {
-    const csvString = fileBuffer.toString('utf8');
+    let csvString = fileBuffer.toString('utf8');
+
+    // EL BOM Y LA LINEA "sep=" HAY QUE QUITARLOS ANTES DE LEER.
+    //
+    // El BOM (﻿) lo pone Excel —y lo ponemos nosotros— para que las
+    // tildes se vean bien al abrirlo. Si no se quita, la PRIMERA columna pasa
+    // a llamarse "﻿email firma 1" y deja de coincidir con nada.
+    //
+    // "sep=,", o "sep=;", es una directiva que Excel entiende pero que el
+    // lector no: tomaba esa linea como la cabecera entera y veia 3 columnas en
+    // vez de 54. Las plantillas que descarga el sistema ya no la llevan, pero
+    // un CSV guardado desde Excel en español si puede traerla, y los archivos
+    // descargados antes de octubre de 2026 tambien.
+    csvString = csvString.replace(/^﻿/, '');
+    if (/^sep=.?\r?\n/i.test(csvString)) {
+        csvString = csvString.replace(/^sep=.?\r?\n/i, '');
+    }
+
     const parsed = Papa.parse(csvString, {
         header: true,
         skipEmptyLines: true,
-        transformHeader: (header) => header.trim()  // NO convertir a minúsculas aquí, lo haremos después con normalizeLabel
+        transformHeader: (header) => header.replace(/^﻿/, '').trim()  // NO convertir a minúsculas aquí, lo haremos después con normalizeLabel
     });
 
     if (parsed.errors.length > 0) {

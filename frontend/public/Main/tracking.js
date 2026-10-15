@@ -4473,6 +4473,55 @@ async function loadAssignedFieldValues(documentId) {
  * ORDEN en que estan en el documento —ese orden decide a que responsable
  * pertenece cada una—.
  */
+// DESCARGA UN CSV QUE EXCEL ABRE BIEN EN ESPAÑOL Y QUE EL SISTEMA PUEDE RELEER.
+//
+// Parece trivial y no lo es. Habia dos problemas, y uno rompia el envio:
+//
+// 1. LAS TILDES SE DEFORMABAN. El archivo salia bien en UTF-8, pero llevaba
+//    delante la directiva "sep=,". Excel, al encontrarla, descarta esa primera
+//    linea y con ella pierde la marca de codificacion (el BOM) que iba antes,
+//    asi que "Telefono" se abria con los acentos rotos.
+//
+// 2. EL SISTEMA NO PODIA LEER SU PROPIA PLANTILLA. El lector del envio masivo
+//    no salta esa linea: tomaba "sep=" como la cabecera entera y veia 3
+//    columnas en vez de 54. Comprobado sobre una plantilla descargada:
+//    "Too many fields: expected 2 fields but parsed 213".
+//
+// La solucion es no necesitar la directiva: se usa PUNTO Y COMA, que es lo que
+// Excel en español espera de forma nativa. Asi lo abre en columnas sin ayuda,
+// respeta el BOM —y por tanto las tildes—, y Papa Parse, que lee el archivo al
+// subirlo, detecta el separador solo.
+//
+// El salto es CRLF porque es lo que Excel escribe al guardar.
+function descargarCsv(filas, nombreArchivo) {
+  const SEP = ';';
+  const SALTO = String.fromCharCode(13) + String.fromCharCode(10);
+  const BOM = String.fromCharCode(65279);
+
+  const escapar = (v) => {
+    const s = String(v == null ? '' : v);
+    // Se entrecomilla tambien si lleva coma, para que el archivo siga siendo
+    // legible si alguien lo reabre con coma como separador.
+    return /[";,\r\n]/.test(s) ? '"' + s.split('"').join('""') + '"' : s;
+  };
+
+  // Acepta filas como array de celdas o como texto ya montado.
+  const texto = BOM + filas
+    .map(f => Array.isArray(f) ? f.map(escapar).join(SEP) : String(f))
+    .join(SALTO) + SALTO;
+
+  const blob = new Blob([texto], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const enlace = document.createElement('a');
+  enlace.href = url;
+  enlace.download = nombreArchivo;
+  enlace.style.display = 'none';
+  document.body.appendChild(enlace);
+  enlace.click();
+  document.body.removeChild(enlace);
+  URL.revokeObjectURL(url);
+}
+
 function generateCSVTemplate(template) {
   if (!template || !Array.isArray(template.fields)) {
     throw new Error('La plantilla no tiene campos');
@@ -4530,15 +4579,8 @@ function generateCSVTemplate(template) {
       : t;
   };
 
-  // BOM para que Excel respete las tildes al abrirlo.
-  var SALTO = String.fromCharCode(13) + String.fromCharCode(10);
-  var BOM = String.fromCharCode(65279);
-  // Coma y "sep=," igual que el generador principal: el lector espera coma, y
-  // la directiva es lo que hace que Excel en español no meta todo en una sola
-  // columna.
-  return BOM + 'sep=,' + SALTO +
-    columnas.map(escapar).join(',') + SALTO +
-    ejemplo.map(escapar).join(',') + SALTO;
+  // Se devuelven las FILAS. descargarCsv() pone separador y codificacion.
+  return [columnas, ejemplo];
 }
 
 document.getElementById('downloadCsvTemplateBtn')?.addEventListener('click', async () => {
@@ -4554,15 +4596,7 @@ document.getElementById('downloadCsvTemplateBtn')?.addEventListener('click', asy
     const csvContent = generateCSVTemplate(currentTemplateData);
     
     // Crear blob y descargar
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `plantilla_${currentTemplateData.title.replace(/\s+/g, '_')}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    descargarCsv(csvContent, `plantilla_${currentTemplateData.title.replace(/\s+/g, '_')}.csv`);
     
     ToastManager.success('Descarga completada', 'La plantilla CSV se descargó correctamente');
     
@@ -4645,15 +4679,7 @@ document.getElementById('downloadCsvFullBtn')?.addEventListener('click', async (
 
   try {
     const csvContent = generateCSVFull(currentTemplateData);
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `plantilla_completa_${currentTemplateData.title.replace(/\s+/g, '_')}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    descargarCsv(csvContent, `plantilla_completa_${currentTemplateData.title.replace(/\s+/g, '_')}.csv`);
     
     ToastManager.success('Descarga completada', 'CSV completo descargado');
   } catch (error) {
@@ -4819,15 +4845,7 @@ async function downloadBulkTemplate() {
     console.log('📝 Nombre del archivo:', fileName);
 
     // Descargar el CSV con BOM para UTF-8 (para que Excel lo reconozca)
-    const BOM = '\uFEFF'; // UTF-8 BOM
-    const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = fileName;
-    link.style.display = 'none';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    descargarCsv(csvContent, fileName);
 
     ToastManager.success('Descarga completada', 'Plantilla CSV descargada correctamente');
     console.log('✅ Descarga completada');
@@ -4948,7 +4966,8 @@ async function downloadPagareTemplate(docId) {
       return str;
     };
 
-    const csvRows = [headers.map(escapeCsvValue).join(',')];
+    // Filas como arrays: descargarCsv() pone el separador.
+    const csvRows = [headers];
 
     // Agregar 3 filas de ejemplo
     for (let i = 1; i <= 3; i++) {
@@ -4964,28 +4983,14 @@ async function downloadPagareTemplate(docId) {
         row.push(`Valor ${label} ${i}`);
       });
 
-      csvRows.push(row.map(escapeCsvValue).join(','));
+      csvRows.push(row);
     }
 
     const csvContent = csvRows.join('\n');
 
-    // Descargar archivo
-    //
-    // "sep=," como primera linea: sin ella, un Excel configurado en espa\u00f1ol
-    // abre el CSV con las 54 columnas metidas en una sola, y quien lo llene
-    // tiene que separarlas a mano \u2014con 54 columnas y cedulas de por medio, es
-    // facil cruzar los datos de un responsable con los del otro\u2014.
-    // Excel la interpreta y no la muestra como dato; al subir el CSV, el
-    // lector de arriba la detecta y la salta.
-    const blob = new Blob(['\ufeff' + 'sep=,\r\n' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `plantilla-pagares-${new Date().toISOString().split('T')[0]}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    // descargarCsv() pone el separador, el escapado y la codificacion.
+    descargarCsv(csvRows,
+      `plantilla-pagares-${new Date().toISOString().split('T')[0]}.csv`);
 
     ToastManager.success('Plantilla generada', 'CSV descargado exitosamente');
     console.log('✅ Plantilla CSV generada:', csvRows.join('\n'));
