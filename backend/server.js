@@ -5623,7 +5623,18 @@ app.get('/api/public/vi-status/:token', async (req, res) => {
             validated: !!vi_validated_at,
             vi_validated_at: vi_validated_at || null,
             ownerVinculado,
-            email
+            email,
+            // QUIEN ES EL DUEÑO DEL DOCUMENTO.
+            //
+            // Va al formulario de VI como `fl_owner_user_id`. VI lo necesita
+            // para comprobar que la sesion abierta en el navegador pertenece
+            // a la cuenta vinculada con este operador.
+            //
+            // Sin esto, VI creaba la validacion a nombre de QUIEN TUVIERA LA
+            // SESION ABIERTA, no del dueño del documento: el 20-10-2026 una
+            // validacion de FirmaLegal Online (user 1) quedo a nombre de
+            // Maira Zipa, porque era su sesion la que estaba abierta.
+            ownerUserId: owner_id
         });
 
     } catch (error) {

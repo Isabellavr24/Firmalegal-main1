@@ -1241,6 +1241,7 @@ function datosDeLaValidacion(d) {
                   letter-spacing:.04em;margin-bottom:3px;">Se validara con</div>
       ${linea('Cedula', v.documento)}
       ${linea('Nombre', v.nombre)}
+      ${linea('Celular', v.celular)}
     </div>`;
 }
 
@@ -1332,8 +1333,13 @@ function abrirCorregirValidacion(recipient) {
     nombre: v.nombre || csv.nombre || recipient.name || '',
     documento: v.documento || csv.documento || '',
     // Solo los diez digitos: el indicativo lo pone Validacion de Identidad.
+    //
+    // MANDA EL DE VI, COMO EL NOMBRE Y LA CEDULA. Antes solo se miraba el del
+    // CSV, asi que en un documento normal -donde no hay CSV- el campo salia
+    // VACIO aunque la persona tuviera celular registrado. Si el operador
+    // guardaba asi, borraba un celular que era correcto.
     celular: (() => {
-      const d = String(csv.celular || '').replace(/[^0-9]/g, '');
+      const d = String(v.celular || csv.celular || '').replace(/[^0-9]/g, '');
       return d.length === 12 && d.slice(0, 2) === '57' ? d.slice(2) : d;
     })()
   };
@@ -6068,6 +6074,20 @@ async function handleViStart(recipient) {
       redirect_token: recipient.token
     });
 
+    // QUIEN ES EL DUEÑO DEL DOCUMENTO, para que VI no atribuya la validacion
+    // a quien tenga la sesion abierta en el navegador.
+    //
+    // Esta pantalla no llama a la API de VI: redirige el navegador del
+    // operador al formulario de VI. Al crearse alli, VI tomaba el dueño de la
+    // SESION, no de quien inicio el flujo. El 20-10-2026 una validacion de
+    // FirmaLegal Online (user 1) quedo a nombre de Maira Zipa, porque era su
+    // sesion la que estaba abierta en ese navegador.
+    //
+    // Con este parametro VI comprueba que la sesion corresponda a la cuenta
+    // vinculada con este operador, y si no, se niega a crearla en vez de
+    // atribuirla mal.
+    if (data.ownerUserId) params.set('fl_owner_user_id', String(data.ownerUserId));
+
     // Los datos que ya sabemos, para no obligar a reescribirlos a mano. El
     // operador entra a CORREGIR algo concreto, no a teclearlo todo.
     //
@@ -6087,9 +6107,10 @@ async function handleViStart(recipient) {
 
     const documento = (hayValidacion && v.documento) || csv.documento;
     const nombre    = (hayValidacion && v.nombre)    || csv.nombre;
-    // El celular no viene en lo que VI nos devuelve, asi que ese sigue
-    // saliendo del pagare.
-    const celular   = csv.celular;
+    // El celular tambien manda el de VI desde el 20-10-2026, cuando empezaron
+    // a devolverlo. Antes solo salia del pagare, asi que en un documento
+    // normal el formulario se abria sin el.
+    const celular   = (hayValidacion && v.celular) || csv.celular;
 
     if (documento) params.set('documento', documento);
     if (nombre)    params.set('nombre', nombre);
