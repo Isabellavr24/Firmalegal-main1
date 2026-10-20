@@ -210,6 +210,11 @@ async function conEstadoDeValidacion(db, destinatarios) {
                     nombre: v.nombre_completo || null,
                     documento: v.documento || null,
                     tipo_documento: v.tipo_documento || null,
+                    // El celular al que le llega el codigo. VI lo empezo a
+                    // devolver el 20-10-2026: antes la pantalla no podia
+                    // mostrarlo y el modal de corregir salia con el campo
+                    // vacio, con el riesgo de borrar uno que era correcto.
+                    celular: v.celular || null,
                     creada_el: v.created_at || null,
                     expira_at: v.expira_at || null,
                     dias_restantes: dias,
@@ -464,6 +469,10 @@ async function soloValidaciones(destinatarios) {
             dias_restantes: dias,
             caducada: dias !== null && dias <= 0,
             intentos: v.intentos != null ? Number(v.intentos) : null,
+            // Igual que en la otra rama: el celular al que llega el codigo.
+            nombre: v.nombre_completo || null,
+            documento: v.documento || null,
+            celular: v.celular || null,
             // Cuando se creo y cuando vence. La fecha de creacion marca
             // desde cuando cuentan sus correos: los de antes eran de otra
             // validacion. Y expira_at deja que estaViva calcule la
