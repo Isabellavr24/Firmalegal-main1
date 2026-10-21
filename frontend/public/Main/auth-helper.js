@@ -59,16 +59,23 @@
         const url = typeof recurso === 'string' ? recurso : (recurso && recurso.url) || '';
         if (!url.includes('/api/')) return respuesta;
 
-        // Las rutas /api/public/ devuelven 401 con normalidad cuando el token
-        // del FIRMANTE caduco, y eso no dice nada de la sesion del operador.
+        // Las rutas /api/public/ son del FIRMANTE, no del operador, asi que lo
+        // que respondan no dice nada de la sesion de quien esta dentro.
         //
-        // NO ESTRECHAR ESTA REGLA A "solo en las paginas publicas". Parece mas
-        // precisa y abre un agujero: el panel de seguimiento llama a
-        //      /api/public/vi-status/{token}   (tracking.js, handleViStart)
-        // con el token del FIRMANTE, estando el OPERADOR dentro de la
-        // aplicacion. Si esa llamada se intercepta, un token caducado de un
-        // firmante cierra la sesion del operador que esta revisando su estado.
-        // Hace falta por las dos vias: la pagina publica y la ruta.
+        // Comprobado el 21-10-2026 contra el servidor: ninguna de las 14 rutas
+        // /api/public/ responde 401 hoy -un token invalido da 404- y ninguna
+        // pasa por requireAuth (solo /api/bulk lo usa). Asi que esta linea NO
+        // esta tapando un fallo activo: evita que un cambio futuro introduzca
+        // uno. Se deja dicho para no afirmar lo que no es.
+        //
+        // Hace falta igualmente, y NO SE DEBE ESTRECHAR A "solo en las paginas
+        // publicas", porque:
+        //  - el panel llama a /api/public/vi-status/{token} con el token del
+        //    FIRMANTE estando el OPERADOR dentro (tracking.js, handleViStart);
+        //  - el dia que alguna de esas rutas empiece a responder 401 -por un
+        //    middleware nuevo, o al moverla detras de requireAuth-, un enlace
+        //    caducado de un firmante cerraria la sesion del operador que lo
+        //    esta revisando, y nadie relacionaria el sintoma con ese cambio.
         if (url.includes('/api/public/')) return respuesta;
 
         yaAvisado = true;
@@ -156,10 +163,20 @@ async function requireAuthAsync() {
             console.log('✅ Sesión validada correctamente');
             return true;
         } else if (response.status === 401) {
+            // El interceptor de arriba ya reacciono a este mismo 401: la
+            // llamada de encima pasa por el, asi que ya limpio el usuario y
+            // puso en marcha la salida CON el motivo (?sesion=expirada).
+            //
+            // Esto corria antes de todas formas y redirigia SIN el motivo,
+            // ganandole la carrera: la persona llegaba al login sin ninguna
+            // explicacion, que es justo el sintoma que veniamos a quitar.
+            // Ahora solo se encarga si el interceptor no estuviera disponible.
             console.warn('⚠️ Token expirado, redirigiendo a login');
-            localStorage.removeItem('user');
-            localStorage.removeItem('currentUser');
-            window.location.href = '/public/Main/login.html';
+            if (!window.__sesionVigilada) {
+                localStorage.removeItem('user');
+                localStorage.removeItem('currentUser');
+                window.location.href = '/public/Main/login.html?sesion=expirada';
+            }
             return false;
         }
     } catch (error) {
