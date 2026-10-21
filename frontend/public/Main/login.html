@@ -24,6 +24,24 @@
       <h1 class="login-title" id="login-title">Iniciar sesión</h1>
       <p id="login-desc" class="sr-only">Ingresa con tu correo electrónico y contraseña</p>
 
+      <!-- Por que se le pide entrar otra vez.
+           Sin esto, a quien la aplicacion devuelve al login le aparece la
+           pantalla sin explicacion y parece que algo se rompio. -->
+      <div id="avisoSesion" role="status" style="display:none;margin:0 0 18px;
+           padding:12px 14px;border-radius:10px;background:#fef6e7;
+           border:1px solid #f3d9a4;color:#92400e;font-size:13px;line-height:1.5;">
+        Tu sesión se cerró. Vuelve a iniciar sesión para continuar.
+      </div>
+
+      <script>
+        // Lo pone el interceptor de auth-helper.js al recibir un 401.
+        try {
+          if (new URLSearchParams(location.search).get('sesion') === 'expirada') {
+            document.getElementById('avisoSesion').style.display = 'block';
+          }
+        } catch (e) { /* si falla, simplemente no se muestra el aviso */ }
+      </script>
+
       <form id="loginForm" novalidate>
         <!-- Correo -->
         <div class="field">
