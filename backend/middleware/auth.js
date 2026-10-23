@@ -117,6 +117,24 @@ function requireRole(...allowedRoles) {
     };
 }
 
+// Campos que NUNCA deben aparecer en el registro del servidor.
+// Se comparan en minusculas y por coincidencia parcial, para que tambien
+// cubra nombres como newPassword, password_hash o certificatePassword.
+const CAMPOS_SECRETOS = ['password', 'contrasena', 'contraseña', 'token', 'secret', 'apikey', 'api_key'];
+
+/**
+ * Reemplaza el valor de los campos sensibles por [oculto] al convertir a JSON.
+ * Se pasa como "replacer" a JSON.stringify, asi que recorre tambien los
+ * objetos anidados sin tener que copiarlos.
+ */
+function ocultarSecretos(clave, valor) {
+    if (typeof clave === 'string' && typeof valor === 'string') {
+        const k = clave.toLowerCase();
+        if (CAMPOS_SECRETOS.some(s => k.includes(s))) return '[oculto]';
+    }
+    return valor;
+}
+
 /**
  * Middleware: Logging de todas las requests
  */
@@ -126,9 +144,15 @@ function requestLogger(req, res, next) {
     console.log(`   IP: ${req.ip}`);
     console.log(`   User-Agent: ${req.get('user-agent')}`);
 
-    // Log del body (solo si no es muy grande)
+    // Log del body (solo si no es muy grande), SIN las contraseñas.
+    //
+    // Antes se escribia el cuerpo entero, asi que cada inicio de sesion dejaba
+    // la contraseña en claro en el registro del servidor. En la base de datos
+    // si estan cifradas; el agujero estaba aqui, y cualquiera que leyera los
+    // registros las veia todas. Se detecto el 23-10-2026 investigando por que
+    // una persona no podia entrar: su contraseña se leia en el registro.
     if (req.body && Object.keys(req.body).length > 0) {
-        const bodyStr = JSON.stringify(req.body);
+        const bodyStr = JSON.stringify(req.body, ocultarSecretos);
         if (bodyStr.length < 500) {
             console.log(`   Body: ${bodyStr}`);
         } else {
@@ -172,4 +196,4 @@ async function logActivity(db, options) {
     }
 }
 
-module.exports = { requireAuth, requireRole, requestLogger, logActivity };
+module.exports = { requireAuth, requireRole, requestLogger, logActivity, ocultarSecretos };
