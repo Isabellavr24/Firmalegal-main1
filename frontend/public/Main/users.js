@@ -408,10 +408,25 @@ async function handleUserSubmit() {
             document.getElementById('userModal').setAttribute('aria-hidden', 'true');
             await loadUsers();
 
-            const msg = userId
-                ? 'Usuario actualizado correctamente.'
-                : 'Usuario creado. Se ha enviado un correo con las credenciales de acceso.';
-            showToast(msg, 'success');
+            // Si el correo con las credenciales NO salio, hay que decirlo y
+            // mostrar la contraseña: la genera el sistema, solo viaja en ese
+            // correo y no se guarda en ninguna parte. Dar el alta por buena
+            // sin avisar deja a esa persona sin poder entrar nunca, y el
+            // fallo no aparece hasta que lo intenta -meses despues-.
+            if (!userId && data.correoEnviado === false) {
+                alert(
+                    'Usuario creado, pero NO se pudo enviar el correo.\n\n' +
+                    'Contraseña (anotala y entregasela a la persona):\n\n' +
+                    (data.password || '(no disponible)') + '\n\n' +
+                    'Este mensaje no se vuelve a mostrar.'
+                );
+                showToast('Usuario creado, pero el correo no se envio. Entrega la contraseña a mano.', 'error');
+            } else {
+                const msg = userId
+                    ? 'Usuario actualizado correctamente.'
+                    : (data.message || 'Usuario creado. Se ha enviado un correo con las credenciales de acceso.');
+                showToast(msg, 'success');
+            }
         } else {
             showToast(data.message || 'Error al guardar usuario.', 'error');
         }

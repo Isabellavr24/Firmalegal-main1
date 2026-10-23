@@ -27,7 +27,7 @@ const _datosFirmante = require('./lib/datos-del-firmante');
 const _estadoValidacion = require('./lib/estado-validacion');
 const signaturesController = require('./controllers/signatures-controller');
 const certificatesController = require('./controllers/certificates-controller');
-const { requestLogger } = require('./middleware/auth');
+const { requestLogger, ocultarSecretos } = require('./middleware/auth');
 const { embedValuesInPdf } = require('./lib/pdf/embed-values');
 const PythonSignerClient = require('./lib/signatures/python-signer-client');
 
@@ -4939,7 +4939,7 @@ function generateSecurePassword(length = 12) {
 // Crear nuevo usuario
 app.post('/api/users', async (req, res) => {
     console.log('➕ Creando nuevo usuario');
-    console.log('📦 Datos recibidos:', JSON.stringify(req.body, null, 2));
+    console.log('📦 Datos recibidos:', JSON.stringify(req.body, ocultarSecretos, 2));
 
     const { firstName, lastName, email, roleId, requestingUserId, requestingUserRole, address, activationDate, expirationDate, firmasContratadas } = req.body;
 
@@ -5013,6 +5013,12 @@ app.post('/api/users', async (req, res) => {
 
         console.log('✅ Usuario creado exitosamente');
 
+        // Se lleva la cuenta de si el correo salio de verdad: la contraseña
+        // solo viaja ahi, asi que si no sale hay que decirlo y entregarla a
+        // mano en vez de dar el alta por buena.
+        let correoEnviado = false;
+        let motivoCorreo = 'no se intento el envio';
+
         // Enviar email de bienvenida usando config dinámica del admin (email_config en DB)
         try {
             const fs = require('fs');
@@ -5080,14 +5086,37 @@ app.post('/api/users', async (req, res) => {
 
             if (result && result.success) {
                 console.log(`📧 Email de bienvenida enviado a ${email}`);
+                correoEnviado = true;
             } else {
                 console.warn('⚠️ Email de bienvenida no pudo enviarse:', result?.error);
+                motivoCorreo = result?.error || 'el servidor de correo no acepto el envio';
             }
         } catch (emailErr) {
             console.warn('⚠️ Usuario creado pero no se pudo enviar el email de bienvenida:', emailErr.message);
+            motivoCorreo = emailErr.message;
         }
 
-        res.json({ success: true, message: 'Usuario creado. Se ha enviado un correo con las credenciales.' });
+        // La contraseña la genera el sistema y NO se guarda en ninguna parte:
+        // solo viaja en ese correo. Si el correo no sale, nadie la conoce -ni
+        // quien creo la cuenta-, y esa persona no podra entrar nunca. Antes se
+        // respondia "Se ha enviado un correo con las credenciales" pasara lo
+        // que pasara, asi que el fallo era invisible hasta que alguien
+        // intentaba entrar meses despues.
+        if (correoEnviado) {
+            return res.json({
+                success: true,
+                message: 'Usuario creado. Se ha enviado un correo con las credenciales.'
+            });
+        }
+
+        return res.json({
+            success: true,
+            correoEnviado: false,
+            password: plainPassword,   // para poder darsela a mano
+            message: 'Usuario creado, pero NO se pudo enviar el correo con las credenciales. '
+                   + 'Anota la contraseña y entregasela a la persona: ' + plainPassword
+                   + '  (motivo del fallo: ' + motivoCorreo + ')'
+        });
 
     } catch (error) {
         console.error('❌ Error al crear usuario:', error);
@@ -5257,7 +5286,7 @@ app.get('/api/users/:id', (req, res) => {
 app.put('/api/users/:id', async (req, res) => {
     const userId = req.params.id;
     console.log('✏️ Editando usuario:', userId);
-    console.log('📦 Datos recibidos:', JSON.stringify(req.body, null, 2));
+    console.log('📦 Datos recibidos:', JSON.stringify(req.body, ocultarSecretos, 2));
     
     const { firstName, lastName, email, password, roleId, requestingUserId, requestingUserRole, address, activationDate, expirationDate, firmasContratadas } = req.body;
 
